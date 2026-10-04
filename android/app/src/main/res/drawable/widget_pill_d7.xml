@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 药丸7(深色模式) 色=210°: 运行时由 WidgetRenderer 按深浅色选择 widget_pill_N / widget_pill_dN -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="#FF305C88" />
+    <corners android:radius="11dp" />
+</shape>

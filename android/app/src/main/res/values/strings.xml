@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">长工课表通</string>
+    <string name="widget_label">今日课表</string>
+    <string name="widget_desc">在桌面上查看今天的课程安排</string>
+</resources>

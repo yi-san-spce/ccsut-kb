@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 课程药丸卡: 背景/文字颜色运行时按课程配色覆盖(setBackgroundResource + setTextColor);
+     行间距由外层 w_rows 的 divider 提供, 根节点 margin 在 addView 时会丢 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_item"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/widget_pill_0"
+    android:paddingStart="11dp"
+    android:paddingEnd="11dp"
+    android:paddingTop="7dp"
+    android:paddingBottom="7dp">
+
+    <TextView
+        android:id="@+id/w_name"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="课程名称"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif-medium"
+        android:textStyle="bold"
+        android:textColor="@android:color/system_neutral1_900"
+        android:maxLines="1"
+        android:ellipsize="end" />
+
+    <TextView
+        android:id="@+id/w_meta"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:text="第1-2节 · 教学楼"
+        android:textSize="11.5sp"
+        android:textColor="@android:color/system_neutral2_700"
+        android:maxLines="1"
+        android:ellipsize="end" />
+</LinearLayout>

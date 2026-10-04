@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:theme="@android:style/Theme.DeviceDefault.DayNight"
+    android:background="@drawable/widget_bg"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="11dp"
+    android:paddingBottom="11dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/w_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="第4周 · 周三"
+            android:textSize="16sp"
+            android:fontFamily="sans-serif-medium"
+            android:textStyle="bold"
+            android:textColor="@android:color/system_neutral1_900"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/w_date"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="10.7"
+            android:textSize="12sp"
+            android:textColor="@android:color/system_neutral2_700" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/w_next"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:text="下节课 8:20 · 高等数学"
+        android:textSize="12sp"
+        android:fontFamily="sans-serif-medium"
+        android:textColor="@android:color/system_accent1_400"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/w_rows"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:orientation="vertical"
+        android:showDividers="middle"
+        android:divider="@drawable/widget_divider">
+
+        <!-- 预览占位, 运行时会被清空重建 -->
+        <include layout="@layout/widget_item" />
+        <include layout="@layout/widget_item" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/w_more"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="5dp"
+        android:paddingStart="4dp"
+        android:text="还有 2 门课…"
+        android:textSize="12sp"
+        android:textColor="@android:color/system_neutral2_700"
+        android:maxLines="1"
+        android:visibility="gone" />
+
+    <TextView
+        android:id="@+id/w_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:lineSpacingExtra="3dp"
+        android:text="今天没有课，好好休息 🎉"
+        android:textSize="14sp"
+        android:textColor="@android:color/system_neutral2_700"
+        android:visibility="gone" />
+</LinearLayout>

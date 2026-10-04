@@ -1,0 +1,20 @@
+# 本机/工具
+.DS_Store
+.cache/
+.session/          # Cookie + Gitee 私人令牌, 绝不入库
+.zcode/
+node_modules/
+__pycache__/
+
+# 签名与发布产物
+keystore/
+dist/
+
+# Android 构建
+android/.gradle/
+android/build/
+android/app/build/
+android/.kotlin/
+android/local.properties
+android/.idea/
+*.iml

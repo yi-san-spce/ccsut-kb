@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 日历主体 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M36,34 h36 a7,7 0 0 1 7,7 v31 a7,7 0 0 1 -7,7 h-36 a7,7 0 0 1 -7,-7 v-31 a7,7 0 0 1 7,-7 z" />
+    <!-- 两个装订环 -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M41,30 v8 M67,30 v8" />
+    <!-- 顶部横条 -->
+    <path
+        android:fillColor="#3B64D8"
+        android:pathData="M29,45 h50 v5 h-50 z" />
+    <!-- 课表圆点 2x3 -->
+    <path
+        android:fillColor="#3B64D8"
+        android:pathData="M37.4,58.5 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0 M51.4,58.5 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0 M65.4,58.5 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0 M37.4,68 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0 M51.4,68 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0 M65.4,68 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0" />
+</vector>

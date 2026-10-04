@@ -1,0 +1,66 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+android {
+    namespace 'com.ccsut.kb'
+    compileSdk 37
+
+    defaultConfig {
+        applicationId "com.ccsut.kb"
+        minSdk 31
+        targetSdk 36
+        versionCode 11
+        versionName "2.3.0"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file('../../keystore/release.keystore')
+            storePassword 'ccsut-kb-2026'
+            keyAlias 'kb'
+            keyPassword 'ccsut-kb-2026'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            signingConfig signingConfigs.release
+        }
+    }
+
+    buildFeatures {
+        compose = true
+        viewBinding = false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
+dependencies {
+    def composeBom = platform('androidx.compose:compose-bom:2026.09.00')
+    implementation composeBom
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.material:material-icons-core'
+    implementation 'androidx.compose.material:material-icons-extended:1.7.8'
+    implementation 'androidx.activity:activity-compose:1.13.0'
+    implementation 'androidx.core:core:1.17.0'
+    // 从任意种子色/图片生成 M3 动态配色 (系统壁纸取色同款 HCT 算法的 Compose 实现)
+    implementation 'com.materialkolor:material-kolor:2.1.1'
+    // 毛玻璃: 背景图之上的玻璃材质 (RenderEffect, minSdk 31 满足)
+    implementation 'dev.chrisbanes.haze:haze:1.5.3'
+}
