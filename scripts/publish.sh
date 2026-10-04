@@ -2,19 +2,18 @@
 # 长工课表通 · 数据抓取 + 数据集生成 + Gitee 发布 一条龙
 #
 # 更新通道 (Gitee 公开发布仓 yisanspce/ccsut-kb-release):
-#   - latest.json + 数据集  → master 分支 raw 直链 (每次孤儿提交 force-push, 仓库不积累历史)
-#   - APK                  → Release 附件 (tag = v<versionName>, 绝对 URL 写入清单 apk.file)
-#   - 源码在私有仓 yisanspce/ccsut-kb, 与本脚本无关
+#   master 分支 = latest.json + 数据集 + 最新 APK, 每次孤儿提交 force-push, 仓库不积累历史
+#   ⚠️ 故意不用 Release/标签: Gitee Release 页面会自动挂「源码归档」下载按钮, 造成源码公开的误会
+#   仓库内容只有 分发文件 (清单/课表数据/APK/README), 无任何源码; 源码在私有仓 yisanspce/ccsut-kb
 #
 # 前置:
 #   1. .session/cookie.txt   有效的教务系统 Cookie (重新抓取时)
-#   2. .session/gitee_token  Gitee 私人令牌, chmod 600
+#   2. .session/gitee_token  Gitee 私人令牌 (chmod 600)
 #
 # 用法:
-#   scripts/publish.sh                        # 抓取 + 发布数据
-#   scripts/publish.sh --skip                 # 不重新抓取, 发布现有数据集
-#   scripts/publish.sh --apk <apk路径>        # 发布数据 + APK Release
-#   scripts/publish.sh --skip --apk dist/长工课表通_v2.3.0.apk
+#   scripts/publish.sh                                          # 抓取 + 发布数据
+#   scripts/publish.sh --skip                                   # 不重新抓取, 发布现有数据集
+#   scripts/publish.sh --skip --apk dist/长工课表通_v2.3.0.apk   # 连最新 APK 一起发布
 
 set -e
 cd "$(dirname "$0")/.."
@@ -36,15 +35,6 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# 空安全取 JSON 字段 (Gitee 对不存在的资源返回 null; release 响应 body 含裸换行, 需 strict=False)
-jget() {
-  python3 -c '
-import json, sys
-try: d = json.loads(sys.stdin.read(), strict=False)
-except Exception: d = None
-print((d or {}).get(sys.argv[1]) or "")' "$1"
-}
-
 # ---------- 1. 抓取最新课表并生成数据集 ----------
 if [ -z "$SKIP_SCRAPE" ]; then
   python3 scripts/scrape.py
@@ -55,80 +45,62 @@ mkdir -p "$DIST"
 LATEST=$(cat "$ROOT/data/latest.json")
 DATASET_FILE=$(echo "$LATEST" | python3 -c 'import json,sys; print(json.load(sys.stdin)["file"])')
 DATA_VERSION=$(echo "$LATEST" | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')
-XNXQ=$(echo "$LATEST" | python3 -c 'import json,sys; print(json.load(sys.stdin)["xnxq"])')
 cp "$ROOT/data/$DATASET_FILE" "$DIST/"
 echo "$LATEST" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), ensure_ascii=False, indent=2))' > "$DIST/latest.json"
 
-# ---------- 3. APK → Gitee Release ----------
+# ---------- 3. APK 信息写进清单 (相对路径 = 与清单同目录的 raw 直链) ----------
+APK_NAME=""
 if [ -n "$APK_PATH" ]; then
   [ -f "$APK_PATH" ] || { echo "APK 不存在: $APK_PATH"; exit 1; }
-  VCODE=$(grep -o 'versionCode [0-9]*' "$ROOT/android/app/build.gradle" | grep -o '[0-9]*')
-  VNAME=$(grep -o 'versionName "[^"]*"' "$ROOT/android/app/build.gradle" | cut -d'"' -f2)
-  TAG="v$VNAME"
-  APK_NAME="ccsut-kb-$VNAME.apk"
-  echo "== 发布 APK $APK_NAME (versionCode $VCODE, tag $TAG) =="
-
-  # 同 tag Release 已存在 → 删除重建, 保证重复发布幂等
-  RID=$(curl -s "$API/repos/$OWNER/$REPO/releases/tags/$TAG?access_token=$T" | jget id)
-  if [ -n "$RID" ]; then
-    echo "Release $TAG 已存在, 删除重建..."
-    curl -s -X DELETE "$API/repos/$OWNER/$REPO/releases/$RID?access_token=$T" > /dev/null
-    sleep 1
-  fi
-
-  # Release 说明: 有 docs/release-notes/<tag>.md 用之, 否则默认文案
-  NOTES_FILE="$ROOT/docs/release-notes/$TAG.md"
-  if [ -f "$NOTES_FILE" ]; then
-    BODY=$(cat "$NOTES_FILE")
+  # 以 APK 产物自身的版本为准 (build.gradle 常被提前改到下一个版本, 不可信)
+  AAPT=$(ls "$HOME/Library/Android/sdk/build-tools/"*/aapt 2>/dev/null | sort | tail -1)
+  if [ -n "$AAPT" ]; then
+    BADGING=$("$AAPT" dump badging "$APK_PATH")
+    VCODE=$(echo "$BADGING" | grep -o "versionCode='[0-9]*'" | head -1 | grep -o '[0-9]*')
+    VNAME=$(echo "$BADGING" | grep -o "versionName='[^']*'" | head -1 | sed "s/^versionName='//;s/'$//")
   else
-    BODY="长工课表通 $TAG (versionCode $VCODE) · 数据版本 v$DATA_VERSION · $XNXQ"
+    echo "⚠️ 未找到 aapt, 退回读 build.gradle 版本 (可能超前于该 APK)"
+    VCODE=$(grep -o 'versionCode [0-9]*' "$ROOT/android/app/build.gradle" | grep -o '[0-9]*')
+    VNAME=$(grep -o 'versionName "[^"]*"' "$ROOT/android/app/build.gradle" | cut -d'"' -f2)
   fi
-  CREATE=$(curl -s -X POST "$API/repos/$OWNER/$REPO/releases" \
-    -d "access_token=$T" -d "tag_name=$TAG" -d "target_commitish=master" \
-    -d "name=长工课表通 $TAG" \
-    --data-urlencode "body=$BODY" -d "prerelease=false")
-  RID=$(echo "$CREATE" | jget id)
-  [ -n "$RID" ] || { echo "创建 Release 失败: $CREATE"; exit 1; }
-
-  UP=$(curl -s -X POST "$API/repos/$OWNER/$REPO/releases/$RID/attach_files?access_token=$T" \
-    -F "file=@$APK_PATH;filename=$APK_NAME")
-  APK_URL=$(echo "$UP" | jget browser_download_url)
-  [ -n "$APK_URL" ] || { echo "上传附件失败: $UP"; exit 1; }
-  echo "附件直链: $APK_URL"
-
-  # APK 信息写入 latest.json (绝对 URL, APP 的 resolve() 原生支持)
-  APK_SHA=$(shasum -a 256 "$APK_PATH" | cut -d' ' -f1)
-  APK_SIZE=$(stat -f%z "$APK_PATH")
-  python3 - "$DIST/latest.json" "$VCODE" "$APK_URL" "$APK_SHA" "$APK_SIZE" <<'EOF'
+  [ -n "$VNAME" ] || { echo "无法确定 APK 版本名"; exit 1; }
+  APK_NAME="ccsut-kb-$VNAME.apk"
+  cp "$APK_PATH" "$DIST/$APK_NAME"
+  APK_SHA=$(shasum -a 256 "$DIST/$APK_NAME" | cut -d' ' -f1)
+  APK_SIZE=$(stat -f%z "$DIST/$APK_NAME")
+  python3 - "$DIST/latest.json" "$VCODE" "$APK_NAME" "$APK_SHA" "$APK_SIZE" <<'EOF'
 import json, sys
-path, vcode, url, sha, size = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], int(sys.argv[5])
+path, vcode, name, sha, size = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], int(sys.argv[5])
 m = json.load(open(path))
-m["apk"] = {"versionCode": vcode, "file": url, "sha256": sha, "bytes": size}
+m["apk"] = {"versionCode": vcode, "file": name, "sha256": sha, "bytes": size}
 json.dump(m, open(path, "w"), ensure_ascii=False, indent=2)
-print("清单已写入 apk: versionCode", vcode)
+print("清单已写入 apk:", vcode, name)
 EOF
 fi
 
-# ---------- 4. latest.json + 数据集 → master (孤儿提交 force-push) ----------
+# ---------- 4. 孤儿提交 force-push → master (清单 + 数据集 + APK + README) ----------
 TMP=$(mktemp -d)
 git -C "$TMP" init -q -b master
 cp "$DIST/latest.json" "$DIST/$DATASET_FILE" "$TMP/"
+if [ -n "$APK_NAME" ]; then cp "$DIST/$APK_NAME" "$TMP/"; fi
 cat > "$TMP/README.md" <<EOF
 # 长工课表通 · 更新发布仓
 
-APP 内更新通道:
+本仓只存放「长工课表通」APP 的更新分发文件（更新清单 / 课表数据 / APK 安装包），**不含任何源码**。
 
-- 清单 (更新地址): https://gitee.com/$OWNER/$REPO/raw/master/latest.json
-- APK 下载: 见 [Releases](https://gitee.com/$OWNER/$REPO/releases)
-- 源码: 私有仓 $OWNER/ccsut-kb
+- 更新清单（APP 内更新地址）：https://gitee.com/$OWNER/$REPO/raw/master/latest.json
+- 源码：私有仓 $OWNER/ccsut-kb（不公开）
 
-本仓由 \`scripts/publish.sh\` 自动维护 (孤儿提交 force-push), 请勿手动提交。
+本仓由 \`scripts/publish.sh\` 自动维护（孤儿提交 force-push），请勿手动提交。
 EOF
 git -C "$TMP" add -A
 git -C "$TMP" -c user.name=yisanspce -c user.email=yisanspce@noreply.gitee.com \
-  commit -qm "publish: 数据 v$DATA_VERSION · $(date +%F' '%H:%M)"
+  commit -qm "publish: 数据 v$DATA_VERSION · ${APK_NAME:-无新APK} · $(date +%F' '%H:%M)"
 git -C "$TMP" push -q --force "https://yisanspce:$T@gitee.com/$OWNER/$REPO.git" master 2>&1 \
   | sed 's/yisanspce:[^@]*@/yisanspce:***@/g'
 rm -rf "$TMP"
 
 echo "✅ 发布完成: https://gitee.com/$OWNER/$REPO/raw/master/latest.json"
+if [ -n "$APK_NAME" ]; then
+  echo "✅ APK 直链: https://gitee.com/$OWNER/$REPO/raw/master/$APK_NAME"
+fi

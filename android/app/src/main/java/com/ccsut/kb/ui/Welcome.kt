@@ -13,6 +13,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,12 +38,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.EditCalendar
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,6 +68,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -69,7 +77,7 @@ import com.ccsut.kb.data.Cls
 import com.ccsut.kb.data.Dataset
 import kotlinx.coroutines.delay
 
-/** 四屏欢迎向导: Slogan → 三件事 → 认识一下 → 欢迎。全新安装首次启动展示, 右上角可跳过。 */
+/** 四屏欢迎向导: Slogan → 三件事 → 认识一下(昵称 + 班级抽屉) → 欢迎。全新安装首次启动展示, 右上角可跳过。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WelcomeScreen(
@@ -79,24 +87,8 @@ fun WelcomeScreen(
 ) {
     var step by remember { mutableIntStateOf(0) }
     var nickname by remember { mutableStateOf("") }
-    var grade by remember { mutableStateOf<String?>(null) }
-    var major by remember { mutableStateOf<String?>(null) }
     var classId by remember { mutableStateOf<String?>(null) }
-
-    // 年级→专业→班级索引: 数据树按学院组织且跨年级混合, 这里按班级属性动态重建, 保证与数据完全匹配
-    val grades = remember(dataset) {
-        dataset.classes.values.map { it.sznj }.filter { it.length == 4 }.distinct().sorted()
-    }
-    val majors = remember(dataset, grade) {
-        grade?.let { g -> dataset.classes.values.filter { it.sznj == g }.map { it.zymc }.distinct().sorted() }
-    }
-    val classes: List<Pair<String, Cls>> = remember(dataset, grade, major) {
-        if (grade == null || major == null) emptyList()
-        else dataset.classes.entries
-            .filter { it.value.sznj == grade && it.value.zymc == major }
-            .sortedWith { a, b -> naturalCmp(a.value.bjmc, b.value.bjmc) }
-            .map { it.key to it.value }
-    }
+    val picked = remember(dataset, classId) { classId?.let { dataset.classes[it] } }
 
     BackHandler(enabled = step > 0) { step-- }
 
@@ -141,17 +133,11 @@ fun WelcomeScreen(
                 0 -> SloganBody()
                 1 -> HonestBody()
                 2 -> MeetBody(
+                    dataset = dataset,
                     nickname = nickname,
                     onNickname = { nickname = it },
-                    grades = grades,
-                    grade = grade,
-                    majors = majors ?: emptyList(),
-                    major = major,
-                    classes = classes,
-                    classId = classId,
-                    onGrade = { grade = it; major = null; classId = null },
-                    onMajor = { major = it; classId = null },
-                    onClass = { classId = it },
+                    picked = picked,
+                    onPick = { classId = it },
                 )
                 else -> DoneBody(nickname = nickname.trim())
             }
@@ -277,23 +263,17 @@ private fun HonestCard(icon: ImageVector, title: String, sub: String, visible: B
     }
 }
 
-// ---------------- 第 3 屏: 认识一下(昵称 + 年级/专业/班级) ----------------
+// ---------------- 第 3 屏: 认识一下(昵称 + 班级选择器) ----------------
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MeetBody(
+    dataset: Dataset,
     nickname: String,
     onNickname: (String) -> Unit,
-    grades: List<String>,
-    grade: String?,
-    majors: List<String>,
-    major: String?,
-    classes: List<Pair<String, Cls>>,
-    classId: String?,
-    onGrade: (String) -> Unit,
-    onMajor: (String) -> Unit,
-    onClass: (String) -> Unit,
+    picked: Cls?,
+    onPick: (String) -> Unit,
 ) {
+    var showPicker by remember { mutableStateOf(false) }
     val cs = MaterialTheme.colorScheme
     Column(
         Modifier
@@ -314,60 +294,231 @@ private fun MeetBody(
             shape = RoundedCornerShape(14.dp),
         )
 
-        Spacer(Modifier.height(22.dp))
-        GroupLabel("年级")
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+        Spacer(Modifier.height(20.dp))
+
+        // 班级选择器: 点击弹出抽屉(搜索 / 年级→学院→专业→班级)
+        Surface(
+            color = cs.surfaceColorAtElevation(2.dp),
+            shape = RoundedCornerShape(18.dp),
+            modifier = Modifier.fillMaxWidth().clickable { showPicker = true },
         ) {
-            grades.forEach { g ->
-                FilterChip(
-                    selected = g == grade,
-                    onClick = { onGrade(g) },
-                    label = { Text("${g}级", fontSize = 14.sp) },
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(38.dp)
+                        .background(cs.primary.copy(alpha = 0.10f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Filled.School, contentDescription = null, tint = cs.primary, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("我的班级", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = cs.onSurface)
+                    Text(
+                        picked?.let { "${it.sznj}级 · ${it.zymc} · ${it.bjmc}" }
+                            ?: "直接搜,或按年级、学院、专业找",
+                        fontSize = 12.sp, color = cs.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Icon(
+                    Icons.Filled.KeyboardArrowDown,
+                    contentDescription = "选择班级",
+                    tint = cs.onSurfaceVariant,
                 )
             }
         }
 
-        AnimatedVisibility(majors.isNotEmpty()) {
-            Column {
-                Spacer(Modifier.height(16.dp))
-                GroupLabel("专业")
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    majors.forEach { m ->
-                        FilterChip(
-                            selected = m == major,
-                            onClick = { onMajor(m) },
-                            label = { Text(m, fontSize = 14.sp) },
-                        )
-                    }
-                }
-            }
-        }
-
-        AnimatedVisibility(classes.isNotEmpty()) {
-            Column {
-                Spacer(Modifier.height(16.dp))
-                GroupLabel("班级")
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    classes.forEach { (id, c) ->
-                        FilterChip(
-                            selected = id == classId,
-                            onClick = { onClass(id) },
-                            label = { Text(c.bjmc, fontSize = 14.sp) },
-                        )
-                    }
-                }
-            }
-        }
-
         Spacer(Modifier.height(12.dp))
+    }
+
+    if (showPicker) {
+        ClassPickerSheet(
+            dataset = dataset,
+            onPick = { onPick(it); showPicker = false },
+            onDismiss = { showPicker = false },
+        )
+    }
+}
+
+/** 班级选择抽屉: 搜索框置顶(直接输班名/专业/学院), 下方按 年级→学院→专业→班级 逐级点选 */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun ClassPickerSheet(
+    dataset: Dataset,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    var grade by remember { mutableStateOf<String?>(null) }
+    var college by remember { mutableStateOf<String?>(null) }
+    var major by remember { mutableStateOf<String?>(null) }
+
+    val grades = remember(dataset) {
+        dataset.classes.values.map { it.sznj }.filter { it.length == 4 }.distinct().sorted()
+    }
+    val colleges = remember(dataset, grade) {
+        grade?.let { g -> dataset.classes.values.filter { it.sznj == g }.map { it.yxmc }.distinct().sorted() }
+            ?: emptyList()
+    }
+    val majors = remember(dataset, grade, college) {
+        if (grade == null || college == null) emptyList()
+        else dataset.classes.values
+            .filter { it.sznj == grade && it.yxmc == college }
+            .map { it.zymc }.distinct().sorted()
+    }
+    val classes: List<Pair<String, Cls>> = remember(dataset, grade, college, major) {
+        if (grade == null || college == null || major == null) emptyList()
+        else dataset.classes.entries
+            .filter { it.value.sznj == grade && it.value.yxmc == college && it.value.zymc == major }
+            .sortedWith { a, b -> naturalCmp(a.value.bjmc, b.value.bjmc) }
+            .map { it.key to it.value }
+    }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        val cs = MaterialTheme.colorScheme
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .navigationBarsPadding()
+                .imePadding(),
+        ) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("搜班级 / 专业 / 学院, 比如:计科3班", fontSize = 14.sp) },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+            )
+            Spacer(Modifier.height(16.dp))
+
+            val q = query.trim()
+            if (q.isEmpty()) {
+                GroupLabel("年级")
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    grades.forEach { g ->
+                        FilterChip(
+                            selected = g == grade,
+                            onClick = { grade = g; college = null; major = null },
+                            label = { Text("${g}级", fontSize = 14.sp) },
+                        )
+                    }
+                }
+
+                AnimatedVisibility(colleges.isNotEmpty()) {
+                    Column {
+                        Spacer(Modifier.height(16.dp))
+                        GroupLabel("学院")
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            colleges.forEach { c ->
+                                FilterChip(
+                                    selected = c == college,
+                                    onClick = { college = c; major = null },
+                                    label = { Text(c, fontSize = 14.sp) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(majors.isNotEmpty()) {
+                    Column {
+                        Spacer(Modifier.height(16.dp))
+                        GroupLabel("专业")
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            majors.forEach { m ->
+                                FilterChip(
+                                    selected = m == major,
+                                    onClick = { major = m },
+                                    label = { Text(m, fontSize = 14.sp) },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                AnimatedVisibility(classes.isNotEmpty()) {
+                    Column {
+                        Spacer(Modifier.height(16.dp))
+                        GroupLabel("班级")
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            classes.forEach { (id, c) ->
+                                FilterChip(
+                                    selected = false,
+                                    onClick = { onPick(id) },
+                                    label = { Text(c.bjmc, fontSize = 14.sp) },
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                // 搜索: 支持 "计科3班" / "25级计科3班" / "2025计科3班" / "软件工程" / "软件工程学院"
+                val shortQ = q.replace("级", "")
+                val longQ = q.replace(Regex("20(\\d\\d)"), "$1")
+                val hits = dataset.classes.entries
+                    .filter { (_, c) ->
+                        c.bjmc.contains(shortQ) || (longQ != shortQ && c.bjmc.contains(longQ)) ||
+                            c.zymc.contains(q) || c.yxmc.contains(q)
+                    }
+                    .sortedWith { a, b -> naturalCmp(a.value.bjmc, b.value.bjmc) }
+                    .take(30)
+                if (hits.isEmpty()) {
+                    Text(
+                        "没有找到,换个词试试",
+                        Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        fontSize = 14.sp,
+                        color = cs.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                } else {
+                    hits.forEach { (id, c) -> PickerHitRow(c) { onPick(id) } }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+@Composable
+private fun PickerHitRow(cls: Cls, onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        color = cs.surfaceColorAtElevation(2.dp),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier
+            .padding(vertical = 3.dp)
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(cls.bjmc, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = cs.onSurface)
+                Text(
+                    "${cls.yxmc} · ${cls.zymc}" + if (cls.sznj.length == 4) " · ${cls.sznj}级" else "",
+                    fontSize = 11.sp, color = cs.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 

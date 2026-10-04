@@ -20,7 +20,7 @@ android/                     # 安卓工程 (Gradle 根)
 data/                        # 抓取产物 (数据集 + latest.json 清单)
 scripts/scrape.py            # 全量抓取脚本 (见 docs/api.md)
 scripts/publish.sh           # 抓取 → 数据集 → Gitee 发布 (Release + 更新清单)
-docs/release-notes/          # 各版本 Release 说明 (publish.sh 自动取用 v<版本>.md)
+docs/release-notes/          # 各版本更新说明手稿 (发版文案/群公告用)
 keystore/release.keystore    # 签名 (密码 ccsut-kb-2026, 别名 kb, 30年)
 ```
 
@@ -110,7 +110,9 @@ cd android
 | 仓库 | 可见性 | 内容 |
 |---|---|---|
 | `yisanspce/ccsut-kb` | 私有 | 全部源码 (本工程) |
-| `yisanspce/ccsut-kb-release` | 公开 | `latest.json` + 数据集 (master 分支孤儿提交) + APK (Release 附件) |
+| `yisanspce/ccsut-kb-release` | 公开 | `latest.json` + 数据集 + 最新 APK, 全部走 master 分支孤儿提交 + raw 直链 |
+
+⚠️ 发布仓**故意不用 Gitee Release/标签**: Release 页面会自动挂「源码归档 zip/tar.gz」下载按钮 (内容其实只是发布仓自身文件), 但会造成"源码公开"的误会。发布仓 master 上只有 4 个分发文件: `README.md`、`latest.json`、数据集 json、`ccsut-kb-<版本>.apk`, 无任何源码。
 
 APP 从「更新地址」(默认 `https://gitee.com/yisanspce/ccsut-kb-release/raw/master/latest.json`, 设置页可改) 拉清单:
 
@@ -118,12 +120,13 @@ APP 从「更新地址」(默认 `https://gitee.com/yisanspce/ccsut-kb-release/r
 {
   "version": 4, "xnxq": "2026-2027-1",
   "file": "dataset_2026-2027-1_v4.json", "sha256": "…",
-  "apk": { "versionCode": 12, "file": "https://gitee.com/…/releases/download/v2.4.0/ccsut-kb-2.4.0.apk", "sha256": "…" }
+  "apk": { "versionCode": 12, "file": "ccsut-kb-2.4.0.apk", "sha256": "…" }
 }
 ```
 
 - `version` > 本地数据版本 → 相对清单地址下载数据包 → sha256 校验 → 落盘热切换 (无需重装 APP)
-- `apk.versionCode` > 本地 APP → 下载 `apk.file` (**绝对 URL**, 指向 Gitee Release 附件) → 拉起系统安装
+- `apk.versionCode` > 本地 APP → 相对清单地址下载 `apk.file` (raw 直链) → 拉起系统安装
+- Gitee raw 有 60 秒 CDN 缓存 (max-age=60), 发布后最多 1 分钟全量可见
 - APP 启动时静默检查一次 (失败不打扰), 设置页可手动检查
 
 ## 日常发布流程
@@ -133,10 +136,10 @@ APP 从「更新地址」(默认 `https://gitee.com/yisanspce/ccsut-kb-release/r
 1. 更新数据: 浏览器登录教务系统 → F12 复制 Cookie 整行 → 覆盖 `.session/cookie.txt`
 2. `scripts/publish.sh` — 抓取 + 发布数据 (同学们 APP 下次启动自动拿到)
 3. 发新版本: 构建后 `scripts/publish.sh --skip --apk dist/长工课表通_vX.Y.Z.apk`
-   - 自动建 tag `v<versionName>` 的 Release (说明取 `docs/release-notes/v<版本>.md`, 重复发布会删除重建)
-   - APK 传为附件 `ccsut-kb-<版本>.apk`, 绝对直链 + sha256 自动写进 `latest.json`
-4. 数据集与清单每次孤儿提交 force-push 到发布仓 master, 仓库不积累历史; 版本归档全在 Release
+   - APK 改名 `ccsut-kb-<版本>.apk` 与清单/数据集一起孤儿提交进 master, 直链 + sha256 自动写进 `latest.json`
+   - **版本号以 APK 产物自身为准** (aapt 读取), build.gradle 被提前改到下一版本也不会写错清单
+4. 每次孤儿提交 force-push, 发布仓不积累历史; 历史版本 APK 需要时在本地 dist/ 自行归档
 
 注意:
-- 新建 Gitee 仓会默认私有, `scripts/publish.sh` 假设发布仓已是公开 (API `PATCH repos/... -d private=false` 可改)
+- 新建 Gitee 仓默认**私有**, 且空仓库不能改为公开 → 须先 push 内容再 `PATCH repos/... -d private=false`
 - 旧版本 (≤2.2.3, 默认走 Cloudflare Pages) 的同学需手动安装一次 v2.3.0+ 才接入 Gitee 通道
