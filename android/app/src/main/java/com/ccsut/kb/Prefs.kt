@@ -108,6 +108,22 @@ object Prefs {
         sp(ctx).edit().putLong("next_reminder_at", at).apply()
     }
 
+    // ---------------- 欢迎引导 ----------------
+
+    /** 用户昵称(选填, 姓名/昵称/空) */
+    fun nickname(ctx: Context): String = sp(ctx).getString("nickname", "") ?: ""
+
+    fun setNickname(ctx: Context, v: String) {
+        sp(ctx).edit().putString("nickname", v.trim()).apply()
+    }
+
+    /** 欢迎引导是否已完成/跳过 (true 后不再弹) */
+    fun onboardingDone(ctx: Context): Boolean = sp(ctx).getBoolean("onboarding_done", false)
+
+    fun setOnboardingDone(ctx: Context, v: Boolean) {
+        sp(ctx).edit().putBoolean("onboarding_done", v).apply()
+    }
+
     // ---------------- 开发者模式 ----------------
 
     fun devMode(ctx: Context): Boolean = sp(ctx).getBoolean("dev_mode", false)
@@ -127,6 +143,7 @@ object Prefs {
     fun clearPersonal(ctx: Context) {
         sp(ctx).edit()
             .remove("course_colors")
+            .remove("nickname")
             .putBoolean("bg_on", false)
             .putInt("theme_mode", 0)
             .putInt("color_source", 0)

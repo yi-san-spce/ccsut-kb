@@ -45,6 +45,7 @@ import com.ccsut.kb.ui.DevSheet
 import com.ccsut.kb.ui.KbTheme
 import com.ccsut.kb.ui.MoreSheet
 import com.ccsut.kb.ui.ScheduleScreen
+import com.ccsut.kb.ui.WelcomeScreen
 import com.ccsut.kb.util.Block
 import com.ccsut.kb.util.DebugLog
 import com.ccsut.kb.util.KbClock
@@ -73,6 +74,8 @@ fun App() {
     var clsId by remember { mutableStateOf(Prefs.bjid(ctx)) }
     var ready by remember { mutableStateOf(Repo.dataset != null) }
     var screenChoose by remember { mutableStateOf(false) }
+    // 全新安装首次启动: 欢迎引导 (老用户已选班级不弹)
+    var showWelcome by remember { mutableStateOf(!Prefs.onboardingDone(ctx) && Prefs.bjid(ctx) == null) }
     var showMore by remember { mutableStateOf(false) }
     var detailCourse by remember { mutableStateOf<Block?>(null) }
     var apkManifest by remember { mutableStateOf<Manifest?>(null) }
@@ -116,7 +119,7 @@ fun App() {
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) { if (Repo.dataset == null) Repo.load(ctx) }
         ready = true
-        if (clsId == null) screenChoose = true
+        if (clsId == null && !showWelcome) screenChoose = true
         withContext(Dispatchers.IO) {
             runCatching {
                 val r = Updater.check(ctx)
@@ -145,7 +148,24 @@ fun App() {
         val cls: Cls? = remember(dataTick, clsId) { clsId?.let { dataset.classes[it] } }
 
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            if (screenChoose) {
+            if (showWelcome) {
+                WelcomeScreen(
+                    dataset = dataset,
+                    onDone = { name, id ->
+                        Prefs.setOnboardingDone(ctx, true)
+                        Prefs.setNickname(ctx, name)
+                        Prefs.setBjid(ctx, id)
+                        clsId = id
+                        showWelcome = false
+                        resync()
+                    },
+                    onSkip = {
+                        Prefs.setOnboardingDone(ctx, true)
+                        showWelcome = false
+                        screenChoose = true
+                    },
+                )
+            } else if (screenChoose) {
                 BackHandler { screenChoose = false }
                 ChooseClassScreen(
                     dataset = dataset,

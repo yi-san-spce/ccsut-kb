@@ -7,7 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 
-/** 更新清单, 对应托管在 Cloudflare Pages 上的 latest.json */
+/** 更新清单, 对应托管在 Gitee 发布仓 (yisanspce/ccsut-kb-release) 的 latest.json */
 data class Manifest(
     val version: Int,
     val xnxq: String,
@@ -30,7 +30,8 @@ sealed class CheckResult {
 
 object Updater {
 
-    const val DEFAULT_URL = "https://ccsut-kb.pages.dev/latest.json" // Cloudflare Pages 项目创建后替换
+    // Gitee 发布仓 raw 直链: 清单+数据包在 master 分支, APK 走 Release 附件绝对 URL
+    const val DEFAULT_URL = "https://gitee.com/yisanspce/ccsut-kb-release/raw/master/latest.json"
 
     fun manifestUrl(ctx: Context): String =
         ctx.getSharedPreferences("kb", Context.MODE_PRIVATE)
