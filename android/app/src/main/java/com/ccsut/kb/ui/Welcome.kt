@@ -147,6 +147,7 @@ fun WelcomeScreen(
             onClick = {
                 when (step) {
                     0, 1 -> step++
+                    2 -> step = 3
                     else -> classId?.let { onDone(nickname.trim(), it) }
                 }
             },
@@ -185,12 +186,12 @@ private fun SloganBody() {
         verticalArrangement = Arrangement.Center,
     ) {
         Rise(shown >= 1) {
-            Text("你好,我是长工课表通。", fontSize = 15.sp, color = cs.onSurfaceVariant)
+            Text("你好，我是长工课表通。", fontSize = 15.sp, color = cs.onSurfaceVariant)
         }
         Spacer(Modifier.height(14.dp))
         Rise(shown >= 2) {
             Text(
-                "让查看课表这件事,",
+                "让查看课表这件事，",
                 fontSize = 30.sp, fontWeight = FontWeight.Bold,
                 color = cs.onSurface, lineHeight = 40.sp,
             )
@@ -225,10 +226,10 @@ private fun HonestBody() {
         Modifier.fillMaxSize().padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("用之前,想跟你说三件事。", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cs.onSurface)
+        Text("用之前，想跟你说三件事。", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cs.onSurface)
         Spacer(Modifier.height(22.dp))
-        HonestCard(Icons.Filled.WifiOff, "课表全存在你手机里", "没网也能看,我们不收集任何信息", shown >= 1)
-        HonestCard(Icons.Filled.Campaign, "老师临时换课,APP 反应不过来", "记得以老师的通知为准", shown >= 2)
+        HonestCard(Icons.Filled.WifiOff, "课表全存在你手机里", "没网也能看，我们不收集任何信息", shown >= 1)
+        HonestCard(Icons.Filled.Campaign, "老师临时换课，APP 反应不过来", "记得以老师的通知为准", shown >= 2)
         HonestCard(Icons.Filled.EditCalendar, "国庆、五一这类调休", "我们会提前统一更新课表", shown >= 3)
     }
 }
@@ -282,14 +283,14 @@ private fun MeetBody(
             .padding(horizontal = 24.dp),
     ) {
         Spacer(Modifier.height(10.dp))
-        Text("最后,认识一下?", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cs.onSurface)
+        Text("最后，认识一下？", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cs.onSurface)
         Spacer(Modifier.height(18.dp))
 
         OutlinedTextField(
             value = nickname,
             onValueChange = onNickname,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("姓名昵称都行,也可以不填", fontSize = 14.sp) },
+            placeholder = { Text("姓名昵称都行，也可以不填", fontSize = 14.sp) },
             singleLine = true,
             shape = RoundedCornerShape(14.dp),
         )
@@ -319,7 +320,7 @@ private fun MeetBody(
                     Text("我的班级", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = cs.onSurface)
                     Text(
                         picked?.let { "${it.sznj}级 · ${it.zymc} · ${it.bjmc}" }
-                            ?: "直接搜,或按年级、学院、专业找",
+                            ?: "直接搜，或按年级、学院、专业找",
                         fontSize = 12.sp, color = cs.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
@@ -392,7 +393,7 @@ private fun ClassPickerSheet(
                 value = query,
                 onValueChange = { query = it },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("搜班级 / 专业 / 学院, 比如:计科3班", fontSize = 14.sp) },
+                placeholder = { Text("搜班级 / 专业 / 学院，比如：计科3班", fontSize = 14.sp) },
                 leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
@@ -484,7 +485,7 @@ private fun ClassPickerSheet(
                     .take(30)
                 if (hits.isEmpty()) {
                     Text(
-                        "没有找到,换个词试试",
+                        "没有找到，换个词试试",
                         Modifier.fillMaxWidth().padding(vertical = 24.dp),
                         fontSize = 14.sp,
                         color = cs.onSurfaceVariant,
@@ -544,13 +545,13 @@ private fun DoneBody(nickname: String) {
     ) {
         Rise(shown >= 1) {
             Text(
-                "欢迎你,${nickname.ifBlank { "同学" }}。",
+                "欢迎你，${nickname.ifBlank { "同学" }}。",
                 fontSize = 28.sp, fontWeight = FontWeight.Bold, color = cs.onSurface,
             )
         }
         Spacer(Modifier.height(10.dp))
         Rise(shown >= 2) {
-            Text("你的使用,是我们的荣幸。", fontSize = 16.sp, color = cs.onSurfaceVariant)
+            Text("你的使用，是我们的荣幸。", fontSize = 16.sp, color = cs.onSurfaceVariant)
         }
     }
 }
