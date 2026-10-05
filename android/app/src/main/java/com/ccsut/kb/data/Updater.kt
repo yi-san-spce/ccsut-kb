@@ -18,6 +18,9 @@ data class Manifest(
     val apkVersionCode: Int?,
     val apkFile: String?,
     val apkSha256: String?,
+    val apkVersionName: String? = null,
+    val apkBytes: Long? = null,
+    val apkNotes: List<String> = emptyList(),
 )
 
 sealed class CheckResult {
@@ -87,13 +90,14 @@ object Updater {
         return Repo.applyUpdate(ctx, bytes)
     }
 
-    /** 下载 APK 到 cache/apk/, 返回文件 */
-    fun downloadApk(ctx: Context, m: Manifest): File? {
+    /** 下载 APK 到 cache/apk/, 返回文件; onProgress(doneBytes, totalBytes) 在 IO 线程回调 */
+    fun downloadApk(ctx: Context, m: Manifest, onProgress: ((Long, Long) -> Unit)? = null): File? {
         val base = manifestBase(manifestUrl(ctx))
         val dest = File(ctx.cacheDir, "apk/update.apk")
         dest.parentFile?.mkdirs()
-        val bytes = runCatching { httpGet(resolve(base, m.apkFile ?: return null), maxBytes = 200L * 1024 * 1024) }
-            .getOrNull() ?: return null
+        val bytes = runCatching {
+            httpGet(resolve(base, m.apkFile ?: return null), maxBytes = 200L * 1024 * 1024, onProgress = onProgress)
+        }.getOrNull() ?: return null
         if (m.apkSha256?.isNotBlank() == true && sha256Hex(bytes) != m.apkSha256) return null
         dest.writeBytes(bytes)
         return dest
@@ -101,17 +105,28 @@ object Updater {
 
     // ---------------------------------------------------------------- 工具
 
-    private fun parseManifest(o: JSONObject) = Manifest(
-        version = o.optInt("version", 0),
-        xnxq = o.optString("xnxq"),
-        file = o.optString("file"),
-        sha256 = o.optString("sha256"),
-        bytes = o.optLong("bytes", 0),
-        generatedAt = o.optString("generatedAt"),
-        apkVersionCode = o.optJSONObject("apk")?.optInt("versionCode"),
-        apkFile = o.optJSONObject("apk")?.optString("file"),
-        apkSha256 = o.optJSONObject("apk")?.optString("sha256"),
-    )
+    private fun parseManifest(o: JSONObject): Manifest {
+        val apk = o.optJSONObject("apk")
+        val notes = apk?.optJSONArray("notes")?.let { arr ->
+            (0 until arr.length()).mapNotNull { i ->
+                arr.optString(i).trim().takeIf { it.isNotBlank() }
+            }
+        }
+        return Manifest(
+            version = o.optInt("version", 0),
+            xnxq = o.optString("xnxq"),
+            file = o.optString("file"),
+            sha256 = o.optString("sha256"),
+            bytes = o.optLong("bytes", 0),
+            generatedAt = o.optString("generatedAt"),
+            apkVersionCode = apk?.optInt("versionCode")?.takeIf { it > 0 },
+            apkFile = apk?.optString("file")?.takeIf { it.isNotBlank() },
+            apkSha256 = apk?.optString("sha256")?.takeIf { it.isNotBlank() },
+            apkVersionName = apk?.optString("versionName")?.takeIf { it.isNotBlank() },
+            apkBytes = apk?.optLong("bytes")?.takeIf { it > 0 },
+            apkNotes = notes ?: emptyList(),
+        )
+    }
 
     private fun manifestBase(manifestUrl: String) =
         manifestUrl.substringBeforeLast('/')
@@ -119,23 +134,25 @@ object Updater {
     private fun resolve(base: String, file: String): String =
         if (file.startsWith("http")) file else "$base/$file"
 
-    private fun httpGet(url: String, maxBytes: Long = 64L * 1024 * 1024): ByteArray {
+    private fun httpGet(url: String, maxBytes: Long = 64L * 1024 * 1024, onProgress: ((Long, Long) -> Unit)? = null): ByteArray {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 10_000
         conn.readTimeout = 30_000
         conn.instanceFollowRedirects = true
         try {
             if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
+            val total = conn.contentLengthLong
             val out = java.io.ByteArrayOutputStream()
             conn.inputStream.use { ins ->
                 val buf = ByteArray(64 * 1024)
-                var total = 0L
+                var done = 0L
                 while (true) {
                     val n = ins.read(buf)
                     if (n < 0) break
-                    total += n
-                    if (total > maxBytes) error("文件过大")
+                    done += n
+                    if (done > maxBytes) error("文件过大")
                     out.write(buf, 0, n)
+                    if (onProgress != null && total > 0) onProgress(done, total)
                 }
             }
             return out.toByteArray()
@@ -151,6 +168,6 @@ object Updater {
 
 /** 编译期版本号, 独立对象便于测试与避免 BuildConfig 依赖 */
 object BuildVersion {
-    const val CODE = 12
-    const val NAME = "2.4.0"
+    const val CODE = 15
+    const val NAME = "2.6.0"
 }

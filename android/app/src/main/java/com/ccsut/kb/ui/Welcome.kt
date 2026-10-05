@@ -48,7 +48,6 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -379,12 +378,14 @@ private fun ClassPickerSheet(
             .map { it.key to it.value }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    // 自绘 KbSheet: 弹层本体不吃手势, 列表滚动 100% 跟手 (修滑动抽搐)
+    val sheetScroll = rememberScrollState()
+    KbSheet(onDismiss = onDismiss) {
         val cs = MaterialTheme.colorScheme
         Column(
             Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(sheetScroll)
                 .padding(horizontal = 20.dp)
                 .navigationBarsPadding()
                 .imePadding(),

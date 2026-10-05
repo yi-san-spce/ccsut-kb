@@ -68,13 +68,38 @@ if [ -n "$APK_PATH" ]; then
   cp "$APK_PATH" "$DIST/$APK_NAME"
   APK_SHA=$(shasum -a 256 "$DIST/$APK_NAME" | cut -d' ' -f1)
   APK_SIZE=$(stat -f%z "$DIST/$APK_NAME")
-  python3 - "$DIST/latest.json" "$VCODE" "$APK_NAME" "$APK_SHA" "$APK_SIZE" <<'EOF'
+  python3 - "$DIST/latest.json" "$VCODE" "$VNAME" "$APK_NAME" "$APK_SHA" "$APK_SIZE" <<'EOF'
 import json, sys
-path, vcode, name, sha, size = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], int(sys.argv[5])
+path, vcode, vname, name, sha, size = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5], int(sys.argv[6])
 m = json.load(open(path))
-m["apk"] = {"versionCode": vcode, "file": name, "sha256": sha, "bytes": size}
+m["apk"] = {"versionCode": vcode, "versionName": vname, "file": name, "sha256": sha, "bytes": size}
 json.dump(m, open(path, "w"), ensure_ascii=False, indent=2)
-print("清单已写入 apk:", vcode, name)
+print("清单已写入 apk:", "v"+vname, name)
+
+# ---------- 更新内容注入: 从 docs/release-notes/v{版本}.md 提取, APP 更新弹窗展示 ----------
+import os, re
+notes_path = f"docs/release-notes/v{vname}.md"
+notes = []
+if os.path.exists(notes_path):
+    for raw in open(notes_path, encoding="utf-8"):
+        s = raw.strip()
+        if not s or set(s) <= set("-—= "):
+            continue                              # 空行 / 分隔线
+        s = re.sub(r"^#{1,6}\s*", "", s)          # 标题井号
+        if s.startswith("长工课表通 v"):
+            continue                              # 文档大标题, 弹窗里已显示版本号
+        if len(s) <= 4:
+            continue                              # 「新增/优化/修复」等小节标题, 不是给用户看的条目
+        s = re.sub(r"^[-*+]\s+", "", s)           # 列表符
+        s = re.sub(r"^\d+\.\s+", "", s)           # 有序列表
+        s = s.replace("**", "").replace("`", "")  # 行内强调标记
+        if s:
+            notes.append(s)
+    print(f"清单已写入更新内容: {len(notes)} 条 (来自 {os.path.basename(notes_path)})")
+else:
+    print(f"⚠️ 未找到 {notes_path}, 更新弹窗将显示默认文案")
+m["apk"]["notes"] = notes
+json.dump(m, open(path, "w"), ensure_ascii=False, indent=2)
 EOF
 fi
 

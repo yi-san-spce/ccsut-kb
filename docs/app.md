@@ -82,6 +82,24 @@ v2.0.2 修复:
 - `android.graphics.Color` 没有 `HSLToColor`, 用 `androidx.core.graphics.ColorUtils.HSLToColor`。
 - 深色冷启动白闪已修: `res/values-night/themes.xml` 深色 windowBackground; Manifest 已开 `enableOnBackInvokedCallback`(预测性返回)。
 
+## 本地课表编辑 (v2.6.0)
+
+**覆盖层 (Overlay) 架构**——用户的修改绝不写进 dataset, 单独存 `filesDir/user_edits.json`; `Repo.dataset` 永远保持学校原始数据, 显示时才叠加成「生效课表」(`Repo.effectiveCls`):
+
+- **add**: 整条自建课程 (`type=100` 哨兵 + `jxb="LOCAL#uuid"`, 同名多节不互相合并); 点空格子加课, 默认选中当前周
+- **modify**: 锚点 `{kc,fx,day,jc,zc}` + 增量 delta (只记改过的字段) —— 学校更新后没被改到的字段继续跟学校走
+- **hide**: 隐藏学校课程 (不影响其他同学)
+
+学校课表更新后自动重套: 自建课程永远保留; 修改按锚点重新吸附, 学校动过的课的修改安全丢弃并提示「N 条保留 / M 条失效」。编辑过的课显示角标, 详情页可一键还原; 拖回学校原始位置 = 修改自动还原 (空增量记录清除)。
+
+**长按拖拽换课** (`ScheduleScreen.DragHost`):
+
+- 长按 400ms 触发, 药片抬升 1.05 跟手 (`PILL_SCALE` 修正缩放坐标系的位移偏差), 逐格吸附
+- `beyondViewportPageCount = 1` 保住相邻页组合 —— 手势协程住在原页课程块里, 翻周后不死
+- 跨周翻页: 屏幕左右边缘悬停 500ms 自动翻周 (按「手指绝对列号」判定, 翻周后 `flipInProgress` 冻结位移累计防假位移); 药片在新页渲染为「幽灵药片」, 与原页块本体互斥
+- 松手回弹 spring → 动画结束「钉住」在新槽位 (`pinning`) → 异步提交 → 新数据落地同帧解除, 无闪烁
+- 看门狗兜底: 手势协程意外死亡 6s 后强制回弹复位
+
 ## 工具链
 
 | 组件 | 版本 | 备注 |
@@ -120,12 +138,16 @@ APP 从「更新地址」(默认 `https://gitee.com/yisanspce/ccsut-kb-release/r
 {
   "version": 4, "xnxq": "2026-2027-1",
   "file": "dataset_2026-2027-1_v4.json", "sha256": "…",
-  "apk": { "versionCode": 12, "file": "ccsut-kb-2.4.0.apk", "sha256": "…" }
+  "apk": {
+    "versionCode": 15, "versionName": "2.6.0", "file": "ccsut-kb-2.6.0.apk",
+    "sha256": "…", "bytes": 2900000,
+    "notes": ["更新弹窗展示的逐条更新内容, 发布脚本自动从 docs/release-notes/v<版本>.md 提取"]
+  }
 }
 ```
 
 - `version` > 本地数据版本 → 相对清单地址下载数据包 → sha256 校验 → 落盘热切换 (无需重装 APP)
-- `apk.versionCode` > 本地 APP → 相对清单地址下载 `apk.file` (raw 直链) → 拉起系统安装
+- `apk.versionCode` > 本地 APP → 启动时自动弹出更新页 (版本号/体积/notes 逐条展示 + 下载进度, 欢迎页与选班级页不打扰), 也可在「更多」手动检查
 - Gitee raw 有 60 秒 CDN 缓存 (max-age=60), 发布后最多 1 分钟全量可见
 - APP 启动时静默检查一次 (失败不打扰), 设置页可手动检查
 

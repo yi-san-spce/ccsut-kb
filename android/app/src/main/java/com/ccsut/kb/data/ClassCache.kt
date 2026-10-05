@@ -24,7 +24,7 @@ object ClassCache {
 
     private const val FILE = "class_cache.json"
 
-    /** APP 侧调用: 把 Repo.dataset + 当前班级写成快照; 未选班则删除快照 */
+    /** APP 侧调用: 把 Repo 生效班级(原始数据+用户本地修改)写成快照; 未选班则删除快照 */
     fun save(ctx: Context) {
         val ds = Repo.dataset
         val id = Prefs.bjid(ctx)
@@ -32,7 +32,8 @@ object ClassCache {
             ctx.deleteFile(FILE)
             return
         }
-        val cls = ds.classes[id] ?: run {
+        // 用覆盖层叠加后的生效课表, 用户编辑自动进小组件/提醒
+        val cls = Repo.effectiveCls(id) ?: run {
             ctx.deleteFile(FILE)
             return
         }

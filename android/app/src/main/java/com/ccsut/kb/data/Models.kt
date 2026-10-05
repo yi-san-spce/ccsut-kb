@@ -17,7 +17,8 @@ data class Course(
     val fx: String,        // 体育分项名(可能为空)
     val jxb: String,       // 教学班
     val jxbzc: String,     // 合班班级
-    val type: Int,         // 1=普通 9=体育分项占位
+    val type: Int,         // 1=普通 9=体育分项占位 100=自建
+    val editId: String? = null,  // 命中的本地修改记录 id (仅 Repo.effectiveCls 的生效视图有值, 不序列化)
 ) {
     fun inWeek(w: Int) = ranges.any { w in it }
 }
@@ -129,6 +130,7 @@ object Repo {
         private set
 
     fun load(ctx: Context) {
+        UserEdits.ensureLoaded(ctx)
         val f = ctx.getFileStreamPath("dataset.json")
         if (f.exists()) {
             runCatching {
@@ -151,8 +153,20 @@ object Repo {
         ctx.openFileOutput("dataset.json", Context.MODE_PRIVATE).use { it.write(bytes) }
         dataset = parsed
         fromUpdate = true
+        UserEdits.ensureLoaded(ctx)
         com.ccsut.kb.util.DebugLog.log("data", "应用更新数据 v${parsed.version} (${bytes.size}B)")
         return parsed
+    }
+
+    /**
+     * 生效班级 = 学校原始数据 + 用户本地修改 ([UserEdits] 覆盖层)。
+     * 主界面、小组件快照、提醒都用它, 用户编辑自动贯穿全链路;
+     * dataset 本身永远保持原始(pristine), 数据更新后直接重新叠加。
+     */
+    fun effectiveCls(bjid: String): Cls? {
+        val c = dataset?.classes?.get(bjid) ?: return null
+        val eff = UserEdits.effective(bjid, c.courses)
+        return if (eff === c.courses) c else c.copy(courses = eff)
     }
 
     fun clearUpdate(ctx: Context) {

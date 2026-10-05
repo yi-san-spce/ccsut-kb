@@ -38,13 +38,16 @@ import com.ccsut.kb.data.ClassCache
 import com.ccsut.kb.data.Manifest
 import com.ccsut.kb.data.Repo
 import com.ccsut.kb.data.Updater
+import com.ccsut.kb.data.UserEdits
 import com.ccsut.kb.reminder.ReminderScheduler
 import com.ccsut.kb.ui.ChooseClassScreen
 import com.ccsut.kb.ui.CourseColors
+import com.ccsut.kb.ui.CourseFormSheet
 import com.ccsut.kb.ui.DevSheet
 import com.ccsut.kb.ui.KbTheme
 import com.ccsut.kb.ui.MoreSheet
 import com.ccsut.kb.ui.ScheduleScreen
+import com.ccsut.kb.ui.UpdateDialog
 import com.ccsut.kb.ui.WelcomeScreen
 import com.ccsut.kb.util.Block
 import com.ccsut.kb.util.DebugLog
@@ -80,6 +83,12 @@ fun App() {
     var detailCourse by remember { mutableStateOf<Block?>(null) }
     var apkManifest by remember { mutableStateOf<Manifest?>(null) }
     var apkDownloading by remember { mutableStateOf(false) }
+    var apkProgress by remember { mutableStateOf<Int?>(null) }   // 下载进度 0..100, null=未知
+
+    // ---- 五版功能状态: 本地课表编辑 ----
+    var addAt by remember { mutableStateOf<Triple<Int, Int, Int>?>(null) }   // 空格子加课 (day, jc, week)
+    var editBlock by remember { mutableStateOf<Block?>(null) }        // 编辑课程
+    var delBlock by remember { mutableStateOf<Block?>(null) }         // 删除确认
 
     // ---- 二版功能状态: 课程颜色 / 背景图 / 课前提醒 ----
     var colorMap by remember { mutableStateOf(Prefs.courseColors(ctx)) }
@@ -116,6 +125,30 @@ fun App() {
         }
     }
 
+    /** 数据更新后重新套用本地修改覆盖层, 生成提示后缀 (保留/失效条数) */
+    fun editSyncSuffix(): String {
+        val bid = Prefs.bjid(ctx) ?: return ""
+        val pristine = Repo.dataset?.classes?.get(bid)?.courses ?: return ""
+        UserEdits.ensureLoaded(ctx)
+        UserEdits.effective(bid, pristine)
+        val kept = UserEdits.lastApplied
+        val dropped = UserEdits.lastDropped
+        return when {
+            kept + dropped <= 0 -> ""
+            dropped > 0 -> "；你的 ${dropped} 条本地修改因课表变动失效，其余已保留"
+            else -> "；本地修改已全部保留"
+        }
+    }
+
+    /** 本地课表编辑统一收尾: IO 里写覆盖层, 回主线程重组 + 刷快照/小组件/提醒 */
+    fun applyEdit(op: suspend () -> Unit) {
+        scope.launch {
+            withContext(Dispatchers.IO) { runCatching { op() } }
+            dataTick++
+            resync()
+        }
+    }
+
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) { if (Repo.dataset == null) Repo.load(ctx) }
         ready = true
@@ -127,8 +160,10 @@ fun App() {
                     dataTick++
                     ClassCache.save(ctx)
                     runCatching { if (Prefs.reminderOn(ctx)) ReminderScheduler.reschedule(ctx) }
-                    Toast.makeText(ctx, "课表数据已自动更新到 v${r.m.version}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(ctx, "课表数据已自动更新到 v${r.m.version}${editSyncSuffix()}", Toast.LENGTH_LONG).show()
                 }
+                // 启动自动检查: 有新 APK → 弹更新页 (欢迎页/选班级时不弹, 进主界面后再弹)
+                if (r is CheckResult.ApkUpdate) apkManifest = r.m
             }
             resync()
         }
@@ -145,7 +180,8 @@ fun App() {
         // Repo.dataset / Prefs.bjid 非快照状态, 直接在局部变量里读会被 Surface 内容 lambda
         // 捕获旧值(局部重组不重算外层变量), 必须经 dataTick/clsId 在本作用域观察
         val dataset = remember(dataTick) { Repo.dataset } ?: return@KbTheme
-        val cls: Cls? = remember(dataTick, clsId) { clsId?.let { dataset.classes[it] } }
+        // 生效班级 = 学校原始数据 + 用户本地修改 (dataTick 变化即重算)
+        val cls: Cls? = remember(dataTick, clsId) { clsId?.let { Repo.effectiveCls(it) } }
 
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (showWelcome) {
@@ -194,14 +230,20 @@ fun App() {
                         dbgOffset = dbgOffset,
                         onOpenMore = { showMore = true },
                         onCourseClick = { detailCourse = it },
+                        onAddAt = { d, j, w -> addAt = Triple(d, j, w) },
+                        onMoveBlock = { b, d, j ->
+                            val id = clsId
+                            if (id != null) applyEdit { UserEdits.moveBlock(ctx, id, b, d, j) }
+                        },
                     )
                 }
             }
         }
 
-        // ---------- 课程详情 (含自定义颜色) ----------
+        // ---------- 课程详情 (含自定义颜色 / 还原 / 编辑 / 删除) ----------
         detailCourse?.let { block ->
             val seed = CourseColors.seedOf(block.course.kc, block.course.fx)
+            val editKind = UserEdits.editOf(block.course.editId)?.kind
             com.ccsut.kb.ui.CourseDetailSheet(
                 block = block,
                 className = clsId?.let { dataset.classes[it]?.bjmc } ?: "",
@@ -211,7 +253,90 @@ fun App() {
                     colorMap = Prefs.courseColors(ctx)
                     runCatching { com.ccsut.kb.widget.WidgetRenderer.updateAll(ctx) }
                 },
+                onRevert = if (editKind == 1) {
+                    {
+                        detailCourse = null
+                        val id = clsId
+                        if (id != null) applyEdit { UserEdits.revertBlock(ctx, id, block) }
+                        Toast.makeText(ctx, "已还原为学校课表", Toast.LENGTH_SHORT).show()
+                    }
+                } else null,
+                onEdit = {
+                    editBlock = block
+                    detailCourse = null
+                },
+                onDelete = {
+                    delBlock = block
+                    detailCourse = null
+                },
                 onDismiss = { detailCourse = null },
+            )
+        }
+
+        // ---------- 添加课程 (点击课表空白格) ----------
+        // 默认勾选点击时正在查看的那一周 (而不是全学期)
+        addAt?.let { (d, j, w) ->
+            val wk = w.coerceIn(1, dataset.weeks)
+            val preJc = j.coerceIn(1, dataset.periods.size)
+            CourseFormSheet(
+                title = "添加课程",
+                weeks = dataset.weeks,
+                maxJc = dataset.periods.size,
+                initial = UserEdits.Form(
+                    kc = "", teacher = "", room = "",
+                    day = d, startJc = preJc,
+                    span = 2.coerceAtMost(dataset.periods.size - preJc + 1),
+                    zc = "$wk", ranges = listOf(wk..wk),
+                ),
+                showDelete = false,
+                onSave = { f ->
+                    addAt = null
+                    val id = clsId
+                    if (id != null) applyEdit { UserEdits.add(ctx, id, f) }
+                },
+                onDismiss = { addAt = null },
+            )
+        }
+
+        // ---------- 编辑课程 ----------
+        editBlock?.let { b ->
+            CourseFormSheet(
+                title = "编辑课程",
+                weeks = dataset.weeks,
+                maxJc = dataset.periods.size,
+                initial = UserEdits.Form(
+                    kc = b.course.kc, teacher = b.course.teacher, room = b.course.room,
+                    day = b.course.day, startJc = b.startJc, span = b.span,
+                    zc = b.course.zc, ranges = b.course.ranges,
+                ),
+                showDelete = true,
+                onSave = { f ->
+                    editBlock = null
+                    val id = clsId
+                    if (id != null) applyEdit { UserEdits.saveBlock(ctx, id, b, f) }
+                },
+                onDelete = {
+                    editBlock = null
+                    delBlock = b
+                },
+                onDismiss = { editBlock = null },
+            )
+        }
+
+        // ---------- 删除课程确认 ----------
+        delBlock?.let { b ->
+            AlertDialog(
+                onDismissRequest = { delBlock = null },
+                title = { Text("删除课程") },
+                text = { Text("确定从你的课表移除「${b.course.kc}」吗？只影响你自己，不影响其他同学。") },
+                confirmButton = {
+                    TextButton({
+                        val id = clsId
+                        if (id != null) applyEdit { UserEdits.removeBlock(ctx, id, b) }
+                        delBlock = null
+                    }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = { TextButton({ delBlock = null }) { Text("取消") } },
             )
         }
 
@@ -343,11 +468,12 @@ fun App() {
                                 if (ok != null) {
                                     dataTick++
                                     resync()
-                                    onResult("已更新到数据 v${r.m.version}")
+                                    onResult("已更新到数据 v${r.m.version}${editSyncSuffix()}")
                                 } else onResult("下载或校验失败，请稍后再试")
                             }
                             is CheckResult.ApkUpdate -> {
                                 onResult(null)
+                                showMore = false
                                 apkManifest = r.m
                             }
                             is CheckResult.Error -> onResult(r.msg)
@@ -421,6 +547,13 @@ fun App() {
                         apkVersionCode = BuildVersion.CODE + 1,
                         apkFile = "mock.apk",
                         apkSha256 = null,
+                        apkVersionName = "9.9.9",
+                        apkBytes = 13_527_019,
+                        apkNotes = listOf(
+                            "预览更新弹窗效果（开发者模式模拟，不会真下载）",
+                            "新增本地课表编辑：点空格加课、长按拖拽换课",
+                            "修复深色模式下弹层文字看不清的问题",
+                        ),
                     )
                 },
                 onResetPersonal = {
@@ -445,6 +578,7 @@ fun App() {
                             runCatching { ReminderScheduler.cancel(ctx) }
                             Prefs.clearAll(ctx)
                             Prefs.setDevMode(ctx, true)
+                            UserEdits.clear(ctx)
                             ctx.deleteFile("dataset.json")
                             ctx.deleteFile("class_cache.json")
                             runCatching { BgStore.delete(ctx) }
@@ -471,30 +605,40 @@ fun App() {
             )
         }
 
-        // ---------- APK 自更新 ----------
-        apkManifest?.let { m ->
-            AlertDialog(
-                onDismissRequest = { apkManifest = null },
-                title = { Text("发现新版本") },
-                text = { Text("APP 有新版本 v${m.apkVersionCode}（当前 v${BuildVersion.CODE}），下载并安装吗？") },
-                confirmButton = {
-                    Button(
-                        enabled = !apkDownloading,
-                        onClick = {
-                            apkDownloading = true
-                            scope.launch {
-                                val f: File? = withContext(Dispatchers.IO) {
-                                    runCatching { Updater.downloadApk(ctx, m) }.getOrNull()
-                                }
-                                apkDownloading = false
-                                apkManifest = null
-                                if (f != null) installApk(ctx, f)
-                                else Toast.makeText(ctx, "下载失败，请稍后再试", Toast.LENGTH_SHORT).show()
+        // ---------- APK 自更新 (启动自动检查 / 更多里手动检查 / 开发者模式模拟) ----------
+        // 欢迎页与选班级阶段不弹, 进主界面后自动补弹
+        apkManifest?.takeIf { !showWelcome && !screenChoose }?.let { m ->
+            UpdateDialog(
+                newVersion = m.apkVersionName ?: m.apkVersionCode?.toString() ?: BuildVersion.NAME,
+                sizeBytes = m.apkBytes,
+                notes = m.apkNotes,
+                downloading = apkDownloading,
+                progress = apkProgress,
+                onUpdate = {
+                    if (!apkDownloading) {
+                        apkDownloading = true
+                        apkProgress = null
+                        scope.launch {
+                            val f: File? = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    Updater.downloadApk(ctx, m) { done, total ->
+                                        if (total > 0) apkProgress = ((done * 100) / total).toInt()
+                                    }
+                                }.getOrNull()
                             }
-                        },
-                    ) { Text(if (apkDownloading) "下载中…" else "下载安装") }
+                            apkDownloading = false
+                            apkProgress = null
+                            if (f != null) {
+                                apkManifest = null
+                                installApk(ctx, f)
+                            } else {
+                                // 弹窗保持打开, 用户可直接重试
+                                Toast.makeText(ctx, "下载失败，请检查网络后再试", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
                 },
-                dismissButton = { TextButton({ apkManifest = null }) { Text("以后再说") } },
+                onDismiss = { apkManifest = null },
             )
         }
     }

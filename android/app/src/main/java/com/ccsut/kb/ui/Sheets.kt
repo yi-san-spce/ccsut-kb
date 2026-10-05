@@ -11,24 +11,38 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -40,23 +54,21 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Celebration
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.Link
-import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material.icons.rounded.RestartAlt
+import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -66,8 +78,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -76,20 +92,35 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.ccsut.kb.R
 import com.ccsut.kb.data.BgStore
+import com.ccsut.kb.data.BuildVersion
 import com.ccsut.kb.data.Cls
 import com.ccsut.kb.data.ClassCache
 import com.ccsut.kb.data.Dataset
 import com.ccsut.kb.data.Repo
 import com.ccsut.kb.data.Updater
+import com.ccsut.kb.data.UserEdits
 import com.ccsut.kb.util.Block
 import com.ccsut.kb.util.DebugLog
 import com.ccsut.kb.util.Diag
@@ -102,6 +133,278 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+// ==================== 底部弹层统一封装 ====================
+
+/**
+ * 统一底部弹层 —— 自绘实现, 不用 Material3 的 ModalBottomSheet。
+ * 原因有二:
+ * 1) M3 sheet 自带的拖拽与内容 verticalScroll 抢事件, 造成滑动抽搐/不跟手
+ *    (Google issuetracker 486562294, confirmValueChange 门控两轮实测仍会抽);
+ * 2) 自绘必须自己给内容套 LocalContentColor —— M3 默认是纯黑, 不套的话
+ *    深色模式下未显式指定颜色的文字全是黑底黑字。
+ * 手势归我管, 全部走单一管线, 不存在打架:
+ * - 内容没滚到顶: 滚动 100% 归内容;
+ * - 滚到顶后继续下拉: 面板跟手滑出, 松手按「拉过 28% 或向下甩」判定关/弹回;
+ * - 顶部把手整条可拖(详情页等无滚动内容的弹层靠它);
+ * - 点遮罩 / 系统返回: 一律动画滑出。
+ * 内容列请自带 verticalScroll + navigationBarsPadding (现有调用点均已如此)。
+ */
+@Composable
+fun KbSheet(
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val panelColor = cs.surfaceContainerLow
+    val scope = rememberCoroutineScope()
+
+    var shown by remember { mutableStateOf(false) }
+    var closing by remember { mutableStateOf(false) }
+    var panelH by remember { mutableFloatStateOf(0f) }   // 面板高 px, 布局后才有
+    var dragY by remember { mutableFloatStateOf(0f) }    // 手势下拉量 px
+
+    LaunchedEffect(Unit) { shown = true }
+    // 0 = 展开, 1 = 完全滑出屏幕; 点遮罩/返回键触发的整板退场动画
+    val p by animateFloatAsState(
+        targetValue = if (shown) 0f else 1f,
+        animationSpec = tween(220),
+        label = "sheet",
+        finishedListener = { if (it >= 1f) onDismiss() },
+    )
+
+    // 松手判定: 拉过面板 28% 或向下甩 → 关; 向上甩 → 回; 其余按距离
+    fun settle(vy: Float) {
+        if (closing || panelH <= 0f) return
+        val close = when {
+            vy > 900f -> true
+            vy < -900f -> false
+            else -> dragY > panelH * 0.28f
+        }
+        if (close) {
+            closing = true
+            scope.launch {
+                animate(dragY, panelH, initialVelocity = vy, animationSpec = tween(200)) { v, _ -> dragY = v }
+                onDismiss()
+            }
+        } else {
+            scope.launch {
+                animate(dragY, 0f, initialVelocity = vy, animationSpec = spring(stiffness = 1400f)) { v, _ ->
+                    dragY = v.coerceAtLeast(0f)
+                }
+            }
+        }
+    }
+
+    fun close() {
+        if (closing) return
+        if (dragY > 0f) settle(10_000f)   // 已被拖离: 从当前位置直接滑出
+        else {
+            closing = true
+            shown = false
+        }
+    }
+
+    // 内容滚动 leftover 的唯一接管者: 到顶后下拉驱动面板, 被拉下后上推先归位面板
+    val connection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || dragY <= 0f || available.y >= 0f) return Offset.Zero
+                val prev = dragY
+                dragY = (dragY + available.y).coerceAtLeast(0f)
+                return Offset(0f, dragY - prev)
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput || available.y <= 0f || closing) return Offset.Zero
+                val prev = dragY
+                dragY = (dragY + available.y).coerceAtMost(if (panelH > 0f) panelH else Float.MAX_VALUE)
+                return Offset(0f, dragY - prev)
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (dragY <= 0f || closing) return Velocity.Zero
+                settle(available.y)
+                return available
+            }
+        }
+    }
+    val grabDrag = rememberDraggableState { delta ->
+        if (!closing) dragY = (dragY + delta).coerceAtLeast(0f).coerceAtMost(if (panelH > 0f) panelH else Float.MAX_VALUE)
+    }
+    val shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+
+    Dialog(
+        onDismissRequest = { close() },   // 系统返回走这里
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            // 遮罩: 覆满全屏拦截对底层的点击, 只响应「点一下关闭」; 随面板滑出同步变淡
+            val frac = if (panelH > 0f) ((p * panelH + dragY) / panelH).coerceIn(0f, 1f) else p
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 0.45f * (1f - frac) }
+                    .background(Color.Black)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                    ) { close() },
+            )
+            Column(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.92f)
+                    .imePadding()
+                    .onSizeChanged { panelH = it.height.toFloat() }
+                    .nestedScroll(connection)
+                    .graphicsLayer { translationY = p * size.height + dragY }
+                    .shadow(8.dp, shape)
+                    .background(panelColor, shape),
+            ) {
+                // 顶部把手: 整条可拖, 无滚动内容的弹层(如课程详情)靠它下拉关闭
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(30.dp)
+                        .draggable(
+                            state = grabDrag,
+                            orientation = Orientation.Vertical,
+                            onDragStopped = { vy -> settle(vy) },
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier
+                            .size(40.dp, 4.dp)
+                            .background(cs.outlineVariant.copy(alpha = 0.8f), RoundedCornerShape(2.dp)),
+                    )
+                }
+                CompositionLocalProvider(LocalContentColor provides contentColorFor(panelColor)) {
+                    content()
+                }
+            }
+        }
+    }
+}
+
+/** 更新弹窗: 居中卡片, 新版本号 + 更新内容列表 + 下载进度, 启动自动检查/手动检查共用 */
+@Composable
+fun UpdateDialog(
+    newVersion: String,
+    sizeBytes: Long?,
+    notes: List<String>,
+    downloading: Boolean,
+    progress: Int?,
+    onUpdate: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    val cardColor = cs.surfaceContainerHigh
+    Dialog(
+        onDismissRequest = { if (!downloading) onDismiss() },
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 36.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            CompositionLocalProvider(LocalContentColor provides contentColorFor(cardColor)) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 340.dp)
+                        .background(cardColor, RoundedCornerShape(26.dp))
+                        .padding(26.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .size(52.dp)
+                            .background(cs.primary.copy(alpha = 0.12f), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Rounded.SystemUpdateAlt,
+                            contentDescription = null,
+                            tint = cs.primary,
+                            modifier = Modifier.size(26.dp),
+                        )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text("发现新版本", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        buildString {
+                            append("v$newVersion · 当前 v${BuildVersion.NAME}")
+                            sizeBytes?.let { append(" · ${"%.1f".format(it / 1048576.0)} MB") }
+                        },
+                        fontSize = 13.sp,
+                        color = cs.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    Text("更新内容", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.primary)
+                    Spacer(Modifier.height(6.dp))
+                    Column(
+                        Modifier
+                            .heightIn(max = 230.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        if (notes.isEmpty()) {
+                            Text(
+                                "性能优化与问题修复。",
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                        } else {
+                            notes.forEach { line ->
+                                Row(Modifier.padding(vertical = 4.dp)) {
+                                    Box(
+                                        Modifier
+                                            .padding(top = 7.dp)
+                                            .size(5.dp)
+                                            .background(cs.primary, CircleShape),
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(line, fontSize = 14.sp, lineHeight = 20.sp)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(20.dp))
+                    Button(
+                        onClick = onUpdate,
+                        enabled = !downloading,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                    ) {
+                        if (downloading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                            Spacer(Modifier.width(10.dp))
+                            Text(if (progress == null) "下载中…" else "下载中 $progress%")
+                        } else {
+                            Text("立即更新", fontSize = 15.sp)
+                        }
+                    }
+                    TextButton(
+                        onClick = onDismiss,
+                        enabled = !downloading,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("以后再说", fontSize = 13.sp, color = cs.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CourseDetailSheet(
@@ -109,17 +412,39 @@ fun CourseDetailSheet(
     className: String,
     customIdx: Int?,
     onPickColor: (Int?) -> Unit,
+    onRevert: (() -> Unit)? = null, // 非空且是「已修改」课时, 按钮行多一个还原
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val course = block.course
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(start = 24.dp, end = 24.dp, bottom = 28.dp).navigationBarsPadding()) {
+    KbSheet(onDismiss = onDismiss) {
+        // verticalScroll 让嵌套滚动管线成立: 详情页任意位置下拉都能关弹层
+        Column(
+            Modifier
+                .padding(start = 24.dp, end = 24.dp, bottom = 28.dp)
+                .verticalScroll(rememberScrollState())
+                .navigationBarsPadding(),
+        ) {
             Text(course.kc, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             if (course.fx.isNotEmpty()) {
                 Text(
                     "分项: ${course.fx}",
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            // 来源标注: 学校课被改过 (可还原) / 自建课程
+            val editKind = UserEdits.editOf(course.editId)?.kind
+            if (editKind == 1 || editKind == 0) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (editKind == 1) "已修改 · 点还原可恢复" else "自建课程",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
             Spacer(Modifier.height(12.dp))
@@ -173,6 +498,242 @@ fun CourseDetailSheet(
                 }
             }
             Spacer(Modifier.height(6.dp))
+
+            // ---------------- 还原 / 编辑 / 删除 ----------------
+            Spacer(Modifier.height(16.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (onRevert != null && editKind == 1) {
+                    OutlinedButton(onClick = onRevert, modifier = Modifier.weight(1f)) { Text("还原") }
+                }
+                OutlinedButton(
+                    onClick = onDelete,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error,
+                    ),
+                ) { Text("删除") }
+                Button(onClick = onEdit, modifier = Modifier.weight(1f)) { Text("编辑") }
+            }
+        }
+    }
+}
+
+// ==================== 课程编辑表单 (加课/改课共用) ====================
+
+@Composable
+private fun FormLabel(text: String) {
+    Text(text, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun FormChip(
+    text: String,
+    on: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .clip(CircleShape)
+            .background(
+                if (on) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceContainerHigh,
+            )
+            .border(
+                1.dp,
+                if (on) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.outlineVariant,
+                CircleShape,
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            fontSize = 12.sp,
+            fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+            color = if (on) MaterialTheme.colorScheme.onPrimary
+            else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun CourseFormSheet(
+    title: String,
+    weeks: Int,
+    maxJc: Int,
+    initial: UserEdits.Form,
+    showDelete: Boolean,
+    onSave: (UserEdits.Form) -> Unit,
+    onDelete: (() -> Unit)? = null,
+    onDismiss: () -> Unit,
+) {
+    var kc by remember { mutableStateOf(initial.kc) }
+    var teacher by remember { mutableStateOf(initial.teacher) }
+    var room by remember { mutableStateOf(initial.room) }
+    var day by remember { mutableIntStateOf(initial.day) }
+    var startJc by remember { mutableIntStateOf(initial.startJc) }
+    var span by remember { mutableIntStateOf(initial.span) }
+    var sel by remember { mutableStateOf(initial.ranges.flatMap { it.toList() }.toSet()) }
+    val sheetScroll = rememberScrollState()
+
+    KbSheet(onDismiss = onDismiss) {
+        Column(
+            Modifier
+                .padding(start = 24.dp, end = 24.dp, bottom = 28.dp)
+                .verticalScroll(sheetScroll)
+                .navigationBarsPadding(),
+        ) {
+            Text(title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(14.dp))
+            OutlinedTextField(
+                value = kc,
+                onValueChange = { kc = it },
+                label = { Text("课程名（必填）") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = teacher,
+                    onValueChange = { teacher = it },
+                    label = { Text("教师") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = room,
+                    onValueChange = { room = it },
+                    label = { Text("教室") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+            FormLabel("星期")
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                (1..7).forEach { d ->
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (d == day) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            )
+                            .clickable { day = d }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            Weeks.cnDay(d),
+                            fontSize = 11.sp,
+                            fontWeight = if (d == day) FontWeight.Bold else FontWeight.Medium,
+                            color = if (d == day) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            FormLabel("起始节次")
+            Spacer(Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                (1..maxJc).forEach { j ->
+                    FormChip("$j", on = j == startJc, onClick = {
+                        startJc = j
+                        span = span.coerceAtMost(maxJc - j + 1)
+                    })
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            FormLabel("连堂节数")
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                val maxSpan = (maxJc - startJc + 1).coerceAtMost(5)
+                (1..maxSpan).forEach { s ->
+                    FormChip("${s}节", on = s == span, onClick = { span = s })
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+            FormLabel("上课周次（点击勾选）")
+            Spacer(Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                (1..weeks).forEach { w ->
+                    Box(
+                        Modifier
+                            .size(30.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (w in sel) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.surfaceContainerHigh,
+                            )
+                            .clickable {
+                                sel = if (w in sel) sel - w else sel + w
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "$w",
+                            fontSize = 11.sp,
+                            fontWeight = if (w in sel) FontWeight.Bold else FontWeight.Normal,
+                            color = if (w in sel) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            TextButton(onClick = {
+                sel = if (sel.size == weeks) emptySet() else (1..weeks).toSet()
+            }) { Text(if (sel.size == weeks) "清空周次" else "全选周次") }
+
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (showDelete && onDelete != null) {
+                    OutlinedButton(
+                        onClick = onDelete,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error,
+                        ),
+                    ) { Text("删除") }
+                }
+                Button(
+                    onClick = {
+                        val (zc, ranges) = UserEdits.zcOf(sel)
+                        onSave(
+                            UserEdits.Form(
+                                kc = kc.trim(), teacher = teacher.trim(), room = room.trim(),
+                                day = day, startJc = startJc, span = span,
+                                zc = zc, ranges = ranges,
+                            ),
+                        )
+                    },
+                    enabled = kc.isNotBlank() && sel.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                ) { Text("保存") }
+            }
         }
     }
 }
@@ -294,7 +855,7 @@ private fun SectionHeader(text: String) {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MoreSheet(
     dataset: Dataset,
@@ -433,11 +994,12 @@ fun MoreSheet(
         )
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetScroll = rememberScrollState()
+    KbSheet(onDismiss = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(sheetScroll)
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {
@@ -624,12 +1186,11 @@ fun MoreSheet(
                     if (d.size == 3) "${d[1].trim().toInt()}月${d[2].trim().toInt()}日" else ""
                 }
                 SettingRow(
-                    icon = Icons.Rounded.Refresh,
                     title = "检查更新",
                     subtitle = when {
                         checking -> "看看有没有新的…"
                         checkNote != null -> checkNote
-                        else -> "v${dataset.version} · ${dataset.classes.size} 个班 · $genDate 生成"
+                        else -> "$genDate 更新 · ${dataset.classes.size} 个班"
                     },
                     trailing = {
                         if (checking) {
@@ -654,19 +1215,8 @@ fun MoreSheet(
                         }
                     },
                 )
-                SettingRow(
-                    icon = Icons.Rounded.Link,
-                    title = "更新地址",
-                    subtitle = Uri.parse(url).host ?: "默认地址",
-                    trailing = { RowTrailing() },
-                    onClick = {
-                        urlDraft = url
-                        showUrlDialog = true
-                    },
-                )
                 if (fromUpdate) {
                     SettingRow(
-                        icon = Icons.Rounded.RestartAlt,
                         title = "恢复内置数据",
                         titleColor = MaterialTheme.colorScheme.error,
                         trailing = { RowTrailing() },
@@ -691,36 +1241,80 @@ fun MoreSheet(
 
             // ---------------- 关于 ----------------
             SectionHeader("关于")
-            SettingCard {
-                var devClicks by remember { mutableIntStateOf(0) }
-                SettingRow(
-                    icon = Icons.Rounded.Info,
-                    title = "长工课表通",
-                    subtitle = if (devMode) "v$appVersion · 开发者模式已开启" else "v$appVersion",
-                    onClick = {
-                        if (devMode) return@SettingRow
-                        devClicks++
-                        when {
-                            devClicks >= 7 -> {
-                                devClicks = 0
-                                onDevModeChange(true)
-                                Toast.makeText(ctx, "开发者模式已开启", Toast.LENGTH_SHORT).show()
-                            }
-                            devClicks >= 3 ->
-                                Toast.makeText(ctx, "再点 ${7 - devClicks} 次进入开发者模式", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    onLongClick = if (devMode) {
-                        {
-                            onDevModeChange(false)
-                            Toast.makeText(ctx, "开发者模式已关闭", Toast.LENGTH_SHORT).show()
-                        }
-                    } else null,
+            var devClicks by remember { mutableIntStateOf(0) }
+            Column(
+                Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // 品牌块: 与启动器图标同款 (品牌蓝底 + 白色日历前景), 连点 7 次进开发者模式
+                Box(
+                    Modifier
+                        .size(52.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Color(0xFF3B64D8))
+                        .combinedClickable(
+                            onClick = {
+                                if (devMode) return@combinedClickable
+                                devClicks++
+                                when {
+                                    devClicks >= 7 -> {
+                                        devClicks = 0
+                                        onDevModeChange(true)
+                                        Toast.makeText(ctx, "开发者模式已开启", Toast.LENGTH_SHORT).show()
+                                    }
+                                    devClicks >= 3 ->
+                                        Toast.makeText(ctx, "再点 ${7 - devClicks} 次进入开发者模式", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onLongClick = if (devMode) {
+                                {
+                                    onDevModeChange(false)
+                                    Toast.makeText(ctx, "开发者模式已关闭", Toast.LENGTH_SHORT).show()
+                                }
+                            } else null,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        painter = painterResource(R.drawable.ic_launcher_fg),
+                        contentDescription = "长工课表通",
+                        modifier = Modifier.size(40.dp),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "长工课表通",
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-                SettingRow(
-                    icon = Icons.Rounded.Lock,
-                    title = "数据说明",
-                    subtitle = "来自教务系统公开课表，只存你手机上",
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    if (devMode) "v$appVersion · 开发者模式" else "v$appVersion",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "让查看课表这件事，不再那么狼狈。",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                )
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "课表来自教务系统公开课表，只保存在你手机上",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                )
+                Text(
+                    "更新源 ${Uri.parse(url).host ?: "默认地址"}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                    modifier = Modifier
+                        .clickable {
+                            urlDraft = url
+                            showUrlDialog = true
+                        }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
 
@@ -806,11 +1400,12 @@ fun DevSheet(
         )
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetScroll = rememberScrollState()
+    KbSheet(onDismiss = onDismiss) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(sheetScroll)
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding(),
         ) {

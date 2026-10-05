@@ -8,9 +8,14 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -29,13 +34,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
@@ -50,6 +58,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -63,15 +73,20 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.times
@@ -96,10 +111,54 @@ import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 private val BREAK_H = 22.dp      // 大课间(午休/晚饭)分隔带高度
 private val EVE_H = 88.dp        // 晚上大节槽位高度
 private val LEFT_W = 34.dp
+
+/** 拖拽药片的抬升缩放: graphicsLayer 在 pointerInput 外层, positionChange 是缩放空间值,
+ *  累计位移必须按它还原成屏幕位移, 否则药片永远比手指慢 4.8%, 贴边翻周永远差一截 */
+private const val PILL_SCALE = 1.05f
+
+/**
+ * 长按拖拽换位的会话状态 (ScheduleScreen 级, 全周页共享)。
+ * raw: 拖拽中相对课程原位置的累计位移, 松手后作为回弹动画起点;
+ * anchorDay: 锚定列, 初始 = 课程原 day, 拖到边缘翻周后重置为新页最边列,
+ *            拖拽中药片视觉 = raw + (anchorDay - 课程原day) × 列宽;
+ * targetDay/targetJc: 吸附目标槽位;
+ * targetOffset: 回弹动画终点 (新槽位相对原槽位的偏移, px);
+ * pendingMove: 待提交的移动, 回弹动画结束后才调 onMoveBlock ——
+ *              提交瞬间数据位置变化与视觉归零同帧重合, 彻底消除松手帧跳。
+ */
+private class DragHost {
+    var block by mutableStateOf<Block?>(null)
+    var dragWeek by mutableIntStateOf(0)
+    var raw by mutableStateOf(Offset.Zero)
+    var anchorDay by mutableIntStateOf(0)
+    var targetDay by mutableIntStateOf(0)
+    var targetJc by mutableIntStateOf(0)
+    var edgeHint by mutableIntStateOf(0)    // -1 悬停在左缘 / 0 无 / 1 悬停在右缘
+    var settling by mutableStateOf(false)
+    var targetOffset by mutableStateOf(Offset.Zero)
+    var pendingMove by mutableStateOf<Triple<Block, Int, Int>?>(null)
+    // 回弹首帧: dragEnd 在手势线程同步算好回弹起点, 协程 snapTo 前的重组帧不会闪回原位
+    var settleStart by mutableStateOf(Offset.Zero)
+    var settleStarted by mutableStateOf(false)
+    // 提交钉住: 回弹动画结束后数据还没落地(异步 IO), 视觉钉在新槽位等 dataTick 同帧换块,
+    // 消除「旧块闪回原位一帧再跳到新位」的抽搐
+    var pinning by mutableStateOf(false)
+    var pinnedOffset by mutableStateOf(Offset.Zero)
+    // 手指抓握点在列内的相对位置(0..1): 边缘翻周判定用绝对列号, 修正右缘永远够不到的偏差
+    var grabFrac by mutableFloatStateOf(0f)
+    // 刚翻过周的方向锁: 落位后手指往回拖出一段才允许再次触发边缘翻周, 防止瞬间连环翻
+    var flipLock by mutableIntStateOf(0)
+    // 翻页动画进行中: 页面从手指下滑过会产生假 positionChange, 期间禁止累计 drag.raw
+    var flipInProgress by mutableStateOf(false)
+    // 最近一次手势活动时间 (System.nanoTime), 供看门狗判断手势协程是否已被翻页连带杀死
+    var lastActiveAt: Long = 0L
+}
 
 private fun minutes(t: String): Int {
     val (h, m) = t.split(":").map { it.trim().toInt() }
@@ -137,7 +196,11 @@ fun ScheduleScreen(
     dbgOffset: Int = 0,
     onOpenMore: () -> Unit,
     onCourseClick: (Block) -> Unit,
+    onAddAt: (Int, Int, Int) -> Unit,   // (day, jc, week) —— week 供加课表单默认勾选当前周
+    onMoveBlock: (Block, Int, Int) -> Unit,
 ) {
+    // 长按拖拽会话: 期间禁用周翻页, 避免父级抢手势
+    val drag = remember { DragHost() }
     // 时间旅行: dbgOffset 变化时重取语义今天 (KbClock, 只平移日期)
     val today = remember(dbgOffset) { KbClock.today() }
     val todayDay = today.dayOfWeek.value
@@ -318,6 +381,10 @@ fun ScheduleScreen(
             state = pagerState,
             modifier = Modifier.weight(1f),
             pageSpacing = 8.dp,
+            userScrollEnabled = drag.block == null,
+            // 拖拽翻周后原页必须保持组合: 手势协程住在原页的课程块里,
+            // 页面被销毁 = 手势死亡 = 拖拽失焦卡死 (看门狗只是兜底)
+            beyondViewportPageCount = 1,
         ) { page ->
             WeekGrid(
                 dataset = dataset,
@@ -326,7 +393,11 @@ fun ScheduleScreen(
                 initialWeek = initialWeek,
                 today = today,
                 colorMap = colorMap,
+                drag = drag,
+                pagerState = pagerState,
                 onCourseClick = onCourseClick,
+                onAddAt = { d, j -> onAddAt(d, j, page + 1) },
+                onMoveBlock = onMoveBlock,
             )
         }
         }
@@ -346,7 +417,15 @@ private fun TodayBar(
         val t = rememberInfiniteTransition(label = "kbShimmer")
         val x by t.animateFloat(
             0f, 1f,
-            infiniteRepeatable(tween(3600, easing = LinearEasing)),
+            // 扫过 3s + 屏外休息 1.8s: 重置发生在两端屏幕外, 视觉上无缝循环不顿挫
+            infiniteRepeatable(
+                keyframes {
+                    durationMillis = 4800
+                    0f at 0 using LinearEasing
+                    1f at 3000 using LinearEasing
+                    1f at 4800
+                }
+            ),
             label = "kbShimmerX",
         )
         colShimmer(x, 0.20f)
@@ -494,7 +573,11 @@ private fun WeekGrid(
     initialWeek: Int,
     today: LocalDate,
     colorMap: Map<String, Int>,
+    drag: DragHost,
+    pagerState: PagerState,
     onCourseClick: (Block) -> Unit,
+    onAddAt: (Int, Int) -> Unit,
+    onMoveBlock: (Block, Int, Int) -> Unit,
 ) {
     val todayDay = today.dayOfWeek.value
     val isCurrentWeek = week == initialWeek
@@ -503,7 +586,15 @@ private fun WeekGrid(
         val t = rememberInfiniteTransition(label = "kbColShimmer")
         t.animateFloat(
             0f, 1f,
-            infiniteRepeatable(tween(5000, easing = LinearEasing)),
+            // 扫过 4.6s + 屏外休息 2.4s: 光带两端在屏幕外, 循环重置不可见
+            infiniteRepeatable(
+                keyframes {
+                    durationMillis = 7000
+                    0f at 0 using LinearEasing
+                    1f at 4600 using LinearEasing
+                    1f at 7000
+                }
+            ),
             label = "kbColShimmerX",
         )
     } else null
@@ -569,7 +660,201 @@ private fun WeekGrid(
             yTop[nowSlotIdx] + slotH(nowSlotIdx) * frac
         } else null
 
-        Box(Modifier.fillMaxSize().verticalScroll(vScroll)) {
+        // ---- 长按拖拽换位: 锚定列吸附 + 松手先回弹、动画结束才提交移动 (无帧跳) ----
+        val density = LocalDensity.current
+        val haptic = LocalHapticFeedback.current
+        val settleAnim = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+        // 单列宽度(px): 跨列位移换算与吸附计算共用
+        val colW = with(density) { ((maxWidth - LEFT_W) / 7).toPx() }
+        // 单列宽(Dp): 跨周幽灵药片的宽度用 (与 DayColumn 列内块等宽, 减左右各 1dp)
+        val colWidthDp = (maxWidth - LEFT_W) / 7 - 2.dp
+        // 松手回弹: 从当前视觉位置弹到 targetOffset(= 新槽位相对原槽位的偏移)。
+        // 只在拖拽周所在页执行, 其余页的组合里直接返回, 避免重复动画/重复提交。
+        // 回弹起点用 dragEnd 同步算好的 settleStart: 协程跑起来前的重组帧不会闪回原位。
+        LaunchedEffect(drag.settling) {
+            if (!drag.settling || week != drag.dragWeek) return@LaunchedEffect
+            settleAnim.snapTo(drag.settleStart)
+            drag.settleStarted = true
+            settleAnim.animateTo(
+                drag.targetOffset,
+                spring(
+                    dampingRatio = 0.78f,
+                    stiffness = Spring.StiffnessMediumLow,
+                    visibilityThreshold = Offset(1f, 1f),
+                ),
+            )
+            drag.settleStarted = false
+            val pm = drag.pendingMove
+            drag.settling = false
+            if (pm == null) {
+                drag.block = null
+                drag.raw = Offset.Zero
+                drag.edgeHint = 0
+                drag.flipLock = 0
+                drag.pendingMove = null
+            } else {
+                // 钉住视觉在新槽位, 先提交移动; 新数据(cls.courses)落地那一帧,
+                // 旧 Block 实例被新课表替换, 视觉无缝交接 —— 不再闪回原位
+                drag.pinning = true
+                drag.pinnedOffset = drag.targetOffset
+                onMoveBlock(pm.first, pm.second, pm.third)
+            }
+        }
+        // 钉住解除: 新数据落地(任一课表数据变化)即清拖拽会话, 解锁翻页
+        LaunchedEffect(cls.courses) {
+            if (drag.pinning) {
+                drag.pinning = false
+                drag.block = null
+                drag.raw = Offset.Zero
+                drag.edgeHint = 0
+                drag.flipLock = 0
+                drag.pendingMove = null
+            }
+        }
+        // 拖到左/右边缘悬停半秒自动翻周; 翻页后锚定列重置到边缘列, 药片跟随手指出现在新页
+        LaunchedEffect(drag.edgeHint, drag.block) {
+            val dir = drag.edgeHint
+            if (dir != 0 && drag.block != null && week == drag.dragWeek) {
+                delay(500)   // 悬停半秒才翻周, 防误触
+                val target = pagerState.currentPage + dir
+                if (target in 0 until pagerState.pageCount) {
+                    // 动画期间冻结 dragMove: 页面从手指下滑过会产生假 positionChange,
+                    // 不冻结既会污染 raw 又会搅动状态导致翻页动画中途夭折
+                    drag.flipInProgress = true
+                    pagerState.animateScrollToPage(target)
+                    drag.flipInProgress = false
+                    drag.dragWeek = target + 1
+                    drag.anchorDay = if (dir > 0) 7 else 1   // 手指停在边缘, 新页锚定到最边列
+                    drag.raw = Offset(0f, drag.raw.y)
+                    drag.flipLock = dir
+                }
+                drag.edgeHint = 0
+            }
+        }
+        // 兜底看门狗: 若手势协程被意外取消, onDragEnd/onDragCancel 都不会再回调,
+        // 拖拽会话会卡死 (pager 一直禁翻页)。长时间无手势进展时强制复位。
+        LaunchedEffect(drag.block, drag.dragWeek) {
+            if (drag.block == null || week != drag.dragWeek) return@LaunchedEffect
+            while (true) {
+                delay(2000)
+                if (drag.block == null || drag.settling) break
+                if (System.nanoTime() - drag.lastActiveAt > 6_000_000_000L) {
+                    drag.pinning = false
+                    drag.targetOffset = Offset.Zero
+                    drag.pendingMove = null
+                    drag.settling = true   // 走回弹动画归位, 数据不动
+                    break
+                }
+            }
+        }
+        // 药片拖拽/回弹期间叠加的位移 (布局期读取, 不触发重组):
+        // 未翻周时锚定列 = 课程原 day, 视觉 = raw; 翻周后锚定到新页边缘列,
+        // 视觉 = raw + (anchorDay - 原day) × 列宽, 药片正好落在手指所在的边缘列
+        val visualOf: (Block) -> Offset = { b ->
+            val d = drag.block
+            if (d == null || b != d || week != drag.dragWeek) Offset.Zero
+            else if (drag.pinning) drag.pinnedOffset
+            else if (drag.settling) if (drag.settleStarted) settleAnim.value else drag.settleStart
+            else Offset(
+                drag.raw.x + (drag.anchorDay - b.course.day) * colW,
+                drag.raw.y,
+            )
+        }
+        // 抬升程度 0..1: 拖拽中 1, 松手回弹随位移衰减, 钉住等待提交时已落地
+        val liftOf: (Block) -> Float = { b ->
+            val d = drag.block
+            if (d != null && b == d && week == drag.dragWeek) {
+                when {
+                    drag.pinning -> 0f
+                    drag.settling -> {
+                        val start = drag.settleStart
+                        ((settleAnim.value - drag.targetOffset).getDistance() /
+                            max((start - drag.targetOffset).getDistance(), 1f)).coerceIn(0f, 1f)
+                    }
+                    else -> 1f
+                }
+            } else 0f
+        }
+        val dragStart: (Block, Float) -> Unit = { b, grabX ->
+            // 已有拖拽进行中(如第二根手指误触)不接受新会话
+            if (drag.block == null) {
+                drag.anchorDay = b.course.day
+                drag.grabFrac = (grabX / colW).coerceIn(0f, 1f)
+                drag.raw = Offset.Zero
+                drag.settling = false
+                drag.pinning = false
+                drag.flipLock = 0
+                drag.pendingMove = null
+                drag.targetDay = b.course.day
+                drag.targetJc = b.startJc
+                drag.dragWeek = week
+                drag.block = b
+                drag.lastActiveAt = System.nanoTime()
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        }
+        val dragMove: (Block, Offset) -> Unit = { b, amt ->
+            if (drag.flipInProgress) {
+                // 翻页动画把页面从手指下滑过, positionChange 是假位移, 严禁累计
+                drag.lastActiveAt = System.nanoTime()
+            } else {
+                // amt 在 1.05 缩放空间里, 换算回屏幕位移再累计 (见 PILL_SCALE 注释)
+                drag.raw += amt * PILL_SCALE
+                val span = drag.block?.span ?: b.span
+                // 列吸附: 锚定列 + 累计位移换算成 0-based 连续列, 四舍五入得目标天
+                val col = (drag.anchorDay - 1) + drag.raw.x / colW
+                drag.targetDay = (col.roundToInt() + 1).coerceIn(1, 7)
+                with(density) {
+                    val fingerY = yOfJc(b.startJc) + drag.raw.y.toDp()
+                    var k = 0
+                    for (i in 0 until model.slots) if (yTop[i] <= fingerY) k = i
+                    val half = ((fingerY - yTop[k]) / (slotH(k) / 2)).toInt().coerceIn(0, 1)
+                    drag.targetJc = (2 * k + 1 + half).coerceIn(1, dataset.periods.size - span + 1)
+                }
+                // 边缘翻周判定用「手指的绝对列号」(锚点列 + 抓握点偏移 + 位移):
+                // 旧写法只看累计位移, 从周一往右拖到屏幕边缘也够不到右缘阈值, 导致只能翻上一周
+                val fingerCol = (drag.anchorDay - 1) + drag.grabFrac + drag.raw.x / colW
+                drag.edgeHint = when {
+                    drag.flipLock != 0 -> 0
+                    fingerCol > 6.8f -> 1      // 手指贴到网格右缘(=屏幕右缘, 留出边缘拒识余量)
+                    fingerCol < -0.42f -> -1   // 手指压到屏幕左缘(左侧时间轴宽 0.63 列)
+                    else -> 0
+                }
+                // 翻周落位后, 往回拖出一段才解锁, 防止锚定在边缘列瞬间连环翻周
+                if (drag.flipLock == 1 && drag.raw.x < -0.45f * colW) drag.flipLock = 0
+                if (drag.flipLock == -1 && drag.raw.x > 0.45f * colW) drag.flipLock = 0
+                drag.lastActiveAt = System.nanoTime()
+            }
+        }
+        val dragEnd: (Block) -> Unit = { b ->
+            val moved = drag.targetDay != b.course.day || drag.targetJc != b.startJc
+            // 回弹起点同步算好: 协程 snapTo 前的重组帧直接用它, 不闪回原位
+            drag.settleStart = Offset(
+                drag.raw.x + (drag.anchorDay - b.course.day) * colW,
+                drag.raw.y,
+            )
+            // 回弹终点 = 新槽位相对原槽位的偏移; 提交后数据落在新槽位, 视觉偏移正好归零
+            drag.targetOffset = with(density) {
+                Offset(
+                    (drag.targetDay - b.course.day) * colW,
+                    (yOfJc(drag.targetJc) - yOfJc(b.startJc)).toPx(),
+                )
+            }
+            drag.pendingMove = if (moved) Triple(b, drag.targetDay, drag.targetJc) else null
+            drag.settling = true
+            if (moved) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+        val dragCancel: () -> Unit = {
+            val d = drag.block
+            drag.settleStart = if (d != null) {
+                Offset(drag.raw.x + (drag.anchorDay - d.course.day) * colW, drag.raw.y)
+            } else Offset.Zero
+            drag.targetOffset = Offset.Zero
+            drag.pendingMove = null
+            drag.settling = true
+        }
+
+        Box(Modifier.fillMaxSize().verticalScroll(vScroll, enabled = drag.block == null)) {
             Box(Modifier.fillMaxWidth().height(totalH)) {
                 // 大课间分隔带(画在课程卡下层, 全天连堂课不会被切断)
                 for (k in model.breaks) {
@@ -644,7 +929,15 @@ private fun WeekGrid(
                                 blocks = blocksByDay[day].orEmpty(),
                                 colorMap = colorMap,
                                 shimmer = shimmer,
+                                drag = drag,
+                                visualOf = visualOf,
+                                liftOf = liftOf,
+                                onDragStart = dragStart,
+                                onDragMove = dragMove,
+                                onDragEnd = dragEnd,
+                                onDragCancel = dragCancel,
                                 onCourseClick = onCourseClick,
+                                onAddAt = onAddAt,
                                 modifier = Modifier.weight(1f).fillMaxHeight(),
                             )
                         }
@@ -672,6 +965,86 @@ private fun WeekGrid(
                                 .height(8.dp)
                                 .background(MaterialTheme.colorScheme.primary, CircleShape),
                         )
+                    }
+                }
+                // 拖到左右边缘时的翻周提示: 对应侧一条向内渐隐的竖向光带
+                if (drag.block != null && drag.edgeHint != 0) {
+                    val hintColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                    if (drag.edgeHint < 0) {
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .fillMaxHeight()
+                                .width(10.dp)
+                                .background(Brush.horizontalGradient(listOf(hintColor, Color.Transparent))),
+                        )
+                    } else {
+                        Box(
+                            Modifier
+                                .align(Alignment.CenterEnd)
+                                .fillMaxHeight()
+                                .width(10.dp)
+                                .background(Brush.horizontalGradient(listOf(Color.Transparent, hintColor))),
+                        )
+                    }
+                }
+                // 跨周药片(幽灵): 翻周后被拖的块还画在另一周的页面上, 本页(=拖拽当前周)看不到它。
+                // 在本页网格坐标按同一套视觉公式渲染幽灵药片 (跟随 raw/回弹/钉住), 与原页药片互斥:
+                // 拖拽周页面有块本体就不画幽灵, 翻回原周时自动切回块本体。
+                val dragBlock = drag.block
+                val ghostBlock = dragBlock?.takeIf {
+                    week == drag.dragWeek &&
+                        blocksByDay.values.none { list -> list.any { b -> b === dragBlock } }
+                }
+                ghostBlock?.let { gb ->
+                    val gcs = MaterialTheme.colorScheme
+                    val gDark = CourseColors.isDark(gcs)
+                    val seed = CourseColors.seedOf(gb.course.kc, gb.course.fx)
+                    val container = CourseColors.container(gcs, seed, colorMap[seed])
+                    val onContainer = CourseColors.onContainer(gcs, seed, colorMap[seed])
+                    val gShape = RoundedCornerShape(12.dp)
+                    val gh = yBottomJc(gb.startJc + gb.span - 1) - yOfJc(gb.startJc) - 4.dp
+                    Box(
+                        Modifier
+                            .graphicsLayer {
+                                scaleX = PILL_SCALE
+                                scaleY = PILL_SCALE
+                                shadowElevation = 6f
+                            }
+                            .offset {
+                                val v = visualOf(gb)
+                                IntOffset(
+                                    ((gb.course.day - 1) * colW + v.x).roundToInt(),
+                                    ((yOfJc(gb.startJc) + 2.dp).toPx() + v.y).roundToInt(),
+                                )
+                            }
+                            .width(colWidthDp)
+                            .height(gh)
+                            .shadow(if (gDark) 0.dp else 2.dp, gShape)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(lerp(container, Color.White, if (gDark) 0.08f else 0.12f), container),
+                                ),
+                                gShape,
+                            ),
+                    ) {
+                        Column(Modifier.padding(horizontal = 3.dp, vertical = 4.dp)) {
+                            Text(
+                                gb.course.kc,
+                                fontSize = 9.5.sp, lineHeight = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = onContainer,
+                                maxLines = 6, overflow = TextOverflow.Ellipsis,
+                            )
+                            if (gb.course.room.isNotEmpty()) {
+                                Text(
+                                    gb.course.room,
+                                    fontSize = 8.sp, lineHeight = 10.sp,
+                                    color = onContainer.copy(alpha = 0.85f),
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -731,7 +1104,15 @@ private fun DayColumn(
     blocks: List<Block>,
     colorMap: Map<String, Int>,
     shimmer: State<Float>?,
+    drag: DragHost,
+    visualOf: (Block) -> Offset,
+    liftOf: (Block) -> Float,
+    onDragStart: (Block, Float) -> Unit,   // Float = 抓握点在块内的 x (px), 供边缘翻周绝对列号计算
+    onDragMove: (Block, Offset) -> Unit,
+    onDragEnd: (Block) -> Unit,
+    onDragCancel: () -> Unit,
     onCourseClick: (Block) -> Unit,
+    onAddAt: (Int, Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -759,7 +1140,7 @@ private fun DayColumn(
                 )
             }
         }
-        // 大节空槽框线
+        // 大节空槽框线 (点击空白格 = 在此添加课程)
         for (k in 0 until model.slots) {
             Box(
                 Modifier
@@ -770,6 +1151,28 @@ private fun DayColumn(
                     .border(
                         1.dp,
                         MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                        RoundedCornerShape(12.dp),
+                    )
+                    .clickable { onAddAt(day, model.jcRange[k].first) },
+            )
+        }
+        // 拖拽落点吸附预览: 目标位置实时高亮
+        val dSpan = drag.block?.span
+        if (!drag.settling && dSpan != null && drag.targetDay == day) {
+            val ty = yOfJc(drag.targetJc)
+            val th = yBottomJc(drag.targetJc + dSpan - 1) - ty - 4.dp
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .offset(y = ty + 2.dp)
+                    .height(th)
+                    .background(
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                        RoundedCornerShape(12.dp),
+                    )
+                    .border(
+                        2.dp,
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
                         RoundedCornerShape(12.dp),
                     ),
             )
@@ -785,7 +1188,22 @@ private fun DayColumn(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .offset(y = top + 2.dp)
+                    .graphicsLayer {
+                        val p = liftOf(b)
+                        if (p > 0.01f) {
+                            val s = 1f + (PILL_SCALE - 1f) * p
+                            scaleX = s
+                            scaleY = s
+                            shadowElevation = 6f * p
+                        }
+                    }
+                    .offset {
+                        val v = visualOf(b)
+                        IntOffset(
+                            v.x.roundToInt(),
+                            (top + 2.dp).roundToPx() + v.y.roundToInt(),
+                        )
+                    }
                     .height(h)
                     .shadow(if (dark) 0.dp else 2.dp, shape)
                     .background(
@@ -794,7 +1212,18 @@ private fun DayColumn(
                         ),
                         shape,
                     )
-                    .clickable { onCourseClick(b) },
+                    .clickable { onCourseClick(b) }
+                    .pointerInput(b) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { pos -> onDragStart(b, pos.x) },
+                            onDrag = { change, amt ->
+                                change.consume()
+                                onDragMove(b, amt)
+                            },
+                            onDragEnd = { onDragEnd(b) },
+                            onDragCancel = { onDragCancel() },
+                        )
+                    },
             ) {
                 if (isToday) shimmer?.let { st ->
                     Box(
@@ -822,14 +1251,24 @@ private fun DayColumn(
                         )
                     }
                 }
+                // 用户改过/自建的课: 右上角小圆点标识
+                if (b.course.editId != null) {
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(3.dp)
+                            .size(4.dp)
+                            .background(onContainer.copy(alpha = 0.85f), CircleShape),
+                    )
+                }
             }
         }
     }
 }
 
-/** 流光笔刷: x∈[0,1] 为相位, alpha 为白光强度 */
+/** 流光笔刷: x∈[0,1] 为相位, 0=屏外左 1=屏外右(全程穿屏, 循环重置不可见), alpha 为白光强度 */
 private fun colShimmer(x: Float, alpha: Float): Brush = Brush.linearGradient(
     listOf(Color.Transparent, Color.White.copy(alpha = alpha), Color.Transparent),
-    start = Offset(x * 1400f - 400f, -120f),
-    end = Offset(x * 1400f, 520f),
+    start = Offset(x * 2400f - 500f, -120f),
+    end = Offset(x * 2400f - 100f, 520f),
 )
