@@ -41,6 +41,17 @@ data class Block(
     val span: Int,
     val rooms: String = "",     // 跨节合并后汇总的教室(最多显示2个)
     val teachers: String = "",
+    /**
+     * 拥有 [course.editId] 的那个 session 的节数(行数)。
+     * 契约:
+     * - 未融合的单行块: editSpan == span;
+     * - 全由原始行(editId=null)组成的融合块: editSpan == span;
+     * - 块头取到被修改行(editId!=null)的融合块: editSpan = 同 editId 的行数,
+     *   editSpan < span 表示块里混入了其它 session 的行(可能未修改, 也可能属于另一条修改),
+     *   还原/再拖时只作用于 editSpan 对应的那一段;
+     * - 0 = 未指定(旧调用方/默认构造), 调用方按 span 处理。
+     */
+    val editSpan: Int = 0,
 )
 
 object Merger {
@@ -62,11 +73,19 @@ object Merger {
             var prev = start
             fun flush(s: Int, e: Int) {
                 val seg = list.filter { it.jc in s..e }
+                val span = e - s + 1
                 val rooms = seg.map { it.room }.filter { it.isNotBlank() }
                     .distinct().take(2).joinToString("/")
                 val teachers = seg.map { it.teacher }.filter { it.isNotBlank() }
                     .distinct().take(2).joinToString("/")
-                out += Block(seg.first(), s, e - s + 1, rooms, teachers)
+                // 块头优先取被本地修改过的行: effective 视图里 edited 行排在原始行之后,
+                // 融合块混有两者时 seg.first() 会取到原始行(editId=null), 详情页判不出
+                // editKind 导致还原按钮消失; 取 edited 行后还原即拆开归位
+                val course = seg.firstOrNull { it.editId != null } ?: seg.first()
+                val editSpan = if (course.editId != null)
+                    seg.count { it.editId == course.editId }.coerceIn(1, span)
+                else span
+                out += Block(course, s, span, rooms, teachers, editSpan)
             }
             for (i in 1 until jcs.size) {
                 val jc = jcs[i]

@@ -111,7 +111,6 @@ import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
-import kotlin.math.max
 import kotlin.math.roundToInt
 
 private val BREAK_H = 22.dp      // 大课间(午休/晚饭)分隔带高度
@@ -122,14 +121,18 @@ private val LEFT_W = 34.dp
  *  累计位移必须按它还原成屏幕位移, 否则药片永远比手指慢 4.8%, 贴边翻周永远差一截 */
 private const val PILL_SCALE = 1.05f
 
+/** 拖拽块的生效节数: 本地编辑会话可能只占融合连堂的一部分(Weeks.editSpan), 未指定(0/越界)按原始 span 处理 */
+private fun Block.effSpan(): Int = if (editSpan in 1..span) editSpan else span
+
 /**
  * 长按拖拽换位的会话状态 (ScheduleScreen 级, 全周页共享)。
- * raw: 拖拽中相对课程原位置的累计位移, 松手后作为回弹动画起点;
+ * raw: 拖拽中相对课程原位置的累计位移 (松手即落位, 不再作为回弹起点);
  * anchorDay: 锚定列, 初始 = 课程原 day, 拖到边缘翻周后重置为新页最边列,
  *            拖拽中药片视觉 = raw + (anchorDay - 课程原day) × 列宽;
  * targetDay/targetJc: 吸附目标槽位;
- * targetOffset: 回弹动画终点 (新槽位相对原槽位的偏移, px);
- * pendingMove: 待提交的移动, 回弹动画结束后才调 onMoveBlock ——
+ * settleStart/targetOffset: 松手帧药片的最终视觉偏移 (落位取目标槽位偏移, 原地归位取零),
+ *                           两者相等 → settle 协程 snapTo 后 animateTo 瞬时完成;
+ * pendingMove: 待提交的移动, settle 结束后才调 onMoveBlock ——
  *              提交瞬间数据位置变化与视觉归零同帧重合, 彻底消除松手帧跳。
  */
 private class DragHost {
@@ -143,7 +146,7 @@ private class DragHost {
     var settling by mutableStateOf(false)
     var targetOffset by mutableStateOf(Offset.Zero)
     var pendingMove by mutableStateOf<Triple<Block, Int, Int>?>(null)
-    // 回弹首帧: dragEnd 在手势线程同步算好回弹起点, 协程 snapTo 前的重组帧不会闪回原位
+    // 松手首帧: dragEnd 在手势线程同步算好最终视觉偏移, 协程 snapTo 前的重组帧不会闪回原位
     var settleStart by mutableStateOf(Offset.Zero)
     var settleStarted by mutableStateOf(false)
     // 提交钉住: 回弹动画结束后数据还没落地(异步 IO), 视觉钉在新槽位等 dataTick 同帧换块,
@@ -158,6 +161,11 @@ private class DragHost {
     var flipInProgress by mutableStateOf(false)
     // 最近一次手势活动时间 (System.nanoTime), 供看门狗判断手势协程是否已被翻页连带杀死
     var lastActiveAt: Long = 0L
+    // 本次拖拽的起始周: 数据层一次移动对所有周生效, 跨周松手落课会误改其它周的课,
+    // 故翻周拖拽只看不放 —— 松手一律切回 originWeek 原地归位, 不提交移动
+    var originWeek by mutableIntStateOf(0)
+    // 大于 0 时自动翻回的目标周: 跨周导航松手后由 LaunchedEffect 消费(把镜头带回起始周)后清零
+    var flipBackTo by mutableIntStateOf(0)
 }
 
 private fun minutes(t: String): Int {
@@ -412,7 +420,8 @@ private fun TodayBar(
     haze: HazeState? = null,
     modifier: Modifier = Modifier,
 ) {
-    // 上课中: 一层缓慢扫过的微光, Material You 流光感 (仅此状态开动画)
+    // 上课中: 一层缓慢扫过的微光, Material You 流光感 (仅此状态开动画); 浅色底改用黑光带才可见
+    val dark = CourseColors.isDark(MaterialTheme.colorScheme)
     val shimmer = if (status.tone == TodayStatus.Tone.ACTIVE) {
         val t = rememberInfiniteTransition(label = "kbShimmer")
         val x by t.animateFloat(
@@ -428,7 +437,7 @@ private fun TodayBar(
             ),
             label = "kbShimmerX",
         )
-        colShimmer(x, 0.20f)
+        colShimmer(x, 0.20f, dark)
     } else null
 
     Surface(
@@ -660,7 +669,7 @@ private fun WeekGrid(
             yTop[nowSlotIdx] + slotH(nowSlotIdx) * frac
         } else null
 
-        // ---- 长按拖拽换位: 锚定列吸附 + 松手先回弹、动画结束才提交移动 (无帧跳) ----
+        // ---- 长按拖拽换位: 锚定列吸附 + 松手即落位、settle 结束才提交移动 (无帧跳) ----
         val density = LocalDensity.current
         val haptic = LocalHapticFeedback.current
         val settleAnim = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
@@ -668,9 +677,9 @@ private fun WeekGrid(
         val colW = with(density) { ((maxWidth - LEFT_W) / 7).toPx() }
         // 单列宽(Dp): 跨周幽灵药片的宽度用 (与 DayColumn 列内块等宽, 减左右各 1dp)
         val colWidthDp = (maxWidth - LEFT_W) / 7 - 2.dp
-        // 松手回弹: 从当前视觉位置弹到 targetOffset(= 新槽位相对原槽位的偏移)。
+        // 松手即落位: settleStart 已由 dragEnd 同步定为最终视觉位置(落位偏移或零),
+        // 协程 snapTo 后 animateTo(同值) 瞬时完成, 药片不再从松手点滑向目标格。
         // 只在拖拽周所在页执行, 其余页的组合里直接返回, 避免重复动画/重复提交。
-        // 回弹起点用 dragEnd 同步算好的 settleStart: 协程跑起来前的重组帧不会闪回原位。
         LaunchedEffect(drag.settling) {
             if (!drag.settling || week != drag.dragWeek) return@LaunchedEffect
             settleAnim.snapTo(drag.settleStart)
@@ -691,6 +700,7 @@ private fun WeekGrid(
                 drag.raw = Offset.Zero
                 drag.edgeHint = 0
                 drag.flipLock = 0
+                drag.originWeek = 0
                 drag.pendingMove = null
             } else {
                 // 钉住视觉在新槽位, 先提交移动; 新数据(cls.courses)落地那一帧,
@@ -708,6 +718,7 @@ private fun WeekGrid(
                 drag.raw = Offset.Zero
                 drag.edgeHint = 0
                 drag.flipLock = 0
+                drag.originWeek = 0
                 drag.pendingMove = null
             }
         }
@@ -729,6 +740,13 @@ private fun WeekGrid(
                     drag.flipLock = dir
                 }
                 drag.edgeHint = 0
+            }
+        }
+        // 跨周导航松手后自动翻回起始周: 药片已原地归位, 翻页只是把镜头带回去
+        LaunchedEffect(drag.flipBackTo) {
+            if (drag.flipBackTo > 0 && week == drag.dragWeek) {
+                pagerState.animateScrollToPage(drag.flipBackTo - 1)
+                drag.flipBackTo = 0
             }
         }
         // 兜底看门狗: 若手势协程被意外取消, onDragEnd/onDragCancel 都不会再回调,
@@ -760,19 +778,11 @@ private fun WeekGrid(
                 drag.raw.y,
             )
         }
-        // 抬升程度 0..1: 拖拽中 1, 松手回弹随位移衰减, 钉住等待提交时已落地
+        // 抬升程度 0..1: 拖拽中 1, 松手即落位/钉住等待提交均视为已落地 → 0
         val liftOf: (Block) -> Float = { b ->
             val d = drag.block
             if (d != null && b == d && week == drag.dragWeek) {
-                when {
-                    drag.pinning -> 0f
-                    drag.settling -> {
-                        val start = drag.settleStart
-                        ((settleAnim.value - drag.targetOffset).getDistance() /
-                            max((start - drag.targetOffset).getDistance(), 1f)).coerceIn(0f, 1f)
-                    }
-                    else -> 1f
-                }
+                if (drag.pinning || drag.settling) 0f else 1f
             } else 0f
         }
         val dragStart: (Block, Float) -> Unit = { b, grabX ->
@@ -788,6 +798,7 @@ private fun WeekGrid(
                 drag.targetDay = b.course.day
                 drag.targetJc = b.startJc
                 drag.dragWeek = week
+                drag.originWeek = week   // 跨周只看不放: 记住起始周, 松手据此回切
                 drag.block = b
                 drag.lastActiveAt = System.nanoTime()
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -800,7 +811,8 @@ private fun WeekGrid(
             } else {
                 // amt 在 1.05 缩放空间里, 换算回屏幕位移再累计 (见 PILL_SCALE 注释)
                 drag.raw += amt * PILL_SCALE
-                val span = drag.block?.span ?: b.span
+                // 目标节数用生效节数(编辑会话可能只占连堂一部分, 见 effSpan), 吸附范围随之放宽
+                val span = drag.block?.effSpan() ?: b.span
                 // 列吸附: 锚定列 + 累计位移换算成 0-based 连续列, 四舍五入得目标天
                 val col = (drag.anchorDay - 1) + drag.raw.x / colW
                 drag.targetDay = (col.roundToInt() + 1).coerceIn(1, 7)
@@ -827,23 +839,26 @@ private fun WeekGrid(
             }
         }
         val dragEnd: (Block) -> Unit = { b ->
-            // 翻周后锁未解(没往回拖进网格)就松手 = 纯翻周导航:
-            // 药片弹回原位, 不提交移动 —— 否则会把课误落到锚定列(周一/周日),
-            // 正好压在另一周同一时间的课上, 后续拖拽也会因为叠块抓错而"改不动"
-            val navigating = drag.flipLock != 0
+            // 跨周只看不放: 翻到别的周的拖拽只用于查看(含翻周后锁未解的纯导航),
+            // 松手一律不提交移动 —— 数据层一次移动对所有周生效, 落课必改其它周的课。
+            // 药片在起始周原地归位, 并由 flipBackTo effect 自动翻页把镜头带回起始周。
+            val navigating = drag.flipLock != 0 || drag.dragWeek != drag.originWeek
             val moved = !navigating &&
                 (drag.targetDay != b.course.day || drag.targetJc != b.startJc)
-            // 回弹起点同步算好: 协程 snapTo 前的重组帧直接用它, 不闪回原位
-            drag.settleStart = Offset(
-                drag.raw.x + (drag.anchorDay - b.course.day) * colW,
-                drag.raw.y,
-            )
-            // 回弹终点 = 新槽位相对原槽位的偏移; 提交后数据落在新槽位, 视觉偏移正好归零
-            drag.targetOffset = with(density) {
-                if (moved) Offset(
+            // 松手帧的最终视觉偏移 (= settleStart = targetOffset): 落位取目标槽位偏移,
+            // 否则取零 —— 协程 snapTo 后 animateTo 同值瞬时完成, 药片直接出现在最终位置不滑行
+            val target = with(density) {
+                Offset(
                     (drag.targetDay - b.course.day) * colW,
                     (yOfJc(drag.targetJc) - yOfJc(b.startJc)).toPx(),
-                ) else Offset.Zero
+                )
+            }
+            drag.settleStart = if (moved) target else Offset.Zero
+            drag.targetOffset = drag.settleStart
+            if (navigating && drag.dragWeek != drag.originWeek) {
+                // 拖拽周切回起始周: 本页幽灵消失, 起始周块本体原地归位(视觉零偏移)
+                drag.dragWeek = drag.originWeek
+                drag.flipBackTo = drag.originWeek
             }
             drag.pendingMove = if (moved) Triple(b, drag.targetDay, drag.targetJc) else null
             drag.settling = true
@@ -926,6 +941,7 @@ private fun WeekGrid(
                             DayColumn(
                                 day = day,
                                 isToday = day == todayDay && isCurrentWeek,
+                                showTarget = week == drag.originWeek,
                                 model = model,
                                 yTop = yTop,
                                 slotH = slotH,
@@ -996,9 +1012,18 @@ private fun WeekGrid(
                 // 跨周药片(幽灵): 翻周后被拖的块还画在另一周的页面上, 本页(=拖拽当前周)看不到它。
                 // 在本页网格坐标按同一套视觉公式渲染幽灵药片 (跟随 raw/回弹/钉住), 与原页药片互斥:
                 // 拖拽周页面有块本体就不画幽灵, 翻回原周时自动切回块本体。
+                // landed 门控: 提交钉住期间新块可能已在本页异步落地, 此帧幽灵与新落位块同格,
+                // 再画就是一帧双影 —— 检测到落位新块即停画幽灵。
                 val dragBlock = drag.block
+                // span 用 effSpan 比对: 混合融合块(kind=0 自建+学校同 key)提交只搬自建 session,
+                // 落地块的 span == effSpan 而不是整块 span, 按整块比会漏判 → 落地帧双影
+                val landed = dragBlock != null && drag.pinning &&
+                    (blocksByDay[drag.targetDay]?.any {
+                        it.course.kc == dragBlock.course.kc && it.course.day == drag.targetDay &&
+                            it.startJc == drag.targetJc && it.span == dragBlock.effSpan()
+                    } == true)
                 val ghostBlock = dragBlock?.takeIf {
-                    week == drag.dragWeek &&
+                    week == drag.dragWeek && !landed &&
                         blocksByDay.values.none { list -> list.any { b -> b === dragBlock } }
                 }
                 ghostBlock?.let { gb ->
@@ -1101,6 +1126,7 @@ private fun DayHeader(day: Int, date: String, isToday: Boolean, modifier: Modifi
 private fun DayColumn(
     day: Int,
     isToday: Boolean,
+    showTarget: Boolean,   // 是否渲染拖拽吸附高亮: 只在起始周页(跨周只看不放, 其它周不画落点)
     model: SlotModel,
     yTop: List<Dp>,
     slotH: (Int) -> Dp,
@@ -1141,7 +1167,7 @@ private fun DayColumn(
                     Modifier
                         .matchParentSize()
                         .clip(todayShape)
-                        .background(colShimmer(st.value, 0.08f)),
+                        .background(colShimmer(st.value, 0.08f, dark)),
                 )
             }
         }
@@ -1162,9 +1188,10 @@ private fun DayColumn(
             )
         }
         // 拖拽落点吸附预览: 目标位置实时高亮 —— 从拖拽开始一直亮到数据落地随块一起消失,
-        // 期间 (回弹/钉住) 绝不能隐藏, 否则放置瞬间高亮"灭→亮→灭"两连闪 = 用户看到的闪烁抽搐
-        val dSpan = drag.block?.span
-        if (dSpan != null && drag.targetDay == day) {
+        // 期间 (落位/钉住) 绝不能隐藏, 否则放置瞬间高亮"灭→亮→灭"两连闪 = 用户看到的闪烁抽搐。
+        // 只在起始周页渲染 (showTarget), 高亮节数用生效节数(编辑会话可能只占连堂一部分)
+        val dSpan = drag.block?.effSpan()
+        if (dSpan != null && showTarget && drag.targetDay == day) {
             val ty = yOfJc(drag.targetJc)
             val th = yBottomJc(drag.targetJc + dSpan - 1) - ty - 4.dp
             Box(
@@ -1236,7 +1263,7 @@ private fun DayColumn(
                         Modifier
                             .matchParentSize()
                             .clip(shape)
-                            .background(colShimmer(st.value, 0.14f)),
+                            .background(colShimmer(st.value, 0.14f, dark)),
                     )
                 }
                 Column(Modifier.padding(horizontal = 3.dp, vertical = 4.dp)) {
@@ -1272,9 +1299,14 @@ private fun DayColumn(
     }
 }
 
-/** 流光笔刷: x∈[0,1] 为相位, 0=屏外左 1=屏外右(全程穿屏, 循环重置不可见), alpha 为白光强度 */
-private fun colShimmer(x: Float, alpha: Float): Brush = Brush.linearGradient(
-    listOf(Color.Transparent, Color.White.copy(alpha = alpha), Color.Transparent),
+/** 流光笔刷: x∈[0,1] 为相位, 0=屏外左 1=屏外右(全程穿屏, 循环重置不可见), alpha 为光带强度;
+ *  深色底用白光带, 浅色底白光不可见 → 改用黑光带(强度×0.6) */
+private fun colShimmer(x: Float, alpha: Float, dark: Boolean): Brush = Brush.linearGradient(
+    listOf(
+        Color.Transparent,
+        (if (dark) Color.White else Color.Black).copy(alpha = if (dark) alpha else alpha * 0.6f),
+        Color.Transparent,
+    ),
     start = Offset(x * 2400f - 500f, -120f),
     end = Offset(x * 2400f - 100f, 520f),
 )
