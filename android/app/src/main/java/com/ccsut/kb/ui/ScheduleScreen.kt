@@ -678,7 +678,7 @@ private fun WeekGrid(
             settleAnim.animateTo(
                 drag.targetOffset,
                 spring(
-                    dampingRatio = 0.78f,
+                    dampingRatio = 1f,   // 临界阻尼: 平滑滑入无过冲 (欠阻尼会冲过头再晃回来 = 抽搐)
                     stiffness = Spring.StiffnessMediumLow,
                     visibilityThreshold = Offset(1f, 1f),
                 ),
@@ -816,7 +816,7 @@ private fun WeekGrid(
                 val fingerCol = (drag.anchorDay - 1) + drag.grabFrac + drag.raw.x / colW
                 drag.edgeHint = when {
                     drag.flipLock != 0 -> 0
-                    fingerCol > 6.8f -> 1      // 手指贴到网格右缘(=屏幕右缘, 留出边缘拒识余量)
+                    fingerCol > 6.35f -> 1     // 右缘 ~90px 内即触发 (真机边缘拒识区比模拟器宽, 阈值太贴边永远够不到)
                     fingerCol < -0.42f -> -1   // 手指压到屏幕左缘(左侧时间轴宽 0.63 列)
                     else -> 0
                 }
@@ -827,7 +827,12 @@ private fun WeekGrid(
             }
         }
         val dragEnd: (Block) -> Unit = { b ->
-            val moved = drag.targetDay != b.course.day || drag.targetJc != b.startJc
+            // 翻周后锁未解(没往回拖进网格)就松手 = 纯翻周导航:
+            // 药片弹回原位, 不提交移动 —— 否则会把课误落到锚定列(周一/周日),
+            // 正好压在另一周同一时间的课上, 后续拖拽也会因为叠块抓错而"改不动"
+            val navigating = drag.flipLock != 0
+            val moved = !navigating &&
+                (drag.targetDay != b.course.day || drag.targetJc != b.startJc)
             // 回弹起点同步算好: 协程 snapTo 前的重组帧直接用它, 不闪回原位
             drag.settleStart = Offset(
                 drag.raw.x + (drag.anchorDay - b.course.day) * colW,
@@ -835,10 +840,10 @@ private fun WeekGrid(
             )
             // 回弹终点 = 新槽位相对原槽位的偏移; 提交后数据落在新槽位, 视觉偏移正好归零
             drag.targetOffset = with(density) {
-                Offset(
+                if (moved) Offset(
                     (drag.targetDay - b.course.day) * colW,
                     (yOfJc(drag.targetJc) - yOfJc(b.startJc)).toPx(),
-                )
+                ) else Offset.Zero
             }
             drag.pendingMove = if (moved) Triple(b, drag.targetDay, drag.targetJc) else null
             drag.settling = true
@@ -1156,9 +1161,10 @@ private fun DayColumn(
                     .clickable { onAddAt(day, model.jcRange[k].first) },
             )
         }
-        // 拖拽落点吸附预览: 目标位置实时高亮
+        // 拖拽落点吸附预览: 目标位置实时高亮 —— 从拖拽开始一直亮到数据落地随块一起消失,
+        // 期间 (回弹/钉住) 绝不能隐藏, 否则放置瞬间高亮"灭→亮→灭"两连闪 = 用户看到的闪烁抽搐
         val dSpan = drag.block?.span
-        if (!drag.settling && dSpan != null && drag.targetDay == day) {
+        if (dSpan != null && drag.targetDay == day) {
             val ty = yOfJc(drag.targetJc)
             val th = yBottomJc(drag.targetJc + dSpan - 1) - ty - 4.dp
             Box(
