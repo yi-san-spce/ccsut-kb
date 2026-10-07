@@ -397,7 +397,9 @@ object CasClient {
      * 返回 null = CAS 会话仍有效(直接带票跳去了 service), aTrust 会话已顺带建立, 可免短信直接拉课表。
      */
     fun openLoginPage(): String? {
-        val r = get("$CAS_LOGIN_URL?service=${URLEncoder.encode(CAS_SERVICE, "UTF-8")}")
+        // followJsRedirects=false: 只跟 HTTP 302 (CAS→auth/cas→shortcut 全程 302),
+        // 停在 shortcut 页本身 —— 否则 JS 跟进会把 r.url 带离 shortcut, 下面的处理永远不触发
+        val r = request("GET", "$CAS_LOGIN_URL?service=${URLEncoder.encode(CAS_SERVICE, "UTF-8")}", followJsRedirects = false)
         val host = runCatching { URL(r.url).host }.getOrDefault("")
         val html = r.text()
         if (html.contains("75500006") || html.contains("当前账号已在线")) {
