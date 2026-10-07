@@ -12,10 +12,13 @@ android/                     # 安卓工程 (Gradle 根)
       data/Models.kt         # 数据模型 + JSON 解析 + 本地仓库
       data/Updater.kt        # 清单/下载/sha256 校验/APK 安装
       data/ClassCache.kt     # 当前班级轻量快照 (小组件/提醒用, 免解析 4MB 全量)
+      data/CasClient.kt      # 教务登录 HTTP 客户端 (CAS 短信登录 + cookie jar + 手动跨域重定向)
+      data/PersonalRepo.kt   # 个人课表拉取/解析 (sdpkkbList→Course) + 内存仓库
+      data/PersonalCache.kt  # 个人课表缓存 (personal_cache.json, 不含凭据)
       data/BgStore.kt        # 课表背景图 (相册压缩转存/解码/删除)
       reminder/Reminder.kt   # 课前提醒: AlarmManager 链式调度 + 通知 + Receiver
       widget/WidgetProvider.kt  # 今日课程桌面小组件
-      ui/                    # Compose 界面 (课表/选班/弹层/主题)
+      ui/                    # Compose 界面 (课表/选班/弹层/主题/教务登录)
       util/Weeks.kt          # 周次计算 + 连堂合并
 data/                        # 抓取产物 (数据集 + latest.json 清单)
 scripts/scrape.py            # 全量抓取脚本 (见 docs/api.md)
@@ -99,6 +102,18 @@ v2.0.2 修复:
 - 跨周翻页: 屏幕左右边缘悬停 500ms 自动翻周 (按「手指绝对列号」判定, 翻周后 `flipInProgress` 冻结位移累计防假位移); 药片在新页渲染为「幽灵药片」, 与原页块本体互斥
 - 松手回弹 spring → 动画结束「钉住」在新槽位 (`pinning`) → 异步提交 → 新数据落地同帧解除, 无闪烁
 - 看门狗兜底: 手势协程意外死亡 6s 后强制回弹复位
+
+## 个人课表 (v2.7.0)
+
+**登录教务账号查看专属课表**——纯 `HttpURLConnection` 爬虫实现 (无 WebView/无网络库), 全链路逆向见 `docs/api-personal.md`:
+
+- **登录链路**: CAS 统一身份认证 (auth.ccsut.cn) 手机号/学号 + 短信验证码 → aTrust 零信任网关 (zts.ccsut.cn) 验票建会话 → `/admin/caslogin` 整条重定向链重建教务会话; 手动跨域跟随重定向 + 自建内存 cookie jar (按 host 收 Set-Cookie, 不落盘)
+- **短信登录的关键姿势**: 发码 `POST /backstage/auth/verificationCode/sendCode?username=<账号>&domain=auth.ccsut.cn` (JSON); 提交是**经典表单 POST** 而非 JSON——`password = "phone_msg###<验证码>"` 魔法串 (带此前缀不走 AES 加密), 带 CAS webflow `execution` key (从登录页 HTML 的 `bridgeData` 提取) 与 `_eventId=submit`
+- **单会话策略**: 同账号只允许一个 aTrust 在线会话, 已在线时报 `75500006`「当前账号已在线」; 会话关闭后服务器侧残留约 3 分钟 → 设计为「登录→立即拉全量→本地缓存, 刷新需重新验证码登录」
+- **数据**: `queryKbForXsd` 页面提取 `xhid`(加密学号令牌)/学期/姓名 → `getZclistByXnxq`(开学日/总周数/节次时间, 自包含不依赖班级数据集) → `sdpkkbList`(一次拉整学期, 每条=一个「星期×节次」格, `kcmc/tmc/croommc` 含 HTML 需剥离, `zcstr` 已是展开周次) —— 「每节一行」形态与 Merger 连堂合并天然兼容
+- **零改动复用**: 个人课表用伪班级 id `PERSONAL` 包成 `Cls`, ScheduleScreen/Merger/配色/TodayStatus/小组件/提醒/UserEdits(本地编辑按 bjid 键控) 全部原样工作; 周次/作息构造伪 `Dataset` 传入渲染层
+- **切换语义**: `Prefs.active_timetable` = `class`/`personal`; `ClassCache.save` 按当前模式刷写快照, 小组件/提醒跟随当前生效课表; 登录成功默认切个人课表, 「更多 → 个人课表」可切换/刷新/退出
+- **隐私**: Cookie 只存内存, 退出/杀进程即清; 仅学号(预填)、姓名、同步时间进 SharedPreferences; 课表缓存 `personal_cache.json` 不含凭据
 
 ## 工具链
 

@@ -11,8 +11,8 @@ android {
         applicationId "com.ccsut.kb"
         minSdk 31
         targetSdk 36
-        versionCode 16
-        versionName "2.6.1"
+        versionCode 17
+        versionName "2.7.0"
     }
 
     signingConfigs {

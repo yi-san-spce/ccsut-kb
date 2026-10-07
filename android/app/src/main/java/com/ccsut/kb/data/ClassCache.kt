@@ -24,8 +24,18 @@ object ClassCache {
 
     private const val FILE = "class_cache.json"
 
-    /** APP 侧调用: 把 Repo 生效班级(原始数据+用户本地修改)写成快照; 未选班则删除快照 */
+    /** APP 侧调用: 把当前生效课表写成快照; 未选班且无个人课表则删除快照 */
     fun save(ctx: Context) {
+        // 个人课表生效时: 快照直接来自 PersonalRepo (含 UserEdits 覆盖层), 小组件/提醒零改动
+        if (Prefs.activeTimetable(ctx) == PersonalRepo.PERSONAL_KEY) {
+            val d = PersonalRepo.current ?: run { ctx.deleteFile(FILE); return }
+            val cls = PersonalRepo.effectiveCls() ?: run { ctx.deleteFile(FILE); return }
+            saveSnapshot(
+                ctx, bjid = PersonalRepo.PERSONAL_BJID, bjmc = cls.bjmc, version = 0,
+                startDate = d.startDate, weeks = d.weeks, periods = d.periods, courses = cls.courses,
+            )
+            return
+        }
         val ds = Repo.dataset
         val id = Prefs.bjid(ctx)
         if (ds == null || id == null) {
@@ -37,17 +47,33 @@ object ClassCache {
             ctx.deleteFile(FILE)
             return
         }
+        saveSnapshot(
+            ctx, bjid = id, bjmc = cls.bjmc, version = ds.version,
+            startDate = ds.startDate, weeks = ds.weeks, periods = ds.periods, courses = cls.courses,
+        )
+    }
+
+    private fun saveSnapshot(
+        ctx: Context,
+        bjid: String,
+        bjmc: String,
+        version: Int,
+        startDate: String,
+        weeks: Int,
+        periods: List<Period>,
+        courses: List<Course>,
+    ) {
         val root = JSONObject()
-            .put("bjid", id)
-            .put("bjmc", cls.bjmc)
-            .put("version", ds.version)
-            .put("startDate", ds.startDate)
-            .put("weeks", ds.weeks)
+            .put("bjid", bjid)
+            .put("bjmc", bjmc)
+            .put("version", version)
+            .put("startDate", startDate)
+            .put("weeks", weeks)
         root.put("periods", JSONArray().apply {
-            ds.periods.forEach { p -> put(JSONObject().put("jc", p.jc).put("start", p.start).put("end", p.end)) }
+            periods.forEach { p -> put(JSONObject().put("jc", p.jc).put("start", p.start).put("end", p.end)) }
         })
         root.put("courses", JSONArray().apply {
-            cls.courses.forEach { c ->
+            courses.forEach { c ->
                 put(
                     JSONObject()
                         .put("kc", c.kc).put("teacher", c.teacher).put("room", c.room)

@@ -124,6 +124,36 @@ object Prefs {
         sp(ctx).edit().putBoolean("onboarding_done", v).apply()
     }
 
+    // ---------------- 个人课表 ----------------
+
+    /** 当前生效课表: "class"=班级课表 "personal"=个人课表(教务登录) */
+    fun activeTimetable(ctx: Context): String = sp(ctx).getString("active_timetable", "class") ?: "class"
+
+    fun setActiveTimetable(ctx: Context, v: String) {
+        sp(ctx).edit().putString("active_timetable", v).apply()
+    }
+
+    /** 教务登录账号 (学号/手机号), 仅用于下次预填 */
+    fun casAccount(ctx: Context): String = sp(ctx).getString("cas_account", "") ?: ""
+
+    fun setCasAccount(ctx: Context, v: String) {
+        sp(ctx).edit().putString("cas_account", v.trim()).apply()
+    }
+
+    /** 教务里的学生姓名 */
+    fun studentName(ctx: Context): String = sp(ctx).getString("student_name", "") ?: ""
+
+    fun setStudentName(ctx: Context, v: String) {
+        sp(ctx).edit().putString("student_name", v.trim()).apply()
+    }
+
+    /** 上次同步个人课表的时间戳(毫秒), 0=从未同步 */
+    fun lastSyncAt(ctx: Context): Long = sp(ctx).getLong("last_sync_at", 0L)
+
+    fun setLastSyncAt(ctx: Context, v: Long) {
+        sp(ctx).edit().putLong("last_sync_at", v).apply()
+    }
+
     // ---------------- 开发者模式 ----------------
 
     fun devMode(ctx: Context): Boolean = sp(ctx).getBoolean("dev_mode", false)

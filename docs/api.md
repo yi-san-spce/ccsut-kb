@@ -3,6 +3,9 @@
 > 站点 `tls.ccsut.cn` 在深信服 aTrust 零信任网关后面（`zts.ccsut.cn`），
 > 所有请求必须带浏览器已登录的 Cookie（存 `.session/cookie.txt`）。
 > Cookie 失效后重新在浏览器 DevTools 里复制即可，已抓的缓存不受影响。
+>
+> 本文只覆盖**班级课表离线抓取**；App 内登录教务账号拉取**个人课表**的全链路
+> （CAS 短信登录 + aTrust 网关 + 个人课表接口）见 [api-personal.md](api-personal.md)。
 
 ## 通用
 

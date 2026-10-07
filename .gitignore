@@ -1,7 +1,7 @@
-# 本机/工具
+# 本机/工具 (git 规则行不支持行内注释, 必须干净)
 .DS_Store
 .cache/
-.session/          # Cookie + Gitee 私人令牌, 绝不入库
+.session/
 .zcode/
 node_modules/
 __pycache__/

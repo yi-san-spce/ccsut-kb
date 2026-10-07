@@ -36,6 +36,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.EditCalendar
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -76,11 +77,14 @@ import com.ccsut.kb.data.Cls
 import com.ccsut.kb.data.Dataset
 import kotlinx.coroutines.delay
 
-/** 四屏欢迎向导: Slogan → 三件事 → 认识一下(昵称 + 班级抽屉) → 欢迎。全新安装首次启动展示, 右上角可跳过。 */
+/** 五屏欢迎向导: Slogan → 三件事 → 认识一下(昵称 + 班级抽屉) → 个人课表(可跳过) → 欢迎。全新安装首次启动展示, 右上角可跳过。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WelcomeScreen(
     dataset: Dataset,
+    personalLoggedIn: Boolean,
+    studentName: String,
+    onOpenLogin: () -> Unit,
     onDone: (nickname: String, classId: String) -> Unit,
     onSkip: () -> Unit,
 ) {
@@ -102,13 +106,13 @@ fun WelcomeScreen(
     ) {
         // 顶栏: 上一步 / 跳过
         Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (step in 1..2) {
+            if (step in 1..3) {
                 IconButton(onClick = { step-- }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上一步", tint = cs.onSurfaceVariant)
                 }
             }
             Spacer(Modifier.weight(1f))
-            if (step < 3) {
+            if (step < 4) {
                 TextButton(onClick = onSkip) { Text("跳过", fontSize = 14.sp, color = cs.onSurfaceVariant) }
             }
         }
@@ -138,33 +142,45 @@ fun WelcomeScreen(
                     picked = picked,
                     onPick = { classId = it },
                 )
+                3 -> PersonalBody(personalLoggedIn, studentName, onOpenLogin)
                 else -> DoneBody(nickname = nickname.trim())
             }
         }
 
-        Button(
-            onClick = {
-                when (step) {
-                    0, 1 -> step++
-                    2 -> step = 3
-                    else -> classId?.let { onDone(nickname.trim(), it) }
-                }
-            },
-            enabled = step != 2 || classId != null,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 14.dp)
-                .height(52.dp),
-        ) {
-            Text(
-                when (step) {
-                    2 -> "完成"
-                    3 -> "进入课表"
-                    else -> "继续"
+        Column {
+            Button(
+                onClick = {
+                    when (step) {
+                        0, 1 -> step++
+                        2 -> step = 3
+                        3 -> if (personalLoggedIn) step = 4 else onOpenLogin()
+                        else -> classId?.let { onDone(nickname.trim(), it) }
+                    }
                 },
-                fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-            )
+                enabled = step != 2 || classId != null,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 14.dp)
+                    .height(52.dp),
+            ) {
+                Text(
+                    when (step) {
+                        2 -> "完成"
+                        3 -> if (personalLoggedIn) "继续" else "登录教务账号"
+                        4 -> "进入课表"
+                        else -> "继续"
+                    },
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                )
+            }
+            // 个人课表步骤可跳过: 不登录也能正常使用班级课表
+            if (step == 3 && !personalLoggedIn) {
+                TextButton(
+                    onClick = { step = 4 },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("先不登录，用班级课表", fontSize = 13.sp, color = cs.onSurfaceVariant) }
+            }
         }
     }
 }
@@ -530,7 +546,60 @@ private fun GroupLabel(text: String) {
     Spacer(Modifier.height(8.dp))
 }
 
-// ---------------- 第 4 屏: 欢迎你 ----------------
+// ---------------- 第 4 屏: 个人课表(可选登录) ----------------
+
+@Composable
+private fun PersonalBody(loggedIn: Boolean, name: String, onOpenLogin: () -> Unit) {
+    var shown by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        delay(250); shown = 1
+        delay(300); shown = 2
+        delay(300); shown = 3
+    }
+    val cs = MaterialTheme.colorScheme
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 32.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Rise(shown >= 1) {
+            Icon(
+                Icons.Filled.Badge,
+                contentDescription = null,
+                tint = cs.primary,
+                modifier = Modifier.size(44.dp),
+            )
+        }
+        Spacer(Modifier.height(16.dp))
+        Rise(shown >= 2) {
+            Text(
+                "想要更完整的个人课表？",
+                fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cs.onSurface,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Rise(shown >= 3) {
+            Text(
+                "登录教务账号，选课、重修这类属于你一个人的课会一并显示。" +
+                    "登录需要一次短信验证码，不登录也完全能用，班级课表已经就绪。",
+                fontSize = 14.sp, color = cs.onSurfaceVariant, lineHeight = 22.sp,
+            )
+        }
+        if (loggedIn) {
+            Spacer(Modifier.height(14.dp))
+            Rise(true) {
+                Text(
+                    "已登录${if (name.isNotBlank()) "：$name" else ""}，之后可在「更多」里随时切换或刷新。",
+                    fontSize = 13.sp, color = cs.primary, lineHeight = 20.sp,
+                )
+            }
+        }
+    }
+}
+
+// ---------------- 第 5 屏: 欢迎你 ----------------
 
 @Composable
 private fun DoneBody(nickname: String) {

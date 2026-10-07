@@ -32,10 +32,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.FileProvider
 import com.ccsut.kb.data.BgStore
 import com.ccsut.kb.data.BuildVersion
+import com.ccsut.kb.data.CasClient
 import com.ccsut.kb.data.CheckResult
 import com.ccsut.kb.data.Cls
 import com.ccsut.kb.data.ClassCache
 import com.ccsut.kb.data.Manifest
+import com.ccsut.kb.data.PersonalRepo
 import com.ccsut.kb.data.Repo
 import com.ccsut.kb.data.Updater
 import com.ccsut.kb.data.UserEdits
@@ -45,6 +47,7 @@ import com.ccsut.kb.ui.CourseColors
 import com.ccsut.kb.ui.CourseFormSheet
 import com.ccsut.kb.ui.DevSheet
 import com.ccsut.kb.ui.KbTheme
+import com.ccsut.kb.ui.LoginScreen
 import com.ccsut.kb.ui.MoreSheet
 import com.ccsut.kb.ui.ScheduleScreen
 import com.ccsut.kb.ui.UpdateDialog
@@ -77,6 +80,16 @@ fun App() {
     var clsId by remember { mutableStateOf(Prefs.bjid(ctx)) }
     var ready by remember { mutableStateOf(Repo.dataset != null) }
     var screenChoose by remember { mutableStateOf(false) }
+
+    // ---- v2.7 功能状态: 个人课表 ----
+    // 当前生效课表 ("class"/"personal"); 个人课表用伪 bjid=PERSONAL, 渲染/编辑/小组件全链路复用
+    var active by remember { mutableStateOf(Prefs.activeTimetable(ctx)) }
+    var showLogin by remember { mutableStateOf(false) }
+    var studentName by remember { mutableStateOf(Prefs.studentName(ctx)) }
+    var lastSyncAt by remember { mutableLongStateOf(Prefs.lastSyncAt(ctx)) }
+    // remember 不能写在 && 右侧(短路会跳过组合), 先单独取
+    val hasPersonal = remember(dataTick) { PersonalRepo.hasData() }
+    val usePersonal = active == PersonalRepo.PERSONAL_KEY && hasPersonal
     // 全新安装首次启动: 欢迎引导 (老用户已选班级不弹)
     var showWelcome by remember { mutableStateOf(!Prefs.onboardingDone(ctx) && Prefs.bjid(ctx) == null) }
     var showMore by remember { mutableStateOf(false) }
@@ -150,7 +163,10 @@ fun App() {
     }
 
     LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) { if (Repo.dataset == null) Repo.load(ctx) }
+        withContext(Dispatchers.IO) {
+            if (Repo.dataset == null) Repo.load(ctx)
+            PersonalRepo.load(ctx)
+        }
         ready = true
         if (clsId == null && !showWelcome) screenChoose = true
         withContext(Dispatchers.IO) {
@@ -179,14 +195,23 @@ fun App() {
 
         // Repo.dataset / Prefs.bjid 非快照状态, 直接在局部变量里读会被 Surface 内容 lambda
         // 捕获旧值(局部重组不重算外层变量), 必须经 dataTick/clsId 在本作用域观察
-        val dataset = remember(dataTick) { Repo.dataset } ?: return@KbTheme
-        // 生效班级 = 学校原始数据 + 用户本地修改 (dataTick 变化即重算)
-        val cls: Cls? = remember(dataTick, clsId) { clsId?.let { Repo.effectiveCls(it) } }
+        val dataset = remember(dataTick, usePersonal) {
+            if (usePersonal) PersonalRepo.dataset() else Repo.dataset
+        } ?: return@KbTheme
+        // 生效课表 = 原始数据 + 用户本地修改 (dataTick 变化即重算)
+        val cls: Cls? = remember(dataTick, clsId, usePersonal) {
+            if (usePersonal) PersonalRepo.effectiveCls() else clsId?.let { Repo.effectiveCls(it) }
+        }
+        // 本地编辑覆盖层的键: 班级课表用班级 id, 个人课表用伪 id
+        val editTarget: String? = if (usePersonal) PersonalRepo.PERSONAL_BJID else clsId
 
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (showWelcome) {
                 WelcomeScreen(
                     dataset = dataset,
+                    personalLoggedIn = PersonalRepo.hasData(),
+                    studentName = studentName,
+                    onOpenLogin = { showLogin = true },
                     onDone = { name, id ->
                         Prefs.setOnboardingDone(ctx, true)
                         Prefs.setNickname(ctx, name)
@@ -228,11 +253,12 @@ fun App() {
                         bgVersion = bgTick,
                         bgAlpha = bgAlpha / 100f,
                         dbgOffset = dbgOffset,
+                        personalBadge = usePersonal,
                         onOpenMore = { showMore = true },
                         onCourseClick = { detailCourse = it },
                         onAddAt = { d, j, w -> addAt = Triple(d, j, w) },
                         onMoveBlock = { b, d, j ->
-                            val id = clsId
+                            val id = editTarget
                             if (id != null) applyEdit { UserEdits.moveBlock(ctx, id, b, d, j) }
                         },
                     )
@@ -246,7 +272,7 @@ fun App() {
             val editKind = UserEdits.editOf(block.course.editId)?.kind
             com.ccsut.kb.ui.CourseDetailSheet(
                 block = block,
-                className = clsId?.let { dataset.classes[it]?.bjmc } ?: "",
+                className = if (usePersonal) "个人课表" else clsId?.let { dataset.classes[it]?.bjmc } ?: "",
                 customIdx = colorMap[seed],
                 onPickColor = { idx ->
                     Prefs.setCourseColor(ctx, seed, idx)
@@ -256,7 +282,7 @@ fun App() {
                 onRevert = if (editKind == 1) {
                     {
                         detailCourse = null
-                        val id = clsId
+                        val id = editTarget
                         if (id != null) applyEdit { UserEdits.revertBlock(ctx, id, block) }
                         Toast.makeText(ctx, "已还原为学校课表", Toast.LENGTH_SHORT).show()
                     }
@@ -291,7 +317,7 @@ fun App() {
                 showDelete = false,
                 onSave = { f ->
                     addAt = null
-                    val id = clsId
+                    val id = editTarget
                     if (id != null) applyEdit { UserEdits.add(ctx, id, f) }
                 },
                 onDismiss = { addAt = null },
@@ -312,7 +338,7 @@ fun App() {
                 showDelete = true,
                 onSave = { f ->
                     editBlock = null
-                    val id = clsId
+                    val id = editTarget
                     if (id != null) applyEdit { UserEdits.saveBlock(ctx, id, b, f) }
                 },
                 onDelete = {
@@ -331,12 +357,30 @@ fun App() {
                 text = { Text("确定从你的课表移除「${b.course.kc}」吗？只影响你自己，不影响其他同学。") },
                 confirmButton = {
                     TextButton({
-                        val id = clsId
+                        val id = editTarget
                         if (id != null) applyEdit { UserEdits.removeBlock(ctx, id, b) }
                         delBlock = null
                     }) { Text("删除", color = MaterialTheme.colorScheme.error) }
                 },
                 dismissButton = { TextButton({ delBlock = null }) { Text("取消") } },
+            )
+        }
+
+        // ---------- 教务登录 (登录成功后默认切到个人课表) ----------
+        if (showLogin) {
+            LoginScreen(
+                initialAccount = Prefs.casAccount(ctx),
+                onDismiss = { showLogin = false },
+                onSuccess = { name ->
+                    showLogin = false
+                    studentName = name
+                    lastSyncAt = Prefs.lastSyncAt(ctx)
+                    Prefs.setActiveTimetable(ctx, PersonalRepo.PERSONAL_KEY)
+                    active = PersonalRepo.PERSONAL_KEY
+                    dataTick++
+                    resync()
+                    Toast.makeText(ctx, "已切换到${name}的个人课表", Toast.LENGTH_SHORT).show()
+                },
             )
         }
 
@@ -358,6 +402,9 @@ fun App() {
                 afterClassOn = afterClassOn,
                 earlyOn = earlyOn,
                 devMode = devMode,
+                personalActive = usePersonal,
+                personalName = studentName,
+                personalSyncedAt = lastSyncAt,
                 onThemeMode = {
                     Prefs.setThemeMode(ctx, it)
                     themeMode = it
@@ -442,6 +489,49 @@ fun App() {
                 onSelectClass = {
                     showMore = false
                     screenChoose = true
+                },
+                onOpenPersonalLogin = {
+                    showMore = false
+                    showLogin = true
+                },
+                onSwitchPersonal = { toPersonal ->
+                    if (toPersonal && !PersonalRepo.hasData()) {
+                        showMore = false
+                        showLogin = true
+                        return@MoreSheet
+                    }
+                    val v = if (toPersonal) PersonalRepo.PERSONAL_KEY else "class"
+                    Prefs.setActiveTimetable(ctx, v)
+                    active = v
+                    showMore = false
+                    dataTick++
+                    resync()
+                },
+                onRefreshPersonal = {
+                    // 教务会话短时效: 刷新 = 重新验证码登录, 登录页里有说明
+                    showMore = false
+                    showLogin = true
+                },
+                onLogoutPersonal = {
+                    showMore = false
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            CasClient.clearCookies()
+                            PersonalRepo.clear(ctx)
+                            Prefs.setActiveTimetable(ctx, "class")
+                            Prefs.setStudentName(ctx, "")
+                            Prefs.setLastSyncAt(ctx, 0L)
+                            runCatching { ClassCache.save(ctx) }
+                            runCatching { if (Prefs.reminderOn(ctx)) ReminderScheduler.reschedule(ctx) }
+                            runCatching { com.ccsut.kb.widget.WidgetRenderer.updateAll(ctx) }
+                        }
+                        active = "class"
+                        studentName = ""
+                        lastSyncAt = 0L
+                        dataTick++
+                        DebugLog.log("personal", "已退出教务账号")
+                        Toast.makeText(ctx, "已退出教务账号", Toast.LENGTH_SHORT).show()
+                    }
                 },
                 onOpenDev = {
                     showMore = false
@@ -573,19 +663,23 @@ fun App() {
                     }
                 },
                 onFullReset = {
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            runCatching { ReminderScheduler.cancel(ctx) }
-                            Prefs.clearAll(ctx)
-                            Prefs.setDevMode(ctx, true)
-                            UserEdits.clear(ctx)
-                            ctx.deleteFile("dataset.json")
-                            ctx.deleteFile("class_cache.json")
-                            runCatching { BgStore.delete(ctx) }
-                            Repo.load(ctx)
-                        }
-                        dataTick++
-                        clsId = null
+                        scope.launch {
+                            withContext(Dispatchers.IO) {
+                                runCatching { ReminderScheduler.cancel(ctx) }
+                                Prefs.clearAll(ctx)
+                                Prefs.setDevMode(ctx, true)
+                                UserEdits.clear(ctx)
+                                ctx.deleteFile("dataset.json")
+                                ctx.deleteFile("class_cache.json")
+                                runCatching { PersonalRepo.clear(ctx) }
+                                runCatching { BgStore.delete(ctx) }
+                                Repo.load(ctx)
+                            }
+                            dataTick++
+                            clsId = null
+                            active = "class"
+                            studentName = ""
+                            lastSyncAt = 0L
                         colorMap = emptyMap()
                         bgOn = false
                         bgTick++

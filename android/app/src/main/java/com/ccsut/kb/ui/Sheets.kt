@@ -54,9 +54,12 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Celebration
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Logout
+import androidx.compose.material.icons.rounded.ManageAccounts
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material.icons.rounded.Widgets
@@ -855,6 +858,11 @@ private fun SectionHeader(text: String) {
     )
 }
 
+/** 个人课表"上次同步"时间: M月d日 HH:mm */
+private fun formatSynced(at: Long): String = runCatching {
+    java.text.SimpleDateFormat("M月d日 HH:mm", java.util.Locale.CHINA).format(java.util.Date(at))
+}.getOrDefault("")
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MoreSheet(
@@ -873,6 +881,9 @@ fun MoreSheet(
     afterClassOn: Boolean,
     earlyOn: Boolean,
     devMode: Boolean,
+    personalActive: Boolean,
+    personalName: String,
+    personalSyncedAt: Long,
     onThemeMode: (Int) -> Unit,
     onBgSaved: () -> Unit,
     onRemoveBg: () -> Unit,
@@ -883,6 +894,10 @@ fun MoreSheet(
     onAfterClassChange: (Boolean) -> Unit,
     onEarlyChange: (Boolean) -> Unit,
     onSelectClass: () -> Unit,
+    onOpenPersonalLogin: () -> Unit,
+    onSwitchPersonal: (Boolean) -> Unit,
+    onRefreshPersonal: () -> Unit,
+    onLogoutPersonal: () -> Unit,
     onOpenDev: () -> Unit,
     onDevModeChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
@@ -1020,6 +1035,48 @@ fun MoreSheet(
                     trailing = { RowTrailing("切换") },
                     onClick = onSelectClass,
                 )
+            }
+
+            // ---------------- 个人课表 ----------------
+            SectionHeader("个人课表")
+            SettingCard {
+                val loggedIn = personalName.isNotBlank()
+                SettingRow(
+                    icon = Icons.Rounded.ManageAccounts,
+                    title = if (loggedIn) personalName else "登录教务账号",
+                    subtitle = when {
+                        !loggedIn -> "选课、重修等专属课表，需短信验证码登录"
+                        personalActive -> "个人课表使用中 · 上次同步 " + formatSynced(personalSyncedAt)
+                        else -> "已登录，点击切换到个人课表"
+                    },
+                    trailing = {
+                        RowTrailing(
+                            when {
+                                !loggedIn -> "登录"
+                                personalActive -> "使用中"
+                                else -> "切换"
+                            },
+                        )
+                    },
+                    onClick = {
+                        if (!loggedIn) onOpenPersonalLogin() else onSwitchPersonal(!personalActive)
+                    },
+                )
+                if (loggedIn) {
+                    SettingRow(
+                        icon = Icons.Rounded.Refresh,
+                        title = "刷新个人课表",
+                        subtitle = "教务会话有时效，刷新需重新验证码登录",
+                        trailing = { RowTrailing("去刷新") },
+                        onClick = onRefreshPersonal,
+                    )
+                    SettingRow(
+                        icon = Icons.Rounded.Logout,
+                        title = "退出教务账号",
+                        subtitle = "清除手机上的个人课表数据",
+                        onClick = onLogoutPersonal,
+                    )
+                }
             }
 
             // ---------------- 外观 ----------------

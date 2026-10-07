@@ -202,6 +202,7 @@ fun ScheduleScreen(
     bgVersion: Int = 0,
     bgAlpha: Float = 0.45f,
     dbgOffset: Int = 0,
+    personalBadge: Boolean = false,
     onOpenMore: () -> Unit,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int, Int) -> Unit,   // (day, jc, week) —— week 供加课表单默认勾选当前周
@@ -335,11 +336,27 @@ fun ScheduleScreen(
                         color = MaterialTheme.colorScheme.onBackground,
                     )
                 }
-                Text(
-                    "${today.year}/${today.monthValue}/${today.dayOfMonth}",
-                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${today.year}/${today.monthValue}/${today.dayOfMonth}",
+                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                    if (personalBadge) {
+                        Text(
+                            "个人课表",
+                            fontSize = 10.sp, fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(start = 6.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                                    RoundedCornerShape(6.dp),
+                                )
+                                .padding(horizontal = 6.dp, vertical = 1.dp),
+                        )
+                    }
+                }
             }
             Box(
                 Modifier.width(44.dp).height(44.dp).clickable(onClick = onOpenMore),
