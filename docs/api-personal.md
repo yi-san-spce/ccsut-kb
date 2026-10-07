@@ -60,8 +60,29 @@ validateCode=
   `var bridgeData = { flowExecutionKey: "<uuid>_<base64JWT>" }`，正则
   `flowExecutionKey:\s*"([^"]+)"` 提取。每次打开登录页都会变。
 - `tenantId` 本校为空；`validateCode`/`captcha` 留空；`rememberMe` 传 `false`。
-- 登录成功：**302 → `service` 地址带 ticket** → zts 验票建 aTrust 会话 → 302 portal。
-  App 手动跟随整条重定向链并逐跳收 Cookie，终点 URL 形如
+- 登录成功：**302 → `service` 地址带 ticket** → zts 验票后先进入 `/portal/shortcut.html`。对浏览器路径，shortcut 会读取 URL `data.ticket`，立即调用环境上报接口；完成上报后，网关才会让后续 `verify?t=...` 放行。App 也必须执行这一步，不能只跟随到 shortcut 页面。
+- 浏览器环境上报：
+
+```text
+POST https://zts.ccsut.cn/controller/v1/public/reportEnv
+Content-Type: application/json
+x-csrf-token: <GET /passport/v1/public/authConfig → data.security.csrfToken>
+x-sdp-traceid: <uuid>
+Referer: https://zts.ccsut.cn/portal/shortcut.html
+Body: {
+  "ticket": "<shortcut data.ticket>",
+  "deviceId": "<随机设备标识>",
+  "env": {
+    "endpoint": {
+      "device_id": "<同一 deviceId>",
+      "device": {"type": "browser"}
+    }
+  }
+}
+```
+
+  环境上报成功后再请求 `GET https://tls.ccsut.cn/admin/caslogin`。若跳转页持续回到 `shortcut.html?dest=#!/login`，通常表示该步骤没有执行或 ticket 已过期。
+- App 手动跟随整条重定向链并逐跳收 Cookie，终点 URL 形如
   `https://zts.ccsut.cn/portal/?redirectid=...#/app_center`。
 - 登录失败（验证码错/过期）：**HTTP 200 重新返回登录页 HTML**（无 302）→ 据此判定失败。
 - `service` 参数（固定）：

@@ -7,6 +7,7 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
+import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.UUID
 
@@ -46,6 +47,7 @@ object CasClient {
     const val CAS_SERVICE = "https://zts.ccsut.cn:443/passport/v1/auth/cas?sfDomain=cas88719"
     const val CAS_HOST = "auth.ccsut.cn"
     const val TLS_BASE = "https://tls.ccsut.cn"
+    const val ZTS_BASE = "https://zts.ccsut.cn"
 
     const val UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
@@ -106,7 +108,13 @@ object CasClient {
 
     // ---------------- 底层请求 ----------------
 
-    private fun once(method: String, urlStr: String, body: ByteArray?, contentType: String?): Response {
+    private fun once(
+        method: String,
+        urlStr: String,
+        body: ByteArray?,
+        contentType: String?,
+        extraHeaders: Map<String, String>,
+    ): Response {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         conn.connectTimeout = CONNECT_TIMEOUT
         conn.readTimeout = READ_TIMEOUT
@@ -115,6 +123,7 @@ object CasClient {
             conn.setRequestProperty("User-Agent", UA)
             conn.setRequestProperty("Accept", "text/html,application/json,*/*;q=0.8")
             conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9")
+            extraHeaders.forEach { (name, value) -> conn.setRequestProperty(name, value) }
             val cookie = cookiesFor(URL(urlStr).host)
             if (cookie.isNotBlank()) conn.setRequestProperty("Cookie", cookie)
             if (body != null) {
@@ -147,23 +156,59 @@ object CasClient {
         return out.toByteArray()
     }
 
-    /** 手动跟随重定向 (POST 302 后转 GET, 与浏览器一致), 返回最终响应 */
-    fun request(method: String, url: String, body: ByteArray? = null, contentType: String? = null): Response {
+    /**
+     * 手动跟随重定向 (POST 302 后转 GET, 与浏览器一致), 返回最终响应; 每跳写 logcat(tag=kb-dev)。
+     * aTrust 网关对已建立会话的客户端, 偶尔以「200 + JS/锚点跳转页」代替真 302
+     * (浏览器自动跟随而 HttpURLConnection 不会), 这里一并手动跟随。
+     */
+    fun request(
+        method: String,
+        url: String,
+        body: ByteArray? = null,
+        contentType: String? = null,
+        followJsRedirects: Boolean = true,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): Response {
         var cur = url
         var curMethod = method
         var curBody: ByteArray? = body
         repeat(MAX_HOPS) {
-            val r = runCatching { once(curMethod, cur, curBody, contentType) }.getOrElse {
+            val headersForCurrent = if (URL(cur).host.equals(URL(url).host, ignoreCase = true)) {
+                extraHeaders
+            } else {
+                extraHeaders.filterKeys {
+                    !it.equals("Origin", true) &&
+                        !it.equals("Referer", true) &&
+                        !it.equals("x-csrf-token", true) &&
+                        !it.equals("X-Requested-With", true)
+                }
+            }
+            val r = runCatching { once(curMethod, cur, curBody, contentType, headersForCurrent) }.getOrElse {
                 DebugLog.log("cas", "网络错误 @ $cur: ${it.message}")
                 throw CasException(CasException.Kind.NETWORK, "网络错误: ${it.message ?: it.javaClass.simpleName}")
             }
-            if (r.status in 300..399) {
-                val loc = r.header("Location") ?: return r
+            val loc = if (r.status in 300..399) r.header("Location") else null
+            DebugLog.log("cas", "${r.status} $curMethod ${shortUrl(cur)}" +
+                (loc?.let { " → ${shortUrl(resolve(cur, it))}" } ?: ""))
+            if (loc != null) {
+                val status = r.status
                 cur = resolve(cur, loc)
-                if (curMethod != "GET") {
+                if (status == 303 || status == 301 || status == 302) {
                     curMethod = "GET"
                     curBody = null
                 }
+                return@repeat
+            }
+            if (followJsRedirects) {
+                val js = jsRedirectTarget(r)
+                if (js == null || js.replaceFirst("#.*$".toRegex(), "") == cur.replaceFirst("#.*$".toRegex(), "")) {
+                    // 无目标 / 目标只是同页 hash 路由(SPA 内部路由, 非真跳转): 停止, 避免死循环
+                    return r
+                }
+                DebugLog.log("cas", "JS 跳转页(${r.body.size}B) → ${shortUrl(js)}")
+                cur = js
+                curMethod = "GET"
+                curBody = null
                 return@repeat
             }
             return r
@@ -171,22 +216,138 @@ object CasClient {
         throw CasException(CasException.Kind.PROTOCOL, "重定向次数过多")
     }
 
+    /**
+     * 识别「200 但实际是跳转」的页面, 返回跳转目标 (无则 null)。
+     * aTrust 网关已知形态: 先 var locationUrl="…" 再赋值跳转 / window.location= / <meta refresh> / <a href=..>Found</a>。
+     */
+    private fun jsRedirectTarget(r: Response): String? {
+        val t = r.text()
+        if (r.body.size > 32 * 1024) return null
+        val patterns = listOf(
+            // aTrust 网关跳转页: var locationUrl = "https://…verify?t=…" (后文 window.location.href = locationUrl)
+            Regex("""var\s+\w*[Ll]ocation\w*\s*=\s*["']([^"']+)["']"""),
+            Regex("""location\.replace\(\s*["']([^"']+)["']\s*\)"""),
+            Regex("""location(?:\.href)?\s*=\s*["']([^"']+)["']"""),
+            Regex("""http-equiv=["']?refresh["']?[^>]*url=([^"'>]+)"""),
+            Regex("""<a href=["']([^"']+)["']>Found</a>"""),
+        )
+        for (p in patterns) {
+            val m = p.find(t) ?: continue
+            val u = m.groupValues[1].replace("&amp;", "&").trim()
+            if (u.startsWith("http") || u.startsWith("/")) return resolve(r.url, u)
+        }
+        return null
+    }
+
     fun get(url: String): Response = request("GET", url)
 
     private fun resolve(base: String, loc: String): String =
         runCatching { URI(base).resolve(loc.trim()).toString() }.getOrDefault(loc.trim())
 
-    // ---------------- CAS 短信登录 ----------------
+    private fun shortUrl(url: String): String =
+        url.substringBefore("?").let { u -> if (u.length > 90) u.take(87) + "…" else u }
 
-    /** 打开 CAS 登录页, 返回 flowExecutionKey; 账号已在别处在线(75500006)时抛 ALREADY_ONLINE */
-    fun openLoginPage(): String {
+    /** 识别最终落点页面, 用于错误提示与远程排障 */
+    fun diagnose(r: Response): String {
+        val t = r.text()
+        val host = runCatching { URL(r.url).host }.getOrDefault("?")
+        return when {
+            t.contains("75500006") || t.contains("当前账号已在线") -> "aTrust 提示账号已在线(等约3分钟)"
+            t.contains("sfDomainParam") || t.contains("locationUrl") -> "aTrust 网关跳转页"
+            t.contains("flowExecutionKey") -> "CAS 登录页"
+            t.contains("账号登录") && t.contains("统一认证") -> "教务登录页(tls 会话未建立)"
+            t.contains("app_center") || t.contains("工作台") -> "aTrust 工作台"
+            t.contains("xhid") -> "教务课表页"
+            else -> "未知页面($host, ${t.length}B)"
+        }
+    }
+
+    /**
+     * CAS 提交后的 shortcut 页面环境上报。
+     * aTrust 将 CAS ticket 先转换为网关浏览器会话；没有这一步，后续 verify 会反复回到登录页。
+     */
+    private fun reportBrowserEnv(shortcutUrl: String) {
+        val data = runCatching {
+            val query = URI(shortcutUrl).rawQuery.orEmpty()
+                .split('&')
+                .mapNotNull { part ->
+                    val p = part.indexOf('=')
+                    if (p <= 0) null else URLDecoder.decode(part.substring(0, p), "UTF-8") to
+                        URLDecoder.decode(part.substring(p + 1), "UTF-8")
+                }
+                .toMap()
+            JSONObject(query["data"] ?: "")
+        }.getOrElse {
+            throw CasException(CasException.Kind.PROTOCOL, "网关返回的 shortcut 参数无效，请重新验证码登录")
+        }
+        val ticket = data.optString("ticket").trim()
+        if (ticket.isBlank()) {
+            throw CasException(CasException.Kind.PROTOCOL, "网关票据为空，请重新验证码登录")
+        }
+        val deviceId = UUID.randomUUID().toString().replace("-", "")
+        val payload = JSONObject().apply {
+            put("ticket", ticket)
+            put("deviceId", deviceId)
+            put("env", JSONObject().apply {
+                put("endpoint", JSONObject().apply {
+                    put("device_id", deviceId)
+                    put("device", JSONObject().put("type", "browser"))
+                })
+            })
+        }.toString().toByteArray(Charsets.UTF_8)
+        val csrf = runCatching {
+            val auth = get("$ZTS_BASE/passport/v1/public/authConfig")
+            val authRoot = JSONObject(auth.text())
+            if (auth.status !in 200..299) ""
+            else authRoot.optJSONObject("data")?.optJSONObject("security")?.optString("csrfToken").orEmpty()
+        }.getOrDefault("")
+        if (csrf.isBlank()) {
+            throw CasException(CasException.Kind.NOT_LOGGED_IN, "网关安全令牌获取失败，请重新验证码登录")
+        }
+        val r = request(
+            "POST",
+            "$ZTS_BASE/controller/v1/public/reportEnv",
+            payload,
+            "application/json",
+            followJsRedirects = false,
+            extraHeaders = buildMap {
+                put("Origin", ZTS_BASE)
+                put("Referer", "$ZTS_BASE/portal/shortcut.html")
+                put("X-Requested-With", "XMLHttpRequest")
+                put("x-sdp-traceid", UUID.randomUUID().toString())
+                if (csrf.isNotBlank()) put("x-csrf-token", csrf)
+            },
+        )
+        val reportBody = r.text()
+        val reportCode = runCatching { JSONObject(reportBody).optInt("code", 0) }.getOrDefault(0)
+        DebugLog.log("cas", "reportEnv ${r.status}/$reportCode ${reportBody.take(240)}")
+        if (r.status !in 200..299 || reportCode != 0) {
+            throw CasException(CasException.Kind.NOT_LOGGED_IN, "网关环境验证失败，请重新验证码登录")
+        }
+    }
+
+
+    /**
+     * 打开 CAS 登录页。
+     * 返回 flowExecutionKey = 需要短信登录;
+     * 返回 null = CAS 会话仍有效(直接带票跳去了 service), aTrust 会话已顺带建立, 可免短信直接拉课表。
+     */
+    fun openLoginPage(): String? {
         val r = get("$CAS_LOGIN_URL?service=${URLEncoder.encode(CAS_SERVICE, "UTF-8")}")
+        val host = runCatching { URL(r.url).host }.getOrDefault("")
         val html = r.text()
         if (html.contains("75500006") || html.contains("当前账号已在线")) {
             throw CasException(CasException.Kind.ALREADY_ONLINE, "账号可能刚在别处登录或退出，请等约 3 分钟再试")
         }
+        if (host != CAS_HOST) {
+            DebugLog.log("cas", "openLoginPage: CAS 会话有效, 已自动放行到 $host (${diagnose(r)})")
+            return null
+        }
         val m = Regex("flowExecutionKey\\s*:\\s*\"([^\"]+)\"").find(html)
-            ?: throw CasException(CasException.Kind.PROTOCOL, "登录页加载异常，请稍后再试")
+            ?: throw CasException(
+                CasException.Kind.PROTOCOL,
+                "登录页加载异常(${diagnose(r)})，请稍后再试",
+            )
         return m.groupValues[1]
     }
 
@@ -196,7 +357,12 @@ object CasClient {
             "?username=${URLEncoder.encode(account, "UTF-8")}&domain=$CAS_HOST"
         val r = request("POST", url, "{}".toByteArray(), "application/json")
         val body = r.text()
-        val msg = runCatching { JSONObject(body).optString("message") }.getOrDefault("")
+        val msg = runCatching {
+            val root = JSONObject(body)
+            root.optString("message").ifBlank {
+                root.optJSONObject("error")?.optString("message").orEmpty()
+            }
+        }.getOrDefault("")
         if (r.status !in 200..299) {
             throw CasException(CasException.Kind.PROTOCOL, msg.ifBlank { "验证码发送失败 (HTTP ${r.status})" })
         }
@@ -224,9 +390,11 @@ object CasClient {
         val body = form.entries.joinToString("&") {
             URLEncoder.encode(it.key, "UTF-8") + "=" + URLEncoder.encode(it.value, "UTF-8")
         }.toByteArray()
-        val r = request("POST", CAS_LOGIN_URL, body)
+        // followJsRedirects=false: 落点判定只看「是否离开 auth 域」, 跟进门户 SPA 反而模糊结论
+        val r = request("POST", CAS_LOGIN_URL, body, followJsRedirects = false)
         val host = runCatching { URL(r.url).host }.getOrDefault("")
         val finalHtml = r.text()
+        DebugLog.log("cas", "submitCode 最终落点: $host (${diagnose(r)})")
         if (finalHtml.contains("75500006") || finalHtml.contains("当前账号已在线")) {
             throw CasException(CasException.Kind.ALREADY_ONLINE, "账号可能刚在别处登录或退出，请等约 3 分钟再试")
         }
@@ -235,15 +403,27 @@ object CasClient {
             val m = Regex("验证码[^<]{0,12}(错误|失效|不正确)|登录失败|已失效").find(finalHtml)
             throw CasException(CasException.Kind.BAD_CODE, m?.value ?: "验证码不正确或已过期，请重试")
         }
+        if (host == "zts.ccsut.cn" &&
+            (r.url.contains("/shortcut.html", ignoreCase = true) || finalHtml.contains("shortcut.html"))
+        ) {
+            reportBrowserEnv(r.url)
+        }
     }
 
-    /** 用已建立的 aTrust 会话进入教务系统 (GET /admin/caslogin 整条重定向链) */
+    /** 用已建立的会话进入教务系统: 整条重定向链 + getXlzc 真实验证, 失败自动再试一轮 */
     fun establishTls() {
-        val r = get("$TLS_BASE/admin/caslogin")
-        val host = runCatching { URL(r.url).host }.getOrDefault("")
-        if (host != "tls.ccsut.cn" || r.status !in 200..299) {
-            throw CasException(CasException.Kind.NOT_LOGGED_IN, "教务系统登录未完成，请重新登录")
+        var last: Response? = null
+        repeat(2) { attempt ->
+            val r = get("$TLS_BASE/admin/caslogin")
+            DebugLog.log("cas", "establishTls#$attempt 落点: ${r.url} (${diagnose(r)}) head=${r.text().take(1200)}")
+            last = r
+            if (isTlsAlive()) return
         }
+        val r = last!!
+        throw CasException(
+            CasException.Kind.NOT_LOGGED_IN,
+            "教务登录未完成（${diagnose(r)}），请重新验证码登录",
+        )
     }
 
     /** 教务会话是否存活 (getXlzc 快速探测) */

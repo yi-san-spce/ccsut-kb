@@ -78,35 +78,50 @@ object PersonalRepo {
     fun fetchAll(ctx: Context, account: String): PersonalData {
         CasClient.establishTls()
 
-        // 1) 课表页: 默认学期由服务端决定, 不带参数请求
-        val page = CasClient.get("${CasClient.TLS_BASE}/admin/pkgl/xskb/queryKbForXsd")
+        // 1) 课表页: 先带推算学期参数 (与网页行为一致), 不行再试无参(服务端默认当前学期)
+        val guess = guessXnxq(LocalDate.now())
+        val page = CasClient.get("${CasClient.TLS_BASE}/admin/pkgl/xskb/queryKbForXsd?xnxq=$guess")
         var html = page.text()
         var parsed = parseKbPage(html)
         if (parsed == null) {
-            // 某些部署要求带 xnxq 参数: 按今天日期推算当前学期再试
-            val guess = guessXnxq(LocalDate.now())
-            html = CasClient.get("${CasClient.TLS_BASE}/admin/pkgl/xskb/queryKbForXsd?xnxq=$guess").text()
+            val fallback = CasClient.get("${CasClient.TLS_BASE}/admin/pkgl/xskb/queryKbForXsd")
+            html = fallback.text()
             parsed = parseKbPage(html)
         }
         val (xnxq, xhid, campus, studentName) = parsed
-            ?: throw CasClient.CasException(CasClient.CasException.Kind.NOT_LOGGED_IN, "教务会话已失效，请重新验证码登录")
+            ?: throw CasClient.CasException(
+                CasClient.CasException.Kind.NOT_LOGGED_IN,
+                "教务会话已失效，请重新验证码登录（${diagPage(html)}）",
+            )
 
         // 2) 周次与作息 (个人课表自包含, 不依赖班级数据集)
-        val zc = CasClient.get(
+        val zcResponse = CasClient.get(
             "${CasClient.TLS_BASE}/admin/api/getZclistByXnxq?xnxq=$xnxq&xqid=${URLEncoder.encode(campus, "UTF-8")}",
-        ).text()
+        )
+        val zc = zcResponse.text()
+        val zcRoot = runCatching { JSONObject(zc) }.getOrNull()
+        val zcOk = zcRoot?.has("ret") == true && zcRoot.optInt("ret", -1) == 0
+        if (zcResponse.status !in 200..299 || !zcOk) {
+            throw CasClient.CasException(CasClient.CasException.Kind.PROTOCOL, responseError("周次", zcResponse))
+        }
         val (startDate, weeks, periods) = parseZclist(zc)
         if (startDate.isBlank() || weeks <= 0) {
             throw CasClient.CasException(CasClient.CasException.Kind.PROTOCOL, "学期周次数据异常，请稍后再试")
         }
 
         // 3) 全量课表 (一次拿整学期)
-        val kb = CasClient.get(
+        val kbResponse = CasClient.get(
             "${CasClient.TLS_BASE}/admin/pkgl/xskb/sdpkkbList" +
                 "?xnxq=$xnxq&xhid=${URLEncoder.encode(xhid, "UTF-8")}" +
-                "&xqid=${URLEncoder.encode(campus, "UTF-8")}" +
+                "&xqdm=${URLEncoder.encode(campus, "UTF-8")}" +
                 "&zxzc=&zdzc=&xskbxslx=0",
-        ).text()
+        )
+        val kb = kbResponse.text()
+        val kbRoot = runCatching { JSONObject(kb) }.getOrNull()
+        val kbOk = kbRoot?.has("ret") == true && kbRoot.optInt("ret", -1) == 0
+        if (kbResponse.status !in 200..299 || !kbOk) {
+            throw CasClient.CasException(CasClient.CasException.Kind.PROTOCOL, responseError("课表", kbResponse))
+        }
         val courses = parseSdpkkb(kb)
         if (courses.isEmpty()) {
             throw CasClient.CasException(CasClient.CasException.Kind.PROTOCOL, "课表数据为空，请稍后再试")
@@ -136,6 +151,25 @@ object PersonalRepo {
             today.monthValue == 1 -> "${y - 1}-$y-1"
             else -> "${y - 1}-$y-2"
         }
+    }
+
+    private fun responseError(label: String, response: CasClient.Response): String {
+        val text = response.text()
+        val root = runCatching { JSONObject(text) }.getOrNull()
+        val ret = root?.optString("ret")?.takeIf { it.isNotBlank() }
+        val msg = root?.optString("msg")?.takeIf { it.isNotBlank() }
+            ?: root?.optString("message")?.takeIf { it.isNotBlank() }
+        return "$label 请求失败(HTTP ${response.status}${ret?.let { ", ret=$it" } ?: ""}" +
+            "${msg?.let { ": $it" } ?: ""})"
+    }
+
+    /** 响应 HTML 落点识别 (诊断信息) */
+    private fun diagPage(html: String): String = when {
+        html.contains("75500006") || html.contains("当前账号已在线") -> "aTrust 提示账号已在线"
+        html.contains("账号登录") && html.contains("统一认证") -> "落在教务登录页"
+        html.contains("flowExecutionKey") -> "落在 CAS 登录页"
+        html.isBlank() -> "空响应"
+        else -> "未知页面 ${html.length}B"
     }
 
     // ---------------------------------------------------------------- 解析

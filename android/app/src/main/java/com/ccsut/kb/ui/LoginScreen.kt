@@ -2,7 +2,6 @@ package com.ccsut.kb.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -56,6 +55,8 @@ import kotlinx.coroutines.withContext
 /**
  * 教务账号登录页 (手机号/学号 + 短信验证码, 走 CAS 统一身份认证)。
  * 登录成功立即拉取个人课表并落缓存; Cookie 只在内存, 会话失效后需重新验证码登录。
+ *
+ * 打开时先探测 CAS 会话: 若登录状态仍有效 (上次登录的 CAS TGC 还在), 免短信直接拉课表。
  */
 @Composable
 fun LoginScreen(
@@ -70,10 +71,11 @@ fun LoginScreen(
     var account by remember { mutableStateOf(initialAccount) }
     var code by remember { mutableStateOf("") }
     var countdown by remember { mutableIntStateOf(0) }
-    var busy by remember { mutableStateOf<String?>(null) }   // 非 null = 进行中的文案
+    var busy by remember { mutableStateOf<String?>(null) }    // 非 null = 进行中的文案
     var error by remember { mutableStateOf<String?>(null) }
-    var note by remember { mutableStateOf<String?>(null) }   // 成功提示(如"验证码已发送")
+    var note by remember { mutableStateOf<String?>(null) }    // 成功提示(如"验证码已发送")
     var execution by remember { mutableStateOf<String?>(null) }
+    var probing by remember { mutableStateOf(true) }          // 首次 CAS 状态探测中
 
     BackHandler(enabled = busy == null) { onDismiss() }
 
@@ -87,6 +89,43 @@ fun LoginScreen(
     fun friendly(e: Throwable): String = when (e) {
         is CasClient.CasException -> e.message ?: "登录失败，请稍后再试"
         else -> "网络错误: ${e.message ?: e.javaClass.simpleName}"
+    }
+
+    // 拉取个人课表并收尾 (登录成功或免短信直连共用)
+    fun fetchAndFinish(acct: String) {
+        scope.launch {
+            busy = "正在拉取个人课表…"
+            error = null
+            try {
+                val data = withContext(Dispatchers.IO) { PersonalRepo.fetchAll(ctx, acct) }
+                Prefs.setCasAccount(ctx, acct)
+                Prefs.setStudentName(ctx, data.studentName)
+                Prefs.setLastSyncAt(ctx, data.syncedAt)
+                onSuccess(data.studentName)
+            } catch (e: Throwable) {
+                error = friendly(e)
+            } finally {
+                busy = null
+            }
+        }
+    }
+
+    // 打开即探测: CAS 会话有效 → 免短信直接拉课表; 否则拿到 execution 等用户发码
+    LaunchedEffect(Unit) {
+        busy = "正在检查登录状态…"
+        try {
+            val exec = withContext(Dispatchers.IO) { CasClient.openLoginPage() }
+            if (exec == null) {
+                fetchAndFinish(account.trim().ifBlank { Prefs.casAccount(ctx) })
+            } else {
+                execution = exec
+            }
+        } catch (e: Throwable) {
+            error = friendly(e)
+        } finally {
+            probing = false
+            if (busy == "正在检查登录状态…") busy = null
+        }
     }
 
     Column(
@@ -158,16 +197,13 @@ fun LoginScreen(
                             error = "先填写手机号或学号"
                             return@Button
                         }
+                        if (execution == null) return@Button   // 探测未完成
                         scope.launch {
                             busy = "正在发送验证码…"
                             error = null
                             note = null
                             try {
-                                val msg = withContext(Dispatchers.IO) {
-                                    val exec = CasClient.openLoginPage()
-                                    execution = exec
-                                    CasClient.sendSms(acct)
-                                }
+                                val msg = withContext(Dispatchers.IO) { CasClient.sendSms(acct) }
                                 countdown = 60
                                 note = msg
                             } catch (e: Throwable) {
@@ -177,7 +213,7 @@ fun LoginScreen(
                             }
                         }
                     },
-                    enabled = busy == null && countdown == 0,
+                    enabled = busy == null && countdown == 0 && execution != null,
                     shape = RoundedCornerShape(14.dp),
                 ) {
                     Text(
@@ -207,25 +243,22 @@ fun LoginScreen(
                         note = null
                         try {
                             withContext(Dispatchers.IO) {
-                                val exec = execution ?: CasClient.openLoginPage().also { execution = it }
-                                CasClient.submitCode(acct, cd, exec)
+                                // execution 可能因超时失效: 为空则重取; 重取返回 null = CAS 已直接放行
+                                val exec = execution ?: CasClient.openLoginPage()
+                                if (exec != null) {
+                                    execution = exec
+                                    CasClient.submitCode(acct, cd, exec)
+                                }
                             }
-                            busy = "正在拉取个人课表…"
-                            val data = withContext(Dispatchers.IO) { PersonalRepo.fetchAll(ctx, acct) }
-                            Prefs.setCasAccount(ctx, acct)
-                            Prefs.setStudentName(ctx, data.studentName)
-                            Prefs.setLastSyncAt(ctx, data.syncedAt)
-                            onSuccess(data.studentName)
+                            fetchAndFinish(acct)
                         } catch (e: Throwable) {
-                            // execution 一次性: 失败后强制重新取
-                            execution = null
+                            execution = null   // execution 一次性: 失败后强制重新取
                             error = friendly(e)
-                        } finally {
                             busy = null
                         }
                     }
                 },
-                enabled = busy == null,
+                enabled = busy == null && !probing,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
             ) {
@@ -234,11 +267,7 @@ fun LoginScreen(
                     Spacer(Modifier.width(8.dp))
                 }
                 Text(
-                    when {
-                        busy == "正在拉取个人课表…" -> "正在拉取个人课表…"
-                        busy != null -> "登录中"
-                        else -> "登录"
-                    },
+                    busy ?: "登录",
                     fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                 )
             }
