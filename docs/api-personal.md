@@ -81,7 +81,20 @@ Body: {
 }
 ```
 
-  环境上报成功后再请求 `GET https://tls.ccsut.cn/admin/caslogin`。普通 `auth_cas` 数据不应强行调用 `reportEnv`；若跳转页持续回到 `shortcut.html?dest=#!/login`，应先检查 shortcut 的 `data.env.need` 和后续路由请求。
+  环境上报成功后还有**决定性的一步**（mitmproxy 抓包实测）：
+
+```text
+GET https://zts.ccsut.cn/passport/v1/auth/authCheck?clientType=SDPBrowserClient&platform=<平台>&lang=zh-CN
+```
+
+  响应 `{"code":0,"data":{"sidTicket":"…","onlineInfo":{"isOnline":true,…}}}`，
+  并 `Set-Cookie: sdp_limit_auth_tag=online` + 轮换 `sid`——会话由 `secondary_auth` 翻转为 `online`。
+  **没有 authCheck，`verify?t=` 会无限 302 弹回 `shortcut.html?dest=#!%2Flogin`**（这是本链路最难定位的一环：
+  CAS shortcut 落点带 `nextService=auth/authCheck` 参数，浏览器 shortcut JS 据此调用它，纯静态分析极易漏掉）。
+  之后浏览器跳向 stored appUrl = `/controller/v1/public/verify?t=<JWT>`，一次放行 302 回 returnUrl。
+- 普通登录数据不应强行调用 `reportEnv`；若跳转页持续回到 `shortcut.html?dest=#!/login`，依次检查：
+  reportEnv 前是否调过 `authConfig?…&mod=1`（否则 403 session not found）、deviceId 是否为
+  `00` 开头纯十六进制硬件签名（浏览器用 RSA 例程生成后长期复用）、是否调用了 authCheck。
 - App 手动跟随整条重定向链并逐跳收 Cookie，终点 URL 形如
   `https://zts.ccsut.cn/portal/?redirectid=...#/app_center`。
 - 登录失败（验证码错/过期）：**HTTP 200 重新返回登录页 HTML**（无 302）→ 据此判定失败。

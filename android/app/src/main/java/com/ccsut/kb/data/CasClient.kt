@@ -56,6 +56,19 @@ object CasClient {
     private const val READ_TIMEOUT = 20_000
     private const val MAX_HOPS = 12
 
+    /**
+     * 浏览器硬件签名仿制品: aTrust 前端用 RSA 例程生成 "00" 开头的纯十六进制串并长期复用
+     * (localStorage deviceId), 服务端按该格式校验; UUID 带连字符会被环境上报拒绝。
+     */
+    private val hardwareSignature: String by lazy {
+        val hex = "0123456789abcdef"
+        val rnd = java.security.SecureRandom()
+        buildString {
+            append("00")
+            repeat(62) { append(hex[rnd.nextInt(16)]) }
+        }
+    }
+
     // ---------------- cookie jar (内存) ----------------
 
     private val exact = HashMap<String, HashMap<String, String>>()      // host → cookies
@@ -67,16 +80,13 @@ object CasClient {
     }
 
     private fun cookiesFor(host: String): String {
-        val parts = ArrayList<String>()
+        // 同名 Cookie 去重: 通配桶(.ccsut.cn)先放, host 精确桶覆盖 —— 重复同名 Cookie 会被网关 400 拒绝
+        val merged = LinkedHashMap<String, String>()
         synchronized(this) {
-            for ((d, m) in wildcard) {
-                if (host == d.removePrefix(".") || host.endsWith(d)) {
-                    m.forEach { (k, v) -> parts += "$k=$v" }
-                }
-            }
-            exact[host]?.forEach { (k, v) -> parts += "$k=$v" }
+            for ((_, m) in wildcard) m.forEach { (k, v) -> merged[k] = v }
+            exact[host]?.forEach { (k, v) -> merged[k] = v }
         }
-        return parts.joinToString("; ")
+        return merged.entries.joinToString("; ") { "${it.key}=${it.value}" }
     }
 
     private fun storeCookies(host: String, headers: Map<String, List<String>>) {
@@ -190,9 +200,19 @@ object CasClient {
             val loc = if (r.status in 300..399) r.header("Location") else null
             DebugLog.log("cas", "${r.status} $curMethod ${shortUrl(cur)}" +
                 (loc?.let { " → ${shortUrl(resolve(cur, it))}" } ?: ""))
+            if (loc != null && loc.length > shortUrl(loc).length + 8) {
+                // 弹回 Location 的完整参数是关键证据 (t/data/appUrl), 不截断记一次
+                DebugLog.log("cas", "Location 完整: ${resolve(cur, loc).take(400)}")
+            }
             if (loc != null) {
                 val status = r.status
                 cur = resolve(cur, loc)
+                // aTrust verify 弹回的 shortcut 页 (…&t=JWT): 浏览器由 shortcut JS 把 t 重写进
+                // appUrl 再打一次 verify —— 环境上报已在先, 这一枪才是放行; 这里直接等效跟进
+                shortcutVerifyRewrite(cur)?.let { next ->
+                    DebugLog.log("cas", "shortcut 弹回(带 t): 改打 verify")
+                    cur = next
+                }
                 if (status == 303 || status == 301 || status == 302) {
                     curMethod = "GET"
                     curBody = null
@@ -241,6 +261,24 @@ object CasClient {
 
     fun get(url: String): Response = request("GET", url)
 
+    /**
+     * 识别 aTrust verify 弹回的 shortcut 页 (dest=#!/login&appUrl=…&t=JWT)。
+     * 浏览器 shortcut JS 的 initData: s.t && (s.appUrl = "/controller/v1/public/verify?t=" + s.t),
+     * 随后 gotoDest 跳向该 verify —— 这里等效提取 t 直接改打 verify, 不加载 shortcut 页面。
+     * 非 shortcut 页 / 无 t 参数返回 null。
+     */
+    private fun shortcutVerifyRewrite(url: String): String? {
+        if (!url.contains("shortcut.html", ignoreCase = true)) return null
+        val q = url.substringAfter('?', "")
+        val t = q.split('&')
+            .firstOrNull { it.startsWith("t=") && it.length > 22 }
+            ?.substring(2)
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+        val jwt = runCatching { URLDecoder.decode(t, "UTF-8") }.getOrDefault(t)
+        return "$ZTS_BASE/controller/v1/public/verify?t=$jwt"
+    }
+
     private fun resolve(base: String, loc: String): String =
         runCatching { URI(base).resolve(loc.trim()).toString() }.getOrDefault(loc.trim())
 
@@ -282,6 +320,7 @@ object CasClient {
             DebugLog.log("cas", "shortcut data 不是 JSON，按普通 auth_cas 流程继续")
             return
         }
+        DebugLog.log("cas", "shortcut data: ${data}")
         val env = data.optJSONObject("env")
         if (env?.optBoolean("need", false) != true) {
             DebugLog.log("cas", "shortcut 无环境校验要求，跳过 reportEnv")
@@ -295,7 +334,20 @@ object CasClient {
     }
 
     private fun reportBrowserEnv(ticket: String) {
-        val deviceId = UUID.randomUUID().toString().replace("-", "")
+        // 浏览器 shortcut 流程在 reportEnv 前必先调 authConfig({mod:1}) (checkSkipClientStart):
+        // 该调用为「未上线会话」建立服务端上下文, 直接 POST reportEnv 会 403 session not found。
+        // csrf 一并取自这次响应的 security.csrfToken。
+        val csrf = runCatching {
+            val auth = get("$ZTS_BASE/passport/v1/public/authConfig?clientType=SDPBrowserClient&platform=Android&lang=zh-CN&mod=1")
+            val data = runCatching { JSONObject(auth.text()).optJSONObject("data") }.getOrNull()
+            DebugLog.log("cas", "authConfig(mod=1) ${auth.status} isLogin=${data?.optBoolean("isLogin")}")
+            if (auth.status !in 200..299) ""
+            else data?.optJSONObject("security")?.optString("csrfToken").orEmpty()
+        }.getOrDefault("")
+        if (csrf.isBlank()) {
+            DebugLog.log("cas", "authConfig(mod=1) 未取得 csrf, 仍按浏览器行为继续上报")
+        }
+        val deviceId = hardwareSignature
         val payload = JSONObject().apply {
             put("ticket", ticket)
             put("deviceId", deviceId)
@@ -306,18 +358,9 @@ object CasClient {
                 })
             })
         }.toString().toByteArray(Charsets.UTF_8)
-        val csrf = runCatching {
-            val auth = get("$ZTS_BASE/passport/v1/public/authConfig")
-            val authRoot = JSONObject(auth.text())
-            if (auth.status !in 200..299) ""
-            else authRoot.optJSONObject("data")?.optJSONObject("security")?.optString("csrfToken").orEmpty()
-        }.getOrDefault("")
-        if (csrf.isBlank()) {
-            throw CasException(CasException.Kind.NOT_LOGGED_IN, "网关安全令牌获取失败，请重新验证码登录")
-        }
         val r = request(
             "POST",
-            "$ZTS_BASE/controller/v1/public/reportEnv",
+            "$ZTS_BASE/controller/v1/public/reportEnv?clientType=SDPBrowserClient&platform=Android&lang=zh-CN",
             payload,
             "application/json",
             followJsRedirects = false,
@@ -330,11 +373,21 @@ object CasClient {
             },
         )
         val reportBody = r.text()
-        val reportCode = runCatching { JSONObject(reportBody).optInt("code", 0) }.getOrDefault(0)
+        val reportCode = runCatching { JSONObject(reportBody).optInt("code", -1) }.getOrDefault(-1)
         DebugLog.log("cas", "reportEnv ${r.status}/$reportCode ${reportBody.take(240)}")
-        if (r.status !in 200..299 || reportCode != 0) {
-            throw CasException(CasException.Kind.NOT_LOGGED_IN, "网关环境验证失败，请重新验证码登录")
-        }
+        // 浏览器行为: 上报失败也不阻断, 仍继续 authCheck
+        // reportEnv 之后必须 authCheck (mitmproxy 实测): 响应把 sdp_limit_auth_tag 从
+        // secondary_auth 翻转为 online 并轮换 sid —— 没有这一步 verify 会无限弹回登录页
+        val chk = get("$ZTS_BASE/passport/v1/auth/authCheck?clientType=SDPBrowserClient&platform=Android&lang=zh-CN")
+        val chkRoot = runCatching { JSONObject(chk.text()) }.getOrNull()
+        val chkCode = chkRoot?.optInt("code", -1) ?: -1
+        val chkData = chkRoot?.optJSONObject("data")
+        DebugLog.log(
+            "cas",
+            "authCheck ${chk.status}/$chkCode " +
+                "isOnline=${chkData?.optJSONObject("onlineInfo")?.optBoolean("isOnline")} " +
+                "tag→online 见 Set-Cookie",
+        )
     }
 
 
@@ -352,6 +405,10 @@ object CasClient {
         }
         if (host != CAS_HOST) {
             DebugLog.log("cas", "openLoginPage: CAS 会话有效, 已自动放行到 $host (${diagnose(r)})")
+            // 免短信路径同样会落在 shortcut 页: 补 gateway 要求的环境上报 (env.need=true 时)
+            if (host == "zts.ccsut.cn" && r.url.contains("/shortcut.html", ignoreCase = true)) {
+                handleShortcut(r.url)
+            }
             return null
         }
         val m = Regex("flowExecutionKey\\s*:\\s*\"([^\"]+)\"").find(html)
