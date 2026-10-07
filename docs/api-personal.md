@@ -60,8 +60,8 @@ validateCode=
   `var bridgeData = { flowExecutionKey: "<uuid>_<base64JWT>" }`，正则
   `flowExecutionKey:\s*"([^"]+)"` 提取。每次打开登录页都会变。
 - `tenantId` 本校为空；`validateCode`/`captcha` 留空；`rememberMe` 传 `false`。
-- 登录成功：**302 → `service` 地址带 ticket** → zts 验票后先进入 `/portal/shortcut.html`。对浏览器路径，shortcut 会读取 URL `data.ticket`，立即调用环境上报接口；完成上报后，网关才会让后续 `verify?t=...` 放行。App 也必须执行这一步，不能只跟随到 shortcut 页面。
-- 浏览器环境上报：
+- 登录成功：**302 → `service` 地址带 ticket** → zts 验票后进入 `/portal/shortcut.html`。普通 `auth_cas` 跳转的 `data` 可能只有 `ticket`，此时 shortcut 会按普通服务入口继续路由；只有 `data.env.need=true` 且同时存在 `data.ticket` 时，才执行浏览器环境上报。
+- 浏览器环境上报（仅 `data.env.need=true` 时适用）：
 
 ```text
 POST https://zts.ccsut.cn/controller/v1/public/reportEnv
@@ -81,7 +81,7 @@ Body: {
 }
 ```
 
-  环境上报成功后再请求 `GET https://tls.ccsut.cn/admin/caslogin`。若跳转页持续回到 `shortcut.html?dest=#!/login`，通常表示该步骤没有执行或 ticket 已过期。
+  环境上报成功后再请求 `GET https://tls.ccsut.cn/admin/caslogin`。普通 `auth_cas` 数据不应强行调用 `reportEnv`；若跳转页持续回到 `shortcut.html?dest=#!/login`，应先检查 shortcut 的 `data.env.need` 和后续路由请求。
 - App 手动跟随整条重定向链并逐跳收 Cookie，终点 URL 形如
   `https://zts.ccsut.cn/portal/?redirectid=...#/app_center`。
 - 登录失败（验证码错/过期）：**HTTP 200 重新返回登录页 HTML**（无 302）→ 据此判定失败。

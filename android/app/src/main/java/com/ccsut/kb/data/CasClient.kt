@@ -263,10 +263,11 @@ object CasClient {
     }
 
     /**
-     * CAS 提交后的 shortcut 页面环境上报。
-     * aTrust 将 CAS ticket 先转换为网关浏览器会话；没有这一步，后续 verify 会反复回到登录页。
+     * CAS 提交后的 shortcut 页面处理。
+     * 只有 shortcut data 明确要求环境校验时才上报 reportEnv；普通 auth_cas 的 data.ticket
+     * 只是 shortcut 路由数据，不能当作 reportEnv ticket 直接提交。
      */
-    private fun reportBrowserEnv(shortcutUrl: String) {
+    private fun handleShortcut(shortcutUrl: String) {
         val data = runCatching {
             val query = URI(shortcutUrl).rawQuery.orEmpty()
                 .split('&')
@@ -277,13 +278,23 @@ object CasClient {
                 }
                 .toMap()
             JSONObject(query["data"] ?: "")
-        }.getOrElse {
-            throw CasException(CasException.Kind.PROTOCOL, "网关返回的 shortcut 参数无效，请重新验证码登录")
+        }.getOrNull() ?: run {
+            DebugLog.log("cas", "shortcut data 不是 JSON，按普通 auth_cas 流程继续")
+            return
+        }
+        val env = data.optJSONObject("env")
+        if (env?.optBoolean("need", false) != true) {
+            DebugLog.log("cas", "shortcut 无环境校验要求，跳过 reportEnv")
+            return
         }
         val ticket = data.optString("ticket").trim()
         if (ticket.isBlank()) {
-            throw CasException(CasException.Kind.PROTOCOL, "网关票据为空，请重新验证码登录")
+            throw CasException(CasException.Kind.PROTOCOL, "网关环境票据为空，请重新验证码登录")
         }
+        reportBrowserEnv(ticket)
+    }
+
+    private fun reportBrowserEnv(ticket: String) {
         val deviceId = UUID.randomUUID().toString().replace("-", "")
         val payload = JSONObject().apply {
             put("ticket", ticket)
@@ -404,9 +415,9 @@ object CasClient {
             throw CasException(CasException.Kind.BAD_CODE, m?.value ?: "验证码不正确或已过期，请重试")
         }
         if (host == "zts.ccsut.cn" &&
-            (r.url.contains("/shortcut.html", ignoreCase = true) || finalHtml.contains("shortcut.html"))
+            r.url.contains("/shortcut.html", ignoreCase = true)
         ) {
-            reportBrowserEnv(r.url)
+            handleShortcut(r.url)
         }
     }
 
