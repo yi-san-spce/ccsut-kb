@@ -28,15 +28,7 @@ object PersonalCache {
         root.put("courses", JSONArray().apply {
             d.courses.forEach { c ->
                 put(
-                    JSONObject()
-                        .put("kc", c.kc).put("teacher", c.teacher).put("room", c.room)
-                        .put("day", c.day).put("jc", c.jc).put("djs", c.djs)
-                        .put("zc", c.zc)
-                        .put("zcRanges", JSONArray().apply {
-                            c.ranges.forEach { r -> put(JSONArray(listOf(r.first, r.last))) }
-                        })
-                        .put("fx", c.fx).put("jxb", c.jxb).put("jxbzc", c.jxbzc).put("type", c.type)
-                )
+CourseCodec.toJson(c))
             }
         })
         ctx.openFileOutput(FILE, Context.MODE_PRIVATE).use { it.write(root.toString().toByteArray()) }
@@ -82,19 +74,7 @@ object PersonalCache {
             courses = o.optJSONArray("courses")?.let { cs ->
                 (0 until cs.length()).map { i ->
                     val c = cs.getJSONObject(i)
-                    Course(
-                        kc = c.optString("kc"), teacher = c.optString("teacher"), room = c.optString("room"),
-                        day = c.optInt("day", 1), jc = c.optInt("jc", 1), djs = c.optInt("djs", 1),
-                        zc = c.optString("zc"),
-                        ranges = c.optJSONArray("zcRanges")?.let { rs ->
-                            (0 until rs.length()).map { k ->
-                                val r = rs.getJSONArray(k)
-                                r.getInt(0)..r.getInt(1)
-                            }
-                        } ?: emptyList(),
-                        fx = c.optString("fx"), jxb = c.optString("jxb"),
-                        jxbzc = c.optString("jxbzc"), type = c.optInt("type", 1),
-                    )
+            CourseCodec.fromJson(c)
                 }
             } ?: emptyList(),
             syncedAt = o.optLong("syncedAt", 0L),

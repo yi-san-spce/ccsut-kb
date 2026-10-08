@@ -104,22 +104,7 @@ object DatasetParser {
         )
     }
 
-    private fun JSONArray.mapCourse(): List<Course> = (0 until length()).map { i ->
-        val e = getJSONObject(i)
-        Course(
-            kc = e.optString("kc"), teacher = e.optString("teacher"), room = e.optString("room"),
-            day = e.optInt("day", 1), jc = e.optInt("jc", 1), djs = e.optInt("djs", 1).coerceAtLeast(1),
-            zc = e.optString("zc"),
-            ranges = e.optJSONArray("zcRanges")?.let { rs ->
-                (0 until rs.length()).map { k ->
-                    val r = rs.getJSONArray(k)
-                    r.getInt(0)..r.getInt(1)
-                }
-            } ?: emptyList(),
-            fx = e.optString("fx"), jxb = e.optString("jxb"),
-            jxbzc = e.optString("jxbzc"), type = e.optInt("type", 1),
-        )
-    }
+    private fun JSONArray.mapCourse(): List<Course> = CourseCodec.list(this)
 }
 
 /** 数据仓库: 内置 assets 优先级低于已下载的更新数据 */
