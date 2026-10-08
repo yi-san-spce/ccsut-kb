@@ -67,6 +67,10 @@ object UserEdits {
     )
 
     private const val FILE = "user_edits.json"
+    private const val VERSION = 1
+    private val lock = Any()
+    // 单线程串行落盘: 同步改内存, 异步原子写文件 (tmp+rename, 崩溃不损坏)
+    private val io = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var edits: MutableList<Edit> = mutableListOf()
     private var loaded = false
 
@@ -77,17 +81,30 @@ object UserEdits {
         private set
 
     fun ensureLoaded(ctx: Context) {
-        if (loaded) return
-        loaded = true
-        val f = ctx.getFileStreamPath(FILE) ?: return
-        if (!f.exists()) return
-        edits = runCatching { parse(f.readText()) }.getOrDefault(emptyList()).toMutableList()
-        DebugLog.log("edit", "载入本地修改 ${edits.size} 条")
+        synchronized(lock) {
+            if (loaded) return
+            loaded = true
+            val f = ctx.getFileStreamPath(FILE) ?: return
+            if (!f.exists()) return
+            val text = runCatching { f.readText() }.getOrNull() ?: return
+            runCatching { parse(text) }
+                .onSuccess { edits = it.toMutableList() }
+                .onFailure {
+                    // 文件损坏: 备份坏文件保留现场, 不静默清空用户数据
+                    val bak = ctx.getFileStreamPath("$FILE.broken")
+                    if (bak != null) {
+                        bak.delete()
+                        runCatching { f.renameTo(bak) }
+                    }
+                    DebugLog.log("edit", "本地修改文件损坏, 已备份为 $FILE.broken: ${it.message}")
+                }
+            DebugLog.log("edit", "载入本地修改 ${edits.size} 条")
+        }
     }
 
-    /** 原始行 + 覆盖层 → 生效课程列表 (纯函数, 重组时重算) */
+    /** 原始行 + 覆盖层 → 生效课程列表 (重组时重算) */
     fun effective(bjid: String, pristine: List<Course>): List<Course> {
-        val mine = edits.filter { it.bjid == bjid }
+        val mine = synchronized(lock) { edits.filter { it.bjid == bjid } }
         if (mine.isEmpty()) {
             lastApplied = 0; lastDropped = 0
             return pristine
@@ -142,7 +159,9 @@ object UserEdits {
         return out
     }
 
-    fun editOf(id: String?): Edit? = id?.let { i -> edits.firstOrNull { it.id == i } }
+    fun editOf(id: String?): Edit? = synchronized(lock) {
+        id?.let { i -> edits.firstOrNull { it.id == i } }
+    }
 
     /** 添加自建课程 */
     fun add(ctx: Context, bjid: String, form: Form) {
@@ -153,34 +172,36 @@ object UserEdits {
             zc = form.zc, ranges = form.ranges,
             fx = "", jxb = "", jxbzc = "", type = TYPE_LOCAL,
         )
-        edits += Edit(id = newId(), bjid = bjid, kind = 0, course = c)
+        synchronized(lock) { edits += Edit(id = newId(), bjid = bjid, kind = 0, course = c) }
         persist(ctx)
     }
 
     /** 拖拽移动课块 (newDay/newStartJc 为落点) */
     fun moveBlock(ctx: Context, bjid: String, block: Block, newDay: Int, newStartJc: Int) {
         ensureLoaded(ctx)
-        val e = editOf(block.course.editId)
-        when (e?.kind) {
-            0 -> replace(e, e.copy(course = e.course!!.copy(day = newDay, jc = newStartJc)))
-            1 -> {
-                val m = e.match!!
-                val d = (e.delta ?: Delta()).copy(
-                    day = newDay.takeIf { it != m.day },
-                    startJc = newStartJc.takeIf { it != m.startJc },
-                )
-                // 拖回学校原始位置 = 修改自动还原, 空增量记录直接删除
-                if (d == Delta()) edits.remove(e)
-                else replace(e, e.copy(delta = d))
-            }
-            else -> {
-                val m = anchorOf(block)
-                val d = Delta(
-                    day = newDay.takeIf { it != m.day },
-                    startJc = newStartJc.takeIf { it != m.startJc },
-                )
-                if (d.day != null || d.startJc != null)
-                    edits += Edit(newId(), bjid, 1, match = m, delta = d)
+        synchronized(lock) {
+            val e = editOfLocked(block.course.editId)
+            when (e?.kind) {
+                0 -> replace(e, e.copy(course = e.course!!.copy(day = newDay, jc = newStartJc)))
+                1 -> {
+                    val m = e.match!!
+                    val d = (e.delta ?: Delta()).copy(
+                        day = newDay.takeIf { it != m.day },
+                        startJc = newStartJc.takeIf { it != m.startJc },
+                    )
+                    // 拖回学校原始位置 = 修改自动还原, 空增量记录直接删除
+                    if (d == Delta()) edits.remove(e)
+                    else replace(e, e.copy(delta = d))
+                }
+                else -> {
+                    val m = anchorOf(block)
+                    val d = Delta(
+                        day = newDay.takeIf { it != m.day },
+                        startJc = newStartJc.takeIf { it != m.startJc },
+                    )
+                    if (d.day != null || d.startJc != null)
+                        edits += Edit(newId(), bjid, 1, match = m, delta = d)
+                }
             }
         }
         persist(ctx)
@@ -189,46 +210,56 @@ object UserEdits {
     /** 表单保存 (加课信息/位置/周次一并生效) */
     fun saveBlock(ctx: Context, bjid: String, block: Block, form: Form) {
         ensureLoaded(ctx)
-        val e = editOf(block.course.editId)
-        if (e?.kind == 0) {
-            replace(e, e.copy(course = e.course!!.copy(
-                kc = form.kc, teacher = form.teacher, room = form.room,
-                day = form.day, jc = form.startJc, djs = form.span,
-                zc = form.zc, ranges = form.ranges)))
+        synchronized(lock) {
+            val e = editOfLocked(block.course.editId)
+            if (e?.kind == 0) {
+                replace(e, e.copy(course = e.course!!.copy(
+                    kc = form.kc, teacher = form.teacher, room = form.room,
+                    day = form.day, jc = form.startJc, djs = form.span,
+                    zc = form.zc, ranges = form.ranges)))
+                persist(ctx)
+                return
+            }
+            val m = e?.match ?: anchorOf(block)
+            val d = diff(bjid, m, form)
+            if (e != null) replace(e, e.copy(match = m, delta = d))
+            else edits += Edit(newId(), bjid, 1, match = m, delta = d)
             persist(ctx)
-            return
         }
-        val m = e?.match ?: anchorOf(block)
-        val d = diff(ctx, bjid, m, form)
-        if (e != null) replace(e, e.copy(match = m, delta = d))
-        else edits += Edit(newId(), bjid, 1, match = m, delta = d)
-        persist(ctx)
     }
 
     /** 删除课块: 自建课删记录; 学校课按原始锚点隐藏 (不影响他人) */
     fun removeBlock(ctx: Context, bjid: String, block: Block) {
         ensureLoaded(ctx)
-        val e = editOf(block.course.editId)
-        if (e != null) edits.remove(e)
-        if (e?.kind != 0) {
-            edits += Edit(newId(), bjid, 2, match = e?.match ?: anchorOf(block))
+        synchronized(lock) {
+            val e = editOfLocked(block.course.editId)
+            if (e?.kind == 2) return  // 已是隐藏记录, 无需重复
+            if (e != null) edits.remove(e)
+            if (e?.kind != 0) {
+                edits += Edit(newId(), bjid, 2, match = e?.match ?: anchorOf(block))
+            }
+            persist(ctx)
         }
-        persist(ctx)
     }
 
     /** 还原一条修改记录 (回到学校原始数据); 自建课请走 [removeBlock] */
     fun revertBlock(ctx: Context, bjid: String, block: Block) {
         ensureLoaded(ctx)
-        val e = editOf(block.course.editId) ?: return
-        edits.remove(e)
-        persist(ctx)
+        synchronized(lock) {
+            val e = editOfLocked(block.course.editId) ?: return
+            edits.remove(e)
+            persist(ctx)
+        }
     }
 
     /** 完全重置用: 清空全部本地修改 */
     fun clear(ctx: Context) {
-        loaded = true
-        edits = mutableListOf()
+        synchronized(lock) {
+            loaded = true
+            edits = mutableListOf()
+        }
         ctx.deleteFile(FILE)
+        io.execute { ctx.getFileStreamPath("$FILE.tmp")?.delete() }
         DebugLog.log("edit", "本地修改已清空")
     }
 
@@ -248,14 +279,16 @@ object UserEdits {
 
     // ---------- 内部 ----------
 
+    /** 锁内查找 (调用方必须已持 [lock]) */
+    private fun editOfLocked(id: String?): Edit? = id?.let { i -> edits.firstOrNull { it.id == i } }
+
     private fun anchorOf(b: Block) = Match(
         kc = b.course.kc, fx = b.course.fx, day = b.course.day,
         startJc = b.startJc, endJc = b.startJc + b.span - 1, zc = b.course.zc,
     )
 
     /** 表单值 vs 原始锚点行 → 增量 (用户没改的字段回 null, 让学校未来的新值继续生效) */
-    private fun diff(ctx: Context, bjid: String, m: Match, form: Form): Delta {
-        ensureLoaded(ctx)
+    private fun diff(bjid: String, m: Match, form: Form): Delta {
         val ref = Repo.dataset?.classes?.get(bjid)?.courses?.firstOrNull {
             it.kc == m.kc && it.fx == m.fx && it.zc == m.zc && it.day == m.day && it.jc == m.startJc
         }
@@ -279,14 +312,24 @@ object UserEdits {
 
     private fun newId() = "e" + UUID.randomUUID().toString().replace("-", "").substring(0, 10)
 
+    /** 同步改内存 → 异步落盘: tmp+rename 原子写, 写一半崩溃不会损坏正式文件 */
     private fun persist(ctx: Context) {
-        runCatching {
-            val arr = JSONArray()
-            for (e in edits) arr.put(toJson(e))
-            ctx.openFileOutput(FILE, Context.MODE_PRIVATE)
-                .use { it.write(JSONObject().put("edits", arr).toString().toByteArray()) }
+        val snapshot = synchronized(lock) { edits.toList() }
+        io.execute {
+            runCatching {
+                val arr = JSONArray()
+                for (e in snapshot) arr.put(toJson(e))
+                val text = JSONObject().put("v", VERSION).put("edits", arr).toString()
+                val tmp = ctx.getFileStreamPath("$FILE.tmp") ?: return@execute
+                tmp.writeText(text)
+                val dst = ctx.getFileStreamPath(FILE) ?: return@execute
+                if (!tmp.renameTo(dst)) {
+                    dst.writeText(text)  // 同分区 rename 失败极少见, 兜底直写
+                    tmp.delete()
+                }
+                DebugLog.log("edit", "本地修改已保存, 共 ${snapshot.size} 条")
+            }.onFailure { DebugLog.log("edit", "本地修改保存失败: ${it.message}") }
         }
-        DebugLog.log("edit", "本地修改保存, 共 ${edits.size} 条")
     }
 
     private fun toJson(e: Edit): JSONObject = JSONObject()

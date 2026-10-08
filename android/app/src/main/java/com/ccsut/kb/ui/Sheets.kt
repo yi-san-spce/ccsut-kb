@@ -3,6 +3,9 @@ package com.ccsut.kb.ui
 import android.Manifest
 import android.app.AlarmManager
 import android.content.Intent
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -83,6 +86,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -90,6 +94,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -577,13 +583,16 @@ fun CourseFormSheet(
     onDelete: (() -> Unit)? = null,
     onDismiss: () -> Unit,
 ) {
-    var kc by remember { mutableStateOf(initial.kc) }
-    var teacher by remember { mutableStateOf(initial.teacher) }
-    var room by remember { mutableStateOf(initial.room) }
-    var day by remember { mutableIntStateOf(initial.day) }
-    var startJc by remember { mutableIntStateOf(initial.startJc) }
-    var span by remember { mutableIntStateOf(initial.span) }
-    var sel by remember { mutableStateOf(initial.ranges.flatMap { it.toList() }.toSet()) }
+    var kc by rememberSaveable { mutableStateOf(initial.kc) }
+    var teacher by rememberSaveable { mutableStateOf(initial.teacher) }
+    var room by rememberSaveable { mutableStateOf(initial.room) }
+    var day by rememberSaveable { mutableIntStateOf(initial.day) }
+    var startJc by rememberSaveable { mutableIntStateOf(initial.startJc) }
+    var span by rememberSaveable { mutableIntStateOf(initial.span) }
+    // Set<Int> 用 List 存档 (Bundle 原生类型), 读取时还原
+    var sel by rememberSaveable(stateSaver = listSaver<Set<Int>, Int>(save = { it.toList() }, restore = { it.toSet() })) {
+        mutableStateOf(initial.ranges.flatMap { it.toList() }.toSet())
+    }
     val sheetScroll = rememberScrollState()
 
     KbSheet(onDismiss = onDismiss) {
@@ -929,7 +938,7 @@ fun MoreSheet(
         }
     }
 
-    // 提醒权限状态
+    // 提醒权限状态 (每次 RESUME 重查: 从系统设置授权/撤销返回后副标题才不会停在旧状态)
     var notifGranted by remember {
         mutableStateOf(
             Build.VERSION.SDK_INT < 33 ||
@@ -937,11 +946,24 @@ fun MoreSheet(
                 PackageManager.PERMISSION_GRANTED,
         )
     }
+    var exactOk by remember { mutableStateOf(false) }
+    DisposableEffect(ctx) {
+        val am = ctx.getSystemService(AlarmManager::class.java)
+        val refresh = {
+            notifGranted = Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            exactOk = am?.canScheduleExactAlarms() ?: false
+        }
+        refresh()
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) refresh() }
+        val lifecycle = (ctx as? ComponentActivity)?.lifecycle
+        lifecycle?.addObserver(obs)
+        onDispose { lifecycle?.removeObserver(obs) }
+    }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         notifGranted = it
     }
-    val am = ctx.getSystemService(AlarmManager::class.java)
-    val exactOk = am?.canScheduleExactAlarms() ?: false
 
     if (showBgDialog) {
         AlertDialog(

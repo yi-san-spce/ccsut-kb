@@ -138,7 +138,9 @@ object PersonalRepo {
             syncedAt = System.currentTimeMillis(),
         )
         current = data
-        PersonalCache.save(ctx, data)
+        // 缓存写盘失败不阻断登录流程 (内存态已生效), 只记日志 —— 下次启动仍可用旧缓存
+        runCatching { PersonalCache.save(ctx, data) }
+            .onFailure { DebugLog.log("personal", "个人课表缓存写盘失败: ${it.message}") }
         DebugLog.log("personal", "拉取个人课表成功: ${courses.size} 条 / $xnxq / $studentName")
         return data
     }

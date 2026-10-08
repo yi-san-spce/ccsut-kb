@@ -146,12 +146,17 @@ object WidgetRenderer {
         }
     }
 
+    // 单线程串行渲染: 快速连调时合并请求, 避免并发多份 ClassCache 文件 IO
+    private val renderExec = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "kb-widget")
+    }
+
     /** APP 侧数据/班级变化后调用; 未添加小组件时无操作 */
     fun updateAll(ctx: Context) {
         val mgr = AppWidgetManager.getInstance(ctx) ?: return
         val ids = mgr.getAppWidgetIds(ComponentName(ctx, WidgetProvider::class.java))
         if (ids.isEmpty()) return
-        thread(name = "kb-widget") { render(ctx, mgr, ids) }
+        renderExec.execute { render(ctx, mgr, ids) }
     }
 
     /** 小组件越高给的行数越多 (OPTION_APPWIDGET_MAX_HEIGHT 单位是 dp) */

@@ -169,6 +169,7 @@ fun App() {
         }
         ready = true
         if (clsId == null && !showWelcome) screenChoose = true
+        var dataUpdatedTo = 0
         withContext(Dispatchers.IO) {
             runCatching {
                 val r = Updater.check(ctx)
@@ -176,12 +177,15 @@ fun App() {
                     dataTick++
                     ClassCache.save(ctx)
                     runCatching { if (Prefs.reminderOn(ctx)) ReminderScheduler.reschedule(ctx) }
-                    Toast.makeText(ctx, "课表数据已自动更新到 v${r.m.version}${editSyncSuffix()}", Toast.LENGTH_LONG).show()
+                    dataUpdatedTo = r.m.version
                 }
                 // 启动自动检查: 有新 APK → 弹更新页 (欢迎页/选班级时不弹, 进主界面后再弹)
                 if (r is CheckResult.ApkUpdate) apkManifest = r.m
             }
             resync()
+        }
+        if (dataUpdatedTo > 0) {
+            Toast.makeText(ctx, "课表数据已自动更新到 v$dataUpdatedTo${editSyncSuffix()}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -196,7 +200,8 @@ fun App() {
         // Repo.dataset / Prefs.bjid 非快照状态, 直接在局部变量里读会被 Surface 内容 lambda
         // 捕获旧值(局部重组不重算外层变量), 必须经 dataTick/clsId 在本作用域观察
         val dataset = remember(dataTick, usePersonal) {
-            if (usePersonal) PersonalRepo.dataset() else Repo.dataset
+            // 个人课表缓存损坏等极端情况回退班级数据, 避免白屏 (cls==null 分支会引导去选班级)
+            if (usePersonal) PersonalRepo.dataset() ?: Repo.dataset else Repo.dataset
         } ?: return@KbTheme
         // 生效课表 = 原始数据 + 用户本地修改 (dataTick 变化即重算)
         val cls: Cls? = remember(dataTick, clsId, usePersonal) {

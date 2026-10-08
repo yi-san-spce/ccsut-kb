@@ -56,6 +56,23 @@ object CasClient {
     private const val READ_TIMEOUT = 20_000
     private const val MAX_HOPS = 12
 
+    // 日志脱敏: t(JWT)/ticket/execution/username/password 只留前缀与长度, 诊断报告可分享
+    private val RE_SECRET_QUERY = Regex("([?&](?:t|ticket|execution|username|password)=)([^&]+)")
+    private val RE_SECRET_JSON = Regex("(\"(?:ticket|t|execution|username|password)\"\\s*:\\s*\")([^\"]+)\"")
+    private val RE_MAX_AGE_0 = Regex("max-age=0", RegexOption.IGNORE_CASE)
+    private val RE_DOMAIN_ATTR = Regex("domain=([^;]+)", RegexOption.IGNORE_CASE)
+
+    private fun maskSecrets(s: String): String =
+        RE_SECRET_QUERY.replace(s) { m ->
+            val v = m.groupValues[2]
+            m.groupValues[1] + v.take(6) + "…(len=" + v.length + ")"
+        }.let { out ->
+            RE_SECRET_JSON.replace(out) { m ->
+                val v = m.groupValues[2]
+                m.groupValues[1] + v.take(6) + "…(len=" + v.length + ")\""
+            }
+        }
+
     /**
      * 浏览器硬件签名仿制品: aTrust 前端用 RSA 例程生成 "00" 开头的纯十六进制串并长期复用
      * (localStorage deviceId), 服务端按该格式校验; UUID 带连字符会被环境上报拒绝。
@@ -75,8 +92,10 @@ object CasClient {
     private val wildcard = HashMap<String, HashMap<String, String>>()   // ".ccsut.cn" → cookies
 
     fun clearCookies() {
-        exact.clear()
-        wildcard.clear()
+        synchronized(this) {
+            exact.clear()
+            wildcard.clear()
+        }
     }
 
     private fun cookiesFor(host: String): String {
@@ -102,9 +121,8 @@ object CasClient {
                 val value = first.substring(eq + 1).trim()
                 val lower = sc.lowercase()
                 val dead = value.isEmpty() || "expires=thu, 01 jan 1970" in lower ||
-                    Regex("max-age=0", RegexOption.IGNORE_CASE).containsMatchIn(sc)
-                val domainAttr = Regex("domain=([^;]+)", RegexOption.IGNORE_CASE)
-                    .find(sc)?.groupValues?.get(1)?.trim()?.lowercase()
+                    RE_MAX_AGE_0.containsMatchIn(sc)
+                val domainAttr = RE_DOMAIN_ATTR.find(sc)?.groupValues?.get(1)?.trim()?.lowercase()
                 if (domainAttr != null && domainAttr.startsWith(".")) {
                     val bucket = wildcard.getOrPut(domainAttr) { HashMap() }
                     if (dead) bucket.remove(name) else bucket[name] = value
@@ -126,6 +144,7 @@ object CasClient {
         extraHeaders: Map<String, String>,
     ): Response {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
+        val host = URL(urlStr).host
         conn.connectTimeout = CONNECT_TIMEOUT
         conn.readTimeout = READ_TIMEOUT
         conn.instanceFollowRedirects = false
@@ -134,7 +153,7 @@ object CasClient {
             conn.setRequestProperty("Accept", "text/html,application/json,*/*;q=0.8")
             conn.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9")
             extraHeaders.forEach { (name, value) -> conn.setRequestProperty(name, value) }
-            val cookie = cookiesFor(URL(urlStr).host)
+            val cookie = cookiesFor(host)
             if (cookie.isNotBlank()) conn.setRequestProperty("Cookie", cookie)
             if (body != null) {
                 conn.doOutput = true
@@ -145,7 +164,7 @@ object CasClient {
             }
             val status = conn.responseCode
             val headers = conn.headerFields ?: emptyMap()
-            storeCookies(URL(urlStr).host, headers)
+            storeCookies(host, headers)
             val stream: InputStream? = if (status in 200..399) conn.inputStream else conn.errorStream
             val bytes = stream?.use { readAll(it) } ?: ByteArray(0)
             return Response(urlStr, status, headers, bytes)
@@ -182,8 +201,11 @@ object CasClient {
         var cur = url
         var curMethod = method
         var curBody: ByteArray? = body
+        val originHost = runCatching { URL(url).host }.getOrDefault("")
         repeat(MAX_HOPS) {
-            val headersForCurrent = if (URL(cur).host.equals(URL(url).host, ignoreCase = true)) {
+            val curHost = runCatching { URL(cur).host }
+                .getOrElse { throw CasException(CasException.Kind.NETWORK, "无效的跳转地址") }
+            val headersForCurrent = if (curHost.equals(originHost, ignoreCase = true)) {
                 extraHeaders
             } else {
                 extraHeaders.filterKeys {
@@ -194,15 +216,15 @@ object CasClient {
                 }
             }
             val r = runCatching { once(curMethod, cur, curBody, contentType, headersForCurrent) }.getOrElse {
-                DebugLog.log("cas", "网络错误 @ $cur: ${it.message}")
+                DebugLog.log("cas", "网络错误 @ ${shortUrl(cur)}: ${it.message}")
                 throw CasException(CasException.Kind.NETWORK, "网络错误: ${it.message ?: it.javaClass.simpleName}")
             }
             val loc = if (r.status in 300..399) r.header("Location") else null
             DebugLog.log("cas", "${r.status} $curMethod ${shortUrl(cur)}" +
                 (loc?.let { " → ${shortUrl(resolve(cur, it))}" } ?: ""))
             if (loc != null && loc.length > shortUrl(loc).length + 8) {
-                // 弹回 Location 的完整参数是关键证据 (t/data/appUrl), 不截断记一次
-                DebugLog.log("cas", "Location 完整: ${resolve(cur, loc).take(400)}")
+                // 弹回 Location 的参数结构是关键证据 (t/data/appUrl); 敏感长值打码后记一次
+                DebugLog.log("cas", "Location 结构: ${maskSecrets(resolve(cur, loc)).take(400)}")
             }
             if (loc != null) {
                 val status = r.status
@@ -320,7 +342,7 @@ object CasClient {
             DebugLog.log("cas", "shortcut data 不是 JSON，按普通 auth_cas 流程继续")
             return
         }
-        DebugLog.log("cas", "shortcut data: ${data}")
+        DebugLog.log("cas", "shortcut data: ${maskSecrets(data.toString())}")
         val env = data.optJSONObject("env")
         if (env?.optBoolean("need", false) != true) {
             DebugLog.log("cas", "shortcut 无环境校验要求，跳过 reportEnv")
@@ -485,7 +507,7 @@ object CasClient {
         var last: Response? = null
         repeat(2) { attempt ->
             val r = get("$TLS_BASE/admin/caslogin")
-            DebugLog.log("cas", "establishTls#$attempt 落点: ${r.url} (${diagnose(r)}) head=${r.text().take(1200)}")
+            DebugLog.log("cas", "establishTls#$attempt 落点: ${shortUrl(r.url)} (${diagnose(r)}) head=${maskSecrets(r.text().take(400))}")
             last = r
             if (isTlsAlive()) return
         }

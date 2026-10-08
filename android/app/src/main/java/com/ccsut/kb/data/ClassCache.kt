@@ -95,10 +95,11 @@ object ClassCache {
         return runCatching { parse(f.readText()) }.getOrNull()
     }
 
-    /** "8:20" 这种无前导零格式也能解析 */
+    /** "8:20" 这种无前导零格式也能解析; 脏数据返回 -1 (调用方按无时间处理), 不让小组件进程崩 */
     fun minutesOf(t: String): Int {
-        val (h, m) = t.split(":").map { it.trim().toInt() }
-        return h * 60 + m
+        val parts = t.split(":").mapNotNull { it.trim().toIntOrNull() }
+        if (parts.size != 2) return -1
+        return parts[0] * 60 + parts[1]
     }
 
     private fun parse(text: String): Snapshot {

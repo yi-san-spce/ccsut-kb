@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -68,13 +69,13 @@ fun LoginScreen(
     val scope = rememberCoroutineScope()
     val cs = MaterialTheme.colorScheme
 
-    var account by remember { mutableStateOf(initialAccount) }
-    var code by remember { mutableStateOf("") }
-    var countdown by remember { mutableIntStateOf(0) }
+    var account by rememberSaveable { mutableStateOf(initialAccount) }
+    var code by rememberSaveable { mutableStateOf("") }
+    var countdown by rememberSaveable { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf<String?>(null) }    // 非 null = 进行中的文案
     var error by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf<String?>(null) }    // 成功提示(如"验证码已发送")
-    var execution by remember { mutableStateOf<String?>(null) }
+    var execution by rememberSaveable { mutableStateOf<String?>(null) }
     var probing by remember { mutableStateOf(true) }          // 首次 CAS 状态探测中
 
     BackHandler(enabled = busy == null) { onDismiss() }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.os.ParcelFileDescriptor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
@@ -29,15 +30,18 @@ object BgStore {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         val ins = ctx.contentResolver.openInputStream(uri)
         if (ins == null) {
-            // 部分选择器条目 openInputStream 会返回 null, 退而尝试显式打开 fd
+            // 部分选择器条目 openInputStream 会返回 null, 退而尝试显式打开 fd。
+            // AutoCloseInputStream: 流关闭即释放 pfd, 且两次解码各自独立打开 (复用已关 fd 必然失败)
             return runCatching {
-                val pfd = ctx.contentResolver.openFileDescriptor(uri, "r")
-                if (pfd == null) return fail("openInputStream=null 且 pfd=null type=${ctx.contentResolver.getType(uri)}")
-                pfd.use {
-                    BitmapFactory.decodeStream(java.io.FileInputStream(pfd.fileDescriptor), null, bounds)
-                }
+                ParcelFileDescriptor.AutoCloseInputStream(
+                    ctx.contentResolver.openFileDescriptor(uri, "r")
+                        ?: return fail("openInputStream=null 且 pfd=null type=${ctx.contentResolver.getType(uri)}"),
+                ).use { BitmapFactory.decodeStream(it, null, bounds) }
                 if (bounds.outWidth <= 0) return fail("pfd 路径 bounds=${bounds.outWidth}x${bounds.outHeight}")
-                decodeAndSave(ctx, { java.io.FileInputStream(pfd.fileDescriptor) }, bounds)
+                decodeAndSave(ctx, {
+                    val p2 = ctx.contentResolver.openFileDescriptor(uri, "r")
+                    if (p2 == null) null else ParcelFileDescriptor.AutoCloseInputStream(p2)
+                }, bounds)
             }.getOrElse { fail("pfd 路径异常: $it") }
         }
         ins.use {

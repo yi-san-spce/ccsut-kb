@@ -85,21 +85,59 @@ object Updater {
     /** 下载数据包并校验 sha256, 成功则落盘并热切换 */
     fun applyDataUpdate(ctx: Context, m: Manifest): Dataset? {
         val base = manifestBase(manifestUrl(ctx))
-        val bytes = httpGet(resolve(base, m.file))
+        val bytes = runCatching { httpGet(resolve(base, m.file)) }.getOrElse {
+            com.ccsut.kb.util.DebugLog.log("update", "数据包下载失败: ${it.message}")
+            return null
+        }
         if (m.sha256.isNotBlank() && sha256Hex(bytes) != m.sha256) return null
         return Repo.applyUpdate(ctx, bytes)
     }
 
-    /** 下载 APK 到 cache/apk/, 返回文件; onProgress(doneBytes, totalBytes) 在 IO 线程回调 */
+    /** 下载 APK 到 cache/apk/, 流式写盘+边读边算 sha256 (不整包进内存), 原子落盘; onProgress(doneBytes, totalBytes) 在 IO 线程回调 */
     fun downloadApk(ctx: Context, m: Manifest, onProgress: ((Long, Long) -> Unit)? = null): File? {
         val base = manifestBase(manifestUrl(ctx))
-        val dest = File(ctx.cacheDir, "apk/update.apk")
-        dest.parentFile?.mkdirs()
-        val bytes = runCatching {
-            httpGet(resolve(base, m.apkFile ?: return null), maxBytes = 200L * 1024 * 1024, onProgress = onProgress)
-        }.getOrNull() ?: return null
-        if (m.apkSha256?.isNotBlank() == true && sha256Hex(bytes) != m.apkSha256) return null
-        dest.writeBytes(bytes)
+        val dir = File(ctx.cacheDir, "apk")
+        dir.mkdirs()
+        val part = File(dir, "update.apk.part")
+        val dest = File(dir, "update.apk")
+        val ok = runCatching {
+            val conn = URL(resolve(base, m.apkFile ?: return null)).openConnection() as HttpURLConnection
+            conn.connectTimeout = 10_000
+            conn.readTimeout = 30_000
+            conn.instanceFollowRedirects = true
+            try {
+                if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
+                val total = conn.contentLengthLong
+                val md = MessageDigest.getInstance("SHA-256")
+                conn.inputStream.use { ins ->
+                    part.outputStream().use { outs ->
+                        val buf = ByteArray(64 * 1024)
+                        var done = 0L
+                        while (true) {
+                            val n = ins.read(buf)
+                            if (n < 0) break
+                            done += n
+                            if (done > 200L * 1024 * 1024) error("文件过大")
+                            outs.write(buf, 0, n)
+                            md.update(buf, 0, n)
+                            if (onProgress != null && total > 0) onProgress(done, total)
+                        }
+                    }
+                }
+                val hex = md.digest().joinToString("") { "%02x".format(it) }
+                if (m.apkSha256?.isNotBlank() == true && hex != m.apkSha256) error("sha256 校验不符")
+            } finally {
+                conn.disconnect()
+            }
+            true
+        }.getOrElse {
+            com.ccsut.kb.util.DebugLog.log("update", "APK 下载失败: ${it.message}")
+            part.delete()
+            false
+        }
+        if (!ok) return null
+        if (dest.exists()) dest.delete()
+        if (!part.renameTo(dest)) return null
         return dest
     }
 

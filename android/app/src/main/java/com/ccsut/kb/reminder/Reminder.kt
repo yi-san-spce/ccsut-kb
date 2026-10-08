@@ -130,7 +130,9 @@ object ReminderScheduler {
 
         var day = now.toLocalDate()
         var best: Ev? = null
-        while (best == null) {
+        var scanned = 0
+        val maxScan = snap.weeks * 7 + 14  // 护栏: 设备日期严重回拨时不再无限扫
+        while (best == null && scanned++ < maxScan) {
             val week = (ChronoUnit.DAYS.between(start, day) / 7 + 1).toInt()
             if (week > snap.weeks) break
             best = dayEvents(snap, start, day, lead, afterOn, earlyOn)
@@ -210,9 +212,11 @@ object ReminderScheduler {
         val today = now.toLocalDate()
         val lead = Prefs.reminderLead(ctx)
 
-        // 10 分钟容差对齐调度/投递误差; 已开课的课前提醒不再发
+        // 投递窗口: 精确闹钟 10 分钟容差; 降级模式 (Doze 可延迟 15 分钟以上) 放宽到 35 分钟
+        val am2 = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        val windowMin = if (am2?.canScheduleExactAlarms() == true) 10L else 35L
         val due = dayEvents(snap, start, today, lead, Prefs.afterClassOn(ctx), Prefs.earlyOn(ctx))
-            .filter { !it.at.isAfter(now) && it.at.isAfter(now.minusMinutes(10)) }
+            .filter { !it.at.isAfter(now) && it.at.isAfter(now.minusMinutes(windowMin)) }
             .filter { it.type != TYPE_CLASS || it.classStart!!.isAfter(now) }
         if (due.isEmpty()) return@withContext
         DebugLog.log("remind", "触发 ${due.size} 条提醒: ${due.joinToString { t -> when (t.type) { 0 -> "课前"; 1 -> "放学"; else -> "早八" } }}")

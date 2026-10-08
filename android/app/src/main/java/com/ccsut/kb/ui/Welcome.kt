@@ -61,6 +61,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -90,9 +91,9 @@ fun WelcomeScreen(
     onDone: (nickname: String, classId: String?) -> Unit,
     onSkip: () -> Unit,
 ) {
-    var step by remember { mutableIntStateOf(0) }
-    var nickname by remember { mutableStateOf("") }
-    var classId by remember { mutableStateOf<String?>(null) }
+    var step by rememberSaveable { mutableIntStateOf(0) }
+    var nickname by rememberSaveable { mutableStateOf("") }
+    var classId by rememberSaveable { mutableStateOf<String?>(null) }
     val picked = remember(dataset, classId) { classId?.let { dataset.classes[it] } }
 
     BackHandler(enabled = step > 0) { step-- }
