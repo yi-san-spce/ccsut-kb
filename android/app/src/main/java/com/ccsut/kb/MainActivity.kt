@@ -664,6 +664,8 @@ fun App() {
                 dataset = classDataset,
                 offset = dbgOffset,
                 nextReminderAt = nextReminderAt,
+                personalActive = usePersonal,
+                personalName = studentName,
                 onOffsetChange = { v ->
                     Prefs.setDbgOffsetDays(ctx, v)
                     dbgOffset = v
@@ -701,6 +703,11 @@ fun App() {
                         dataTick++
                         resync()
                     }
+                },
+                onToggleTimetable = { setTimetable(!usePersonal) },
+                onReplayOnboarding = {
+                    showDev = false
+                    showWelcome = true   // 直接回到向导第一步, 设置与数据全部保留
                 },
                 onMockApkUpdate = {
                     apkManifest = Manifest(

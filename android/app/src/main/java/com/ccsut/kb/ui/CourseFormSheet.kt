@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ccsut.kb.data.UserEdits
@@ -229,7 +230,15 @@ internal fun DetailRow(label: String, value: String) {
             fontSize = 13.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        // weight(1f)+ellipsis: 长值折行省略, 不再撑破卡片
+        Text(
+            value,
+            Modifier.weight(1f),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

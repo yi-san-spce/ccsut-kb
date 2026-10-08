@@ -315,7 +315,9 @@ fun ScheduleScreen(
             Modifier
                 .fillMaxWidth()
                 .then(
-                    if (haze != null) Modifier.hazeChild(
+                    if (haze != null) Modifier
+                    .clip(TopBarShape)
+                    .hazeChild(
                         haze,
                         style = HazeStyle(
                             backgroundColor = MaterialTheme.colorScheme.surface,
@@ -323,7 +325,8 @@ fun ScheduleScreen(
                             blurRadius = 30.dp,
                             noiseFactor = 0f,
                         ),
-                    ).glassEdge(RectangleShape, CourseColors.isDark(MaterialTheme.colorScheme)) else Modifier,
+                    )
+                    .glassEdge(TopBarShape, CourseColors.isDark(MaterialTheme.colorScheme)) else Modifier,
                 )
                 .padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -1438,6 +1441,9 @@ private fun DayColumn(
         }
     }
 }
+
+/** 顶栏玻璃形状: 顶部贴屏幕边缘, 底部两角收圆 —— 消除整条方框感 */
+private val TopBarShape = RoundedCornerShape(bottomStart = 22.dp, bottomEnd = 22.dp)
 
 /**
  * 液态玻璃边缘高光: 顶部亮、中段渐隐、底部微亮的 1dp 描边。

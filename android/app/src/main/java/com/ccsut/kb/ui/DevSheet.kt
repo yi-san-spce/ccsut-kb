@@ -54,12 +54,18 @@ import java.time.format.DateTimeFormatter
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
+/**
+ * 开发者模式面板。结构固定八段: 状态速览 → 时间旅行 → 即时操作 → 调试入口 → 更新通道 → 日志 → 诊断 → 危险区。
+ * 速览一律 [DetailRow] (label 固定 + value 折行省略), 操作一律 [DevActionRow], 新增调试项先找对应分组再加。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DevSheet(
     dataset: Dataset,
     offset: Int,
     nextReminderAt: Long,
+    personalActive: Boolean,
+    personalName: String,
     onOffsetChange: (Int) -> Unit,
     onRebuildCache: () -> Unit,
     onRefreshWidget: () -> Unit,
@@ -68,6 +74,8 @@ fun DevSheet(
     onTestAlarm: () -> Unit,
     onReloadData: () -> Unit,
     onMockApkUpdate: () -> Unit,
+    onToggleTimetable: () -> Unit,
+    onReplayOnboarding: () -> Unit,
     onResetPersonal: () -> Unit,
     onFullReset: () -> Unit,
     onDismiss: () -> Unit,
@@ -89,11 +97,15 @@ fun DevSheet(
                 ?.size ?: 0
         }.getOrDefault(0)
     }
+    val personalFile = remember(tick) { ctx.getFileStreamPath("personal_cache.json") }
     val notifOk = Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) ==
         PackageManager.PERMISSION_GRANTED
     val exactOk = ctx.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() == true
     val df = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") }
+    val fmtTime: (Long) -> String = {
+        df.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()))
+    }
 
     if (confirmPersonal) {
         AlertDialog(
@@ -141,7 +153,8 @@ fun DevSheet(
             )
             Spacer(Modifier.height(14.dp))
 
-            // ---------------- 状态速览 ----------------
+            // ---------------- 1. 状态速览 (只读, 全 DetailRow) ----------------
+            SectionHeader("状态速览")
             SettingCard {
                 DetailRow(
                     "数据",
@@ -155,6 +168,13 @@ fun DevSheet(
                         "${it.bjmc} · ${it.courses.size} 条课" + if (snapFile.exists()) " · ${snapFile.length()}B" else ""
                     } ?: "未选班级",
                 )
+                DetailRow("课表模式", if (personalActive) "个人课表" else "班级课表")
+                DetailRow(
+                    "个人课表",
+                    if (personalName.isNotBlank()) {
+                        personalName + (personalFile?.takeIf { it.exists() }?.let { " · 缓存 ${it.length()}B" } ?: "")
+                    } else "未登录",
+                )
                 DetailRow(
                     "语义今天",
                     "${KbClock.fmt(KbClock.today())} · 第${Weeks.currentWeek(dataset, KbClock.today())}周" +
@@ -162,13 +182,13 @@ fun DevSheet(
                 )
                 DetailRow(
                     "提醒",
-                    "下次 " + (if (nextReminderAt > 0) df.format(Instant.ofEpochMilli(nextReminderAt).atZone(ZoneId.systemDefault())) else "未安排") +
+                    "下次 " + (if (nextReminderAt > 0) fmtTime(nextReminderAt) else "未安排") +
                         " · 精确闹钟${if (exactOk) "✓" else "✗"} · 通知${if (notifOk) "✓" else "✗"}",
                 )
                 DetailRow("小组件", "$widgetCount 个已添加")
             }
 
-            // ---------------- 时间旅行 ----------------
+            // ---------------- 2. 时间旅行 ----------------
             SectionHeader("时间旅行")
             SettingCard {
                 SettingRow(
@@ -197,24 +217,30 @@ fun DevSheet(
                 }
             }
 
-            // ---------------- 即时操作 ----------------
+            // ---------------- 3. 即时操作 ----------------
             SectionHeader("即时操作")
             SettingCard {
                 DevActionRow("重建班级快照", "重写 widget / 提醒共用的快照") { onRebuildCache(); tick++ }
                 DevActionRow("强制刷新小组件", "马上重画桌面组件") { onRefreshWidget(); tick++ }
-                DevActionRow("重排提醒闹钟", "重算下一次事件，见下方结果") { onReschedule(); tick++ }
+                DevActionRow("重排提醒闹钟", "重算下一次事件，结果见上方速览") { onReschedule(); tick++ }
                 DevActionRow("发送测试通知", "验证渠道 / 图标 / 权限") { onTestNotification(); tick++ }
                 DevActionRow("10 秒后测试闹钟", "验证 闹钟→接收器→通知 全链路") { onTestAlarm(); tick++ }
                 DevActionRow("重载数据", "重新解析内置 / 已下载的数据集") { onReloadData(); tick++ }
                 DevActionRow("模拟 APK 更新弹窗", "走一遍自更新确认 UI（下载会失败）") { onMockApkUpdate(); tick++ }
-                DetailRow(
-                    "下次闹钟",
-                    if (nextReminderAt > 0) df.format(Instant.ofEpochMilli(nextReminderAt).atZone(ZoneId.systemDefault()))
-                    else "未安排",
-                )
             }
 
-            // ---------------- 更新通道 ----------------
+            // ---------------- 4. 调试入口 ----------------
+            SectionHeader("调试入口")
+            SettingCard {
+                DevActionRow("对调当前课表", if (personalActive) "当前个人课表 → 班级课表" else "当前班级课表 → 个人课表") {
+                    onToggleTimetable(); tick++
+                }
+                DevActionRow("重看引导页", "回到欢迎向导第一步（设置与数据保留）") {
+                    onReplayOnboarding(); tick++
+                }
+            }
+
+            // ---------------- 5. 更新通道 ----------------
             SectionHeader("更新通道")
             SettingCard {
                 SettingRow(
@@ -259,7 +285,7 @@ fun DevSheet(
                 }
             }
 
-            // ---------------- 日志 ----------------
+            // ---------------- 6. 日志 ----------------
             SectionHeader("日志")
             SettingCard {
                 Text(
@@ -276,7 +302,7 @@ fun DevSheet(
                 SettingRow(title = "清空日志", onClick = { DebugLog.clear(); tick++ })
             }
 
-            // ---------------- 诊断 ----------------
+            // ---------------- 7. 诊断 ----------------
             SectionHeader("诊断")
             SettingCard {
                 SettingRow(
@@ -299,7 +325,7 @@ fun DevSheet(
                 )
             }
 
-            // ---------------- 危险区 ----------------
+            // ---------------- 8. 危险区 ----------------
             SectionHeader("危险区")
             SettingCard {
                 SettingRow(
