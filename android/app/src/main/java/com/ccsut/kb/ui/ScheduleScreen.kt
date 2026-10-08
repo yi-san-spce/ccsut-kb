@@ -19,6 +19,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +49,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.ripple
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -366,6 +368,7 @@ fun ScheduleScreen(
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .padding(start = 6.dp)
+                                .clip(RoundedCornerShape(8.dp))
                                 .clickable(onClick = onToggleTimetable)
                                 .background(
                                     MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
@@ -385,6 +388,7 @@ fun ScheduleScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier
                                 .padding(start = 6.dp)
+                                .clip(RoundedCornerShape(8.dp))
                                 .clickable(onClick = onToggleTimetable)
                                 .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
                                 .border(
@@ -398,7 +402,7 @@ fun ScheduleScreen(
                 }
             }
             Box(
-                Modifier.width(44.dp).height(44.dp).clickable(onClick = onOpenMore),
+                Modifier.width(44.dp).height(44.dp).clip(CircleShape).clickable(onClick = onOpenMore),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -630,7 +634,7 @@ private fun CompactBar(
             )
         }
         Box(
-            Modifier.width(36.dp).height(36.dp).clickable(onClick = onOpenMore),
+            Modifier.width(36.dp).height(36.dp).clip(CircleShape).clickable(onClick = onOpenMore),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -1313,6 +1317,7 @@ private fun DayColumn(
                         MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
                         RoundedCornerShape(12.dp),
                     )
+                    .clip(RoundedCornerShape(12.dp))  // 空格子高亮与虚线框同角
                     .clickable { onAddAt(day, model.jcRange[k].first) },
             )
         }
@@ -1388,7 +1393,7 @@ private fun DayColumn(
                         ),
                         shape,
                     )
-                    .clickable { onCourseClick(b) }
+                    .clip(shape).clickable(onClick = { onCourseClick(b) })  // 高亮裁到课程块形状
                     .pointerInput(b) {
                         detectDragGesturesAfterLongPress(
                             onDragStart = { pos -> onDragStart(b, pos.x) },

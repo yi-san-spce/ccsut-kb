@@ -14,6 +14,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ripple
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -64,6 +66,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -361,7 +364,7 @@ private fun MeetBody(
                     fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                     color = cs.primary,
                     modifier = Modifier
-                        .clickable { openUrl(ctx, OPEN_SOURCE_URL) }
+                        .clip(RoundedCornerShape(8.dp)).clickable { openUrl(ctx, OPEN_SOURCE_URL) }
                         .padding(vertical = 2.dp),
                 )
             }
@@ -397,7 +400,7 @@ private fun ModeCard(
             if (selected) 1.5.dp else 1.dp,
             if (selected) cs.primary.copy(alpha = 0.55f) else cs.outlineVariant.copy(alpha = 0.45f),
         ),
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier.clip(RoundedCornerShape(18.dp)).clickable(onClick = onClick),
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

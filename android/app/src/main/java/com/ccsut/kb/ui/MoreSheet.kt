@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ripple
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -625,7 +627,7 @@ fun MoreSheet(
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                     modifier = Modifier
-                        .clickable {
+                        .clip(RoundedCornerShape(8.dp)).clickable {
                             urlDraft = url
                             showUrlDialog = true
                         }
@@ -636,7 +638,7 @@ fun MoreSheet(
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                     modifier = Modifier
-                        .clickable { openUrl(ctx, OPEN_SOURCE_URL) }
+                        .clip(RoundedCornerShape(8.dp)).clickable { openUrl(ctx, OPEN_SOURCE_URL) }
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
