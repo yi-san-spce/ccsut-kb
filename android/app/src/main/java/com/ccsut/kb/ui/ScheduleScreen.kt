@@ -203,6 +203,7 @@ fun ScheduleScreen(
     bgAlpha: Float = 0.45f,
     dbgOffset: Int = 0,
     personalBadge: Boolean = false,
+    onToggleTimetable: () -> Unit = {},
     onOpenMore: () -> Unit,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int, Int) -> Unit,   // (day, jc, week) —— week 供加课表单默认勾选当前周
@@ -210,11 +211,16 @@ fun ScheduleScreen(
 ) {
     // 长按拖拽会话: 期间禁用周翻页, 避免父级抢手势
     val drag = remember { DragHost() }
-    // 时间旅行: dbgOffset 变化时重取语义今天 (KbClock, 只平移日期)
-    val today = remember(dbgOffset) { KbClock.today() }
+    // 时间旅行: dbgOffset 变化时重取语义今天 (KbClock, 只平移日期);
+    // 之后由下方 30 秒 ticker 自动跟进真实日期, 跨零点/跨周后顶栏日期、今日列高亮、今日横条不会停在昨天
+    var today by remember(dbgOffset) { mutableStateOf(KbClock.today()) }
     val todayDay = today.dayOfWeek.value
-    val todayBlocks = remember(cls.courses, initialWeek, todayDay) {
-        Merger.blocksOf(cls.courses, initialWeek).filter { it.course.day == todayDay }
+    // 今日块所在周跟随语义今天 (跨周后自动跟到新一周), 组合初值与 MainActivity 传入的 initialWeek 一致
+    val todayWeek = remember(dataset.startDate, dataset.weeks, today) {
+        Weeks.currentWeek(dataset, today)
+    }
+    val todayBlocks = remember(cls.courses, todayWeek, todayDay) {
+        Merger.blocksOf(cls.courses, todayWeek).filter { it.course.day == todayDay }
     }
     // 明天第一节课(仅当 8:20 开头), 供晚间早八提示
     val tomorrowEarly = remember(cls.courses, dataset.startDate, dataset.weeks, today) {
@@ -227,12 +233,14 @@ fun ScheduleScreen(
             .minByOrNull { it.startJc }
             ?.takeIf { it.startJc == 1 }
     }
-    // 当前分钟(30 秒刷新): 状态栏横竖屏共用
+    // 当前分钟(30 秒刷新): 状态栏横竖屏共用; 顺带重取语义今天, 覆盖跨零点/跨周
     var nowMin by remember { mutableStateOf(LocalTime.now().let { it.hour * 60 + it.minute }) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(30_000)
             nowMin = LocalTime.now().let { it.hour * 60 + it.minute }
+            // LocalDate 按值相等, 未跨天时赋值不触发重组
+            today = KbClock.today()
         }
     }
     val todayStatus = remember(todayBlocks, dataset.periods, tomorrowEarly, nowMin) {
@@ -342,15 +350,38 @@ fun ScheduleScreen(
                         fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 2.dp),
                     )
+                    // 徽标即可点: 点一下在班级/个人课表间来回切
                     if (personalBadge) {
                         Text(
-                            "个人课表",
+                            "个人课表 ⇄",
                             fontSize = 10.sp, fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.primary,
                             modifier = Modifier
                                 .padding(start = 6.dp)
+                                .clickable(onClick = onToggleTimetable)
                                 .background(
                                     MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+                                    RoundedCornerShape(6.dp),
+                                )
+                                .border(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                                    RoundedCornerShape(6.dp),
+                                )
+                                .padding(horizontal = 6.dp, vertical = 1.dp),
+                        )
+                    } else {
+                        Text(
+                            "班级课表 ⇄",
+                            fontSize = 10.sp, fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .padding(start = 6.dp)
+                                .clickable(onClick = onToggleTimetable)
+                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+                                .border(
+                                    1.dp,
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                                     RoundedCornerShape(6.dp),
                                 )
                                 .padding(horizontal = 6.dp, vertical = 1.dp),

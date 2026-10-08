@@ -88,7 +88,13 @@ fun App() {
     var studentName by remember { mutableStateOf(Prefs.studentName(ctx)) }
     var lastSyncAt by remember { mutableLongStateOf(Prefs.lastSyncAt(ctx)) }
     // remember 不能写在 && 右侧(短路会跳过组合), 先单独取
-    val hasPersonal = remember(dataTick) { PersonalRepo.hasData() }
+    // 个人课表数据来自教务透传: 作息(节次)必须 ≥2 个大节且 jc 从 1 连续, 否则渲染层 SlotModel
+    // 的 first{} / 空槽位表会直接崩 —— 校验不过按「无个人数据」处理, 回退班级课表/引导选班, 不崩不白屏
+    val hasPersonal = remember(dataTick) {
+        val jcs = if (PersonalRepo.hasData()) PersonalRepo.dataset()?.periods?.map { it.jc }?.sorted().orEmpty()
+        else emptyList()
+        jcs.size >= 4 && jcs == (1..jcs.size).toList()
+    }
     val usePersonal = active == PersonalRepo.PERSONAL_KEY && hasPersonal
     // 全新安装首次启动: 欢迎引导 (老用户已选班级不弹)
     var showWelcome by remember { mutableStateOf(!Prefs.onboardingDone(ctx) && Prefs.bjid(ctx) == null) }
@@ -162,13 +168,35 @@ fun App() {
         }
     }
 
+    // 统一切换当前课表 (班级↔个人): MoreSheet「当前课表」与顶栏徽标共用这一个入口
+    val setTimetable: (Boolean) -> Unit = { toPersonal ->
+        if (toPersonal && !PersonalRepo.hasData()) {
+            showMore = false
+            showLogin = true
+        } else if (!toPersonal && Prefs.bjid(ctx) == null) {
+            showMore = false
+            screenChoose = true
+        } else {
+            val v = if (toPersonal) PersonalRepo.PERSONAL_KEY else "class"
+            Prefs.setActiveTimetable(ctx, v)
+            active = v
+            showMore = false
+            dataTick++
+            resync()
+        }
+    }
+
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             if (Repo.dataset == null) Repo.load(ctx)
             PersonalRepo.load(ctx)
         }
         ready = true
-        if (clsId == null && !showWelcome) screenChoose = true
+        // 未选班级时默认引导选班; 但仅用个人课表的用户 (个人数据在且正生效) 直接进个人课表,
+        // 不再每次冷启动都强制弹选班页
+        if (clsId == null && !showWelcome &&
+            !(PersonalRepo.hasData() && Prefs.activeTimetable(ctx) == PersonalRepo.PERSONAL_KEY)
+        ) screenChoose = true
         var dataUpdatedTo = 0
         withContext(Dispatchers.IO) {
             runCatching {
@@ -242,6 +270,11 @@ fun App() {
                     onPick = { id ->
                         Prefs.setBjid(ctx, id)
                         clsId = id
+                        if (active != "class") {
+                            // 换班即看班: 从个人课表进来选完班, 直接回到班级课表
+                            Prefs.setActiveTimetable(ctx, "class")
+                            active = "class"
+                        }
                         screenChoose = false
                         resync()
                     },
@@ -262,6 +295,7 @@ fun App() {
                         bgAlpha = bgAlpha / 100f,
                         dbgOffset = dbgOffset,
                         personalBadge = usePersonal,
+                        onToggleTimetable = { setTimetable(!usePersonal) },
                         onOpenMore = { showMore = true },
                         onCourseClick = { detailCourse = it },
                         onAddAt = { d, j, w -> addAt = Triple(d, j, w) },
@@ -502,19 +536,7 @@ fun App() {
                     showMore = false
                     showLogin = true
                 },
-                onSwitchPersonal = { toPersonal ->
-                    if (toPersonal && !PersonalRepo.hasData()) {
-                        showMore = false
-                        showLogin = true
-                        return@MoreSheet
-                    }
-                    val v = if (toPersonal) PersonalRepo.PERSONAL_KEY else "class"
-                    Prefs.setActiveTimetable(ctx, v)
-                    active = v
-                    showMore = false
-                    dataTick++
-                    resync()
-                },
+                onSetTimetable = setTimetable,
                 onRefreshPersonal = {
                     // 教务会话短时效: 刷新 = 重新验证码登录, 登录页里有说明
                     showMore = false
@@ -533,6 +555,8 @@ fun App() {
                             runCatching { if (Prefs.reminderOn(ctx)) ReminderScheduler.reschedule(ctx) }
                             runCatching { com.ccsut.kb.widget.WidgetRenderer.updateAll(ctx) }
                         }
+                        // 退出教务且没有班级可回退时, 直接引导选班
+                        if (Prefs.bjid(ctx) == null) screenChoose = true
                         active = "class"
                         studentName = ""
                         lastSyncAt = 0L

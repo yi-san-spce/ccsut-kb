@@ -18,6 +18,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -47,6 +48,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -118,7 +120,7 @@ fun MoreSheet(
     onEarlyChange: (Boolean) -> Unit,
     onSelectClass: () -> Unit,
     onOpenPersonalLogin: () -> Unit,
-    onSwitchPersonal: (Boolean) -> Unit,
+    onSetTimetable: (Boolean) -> Unit,
     onRefreshPersonal: () -> Unit,
     onLogoutPersonal: () -> Unit,
     onOpenDev: () -> Unit,
@@ -136,6 +138,7 @@ fun MoreSheet(
     var showResetConfirm by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
     var checkNote by remember { mutableStateOf<String?>(null) }
+    val cs = MaterialTheme.colorScheme
 
     // 相册选图 (Photo Picker, 免存储权限)
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -262,41 +265,58 @@ fun MoreSheet(
             )
             Spacer(Modifier.height(14.dp))
 
+            // ---------------- 当前课表 ----------------
+            SectionHeader("当前课表")
+            SettingCard {
+                val loggedIn = personalName.isNotBlank()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+                ) {
+                    FilterChip(
+                        selected = !personalActive,
+                        // 幂等守卫: 只在「当前不是班级课表」时才触发切换; 点已选中的 Chip 无操作
+                        onClick = { if (personalActive) onSetTimetable(false) },
+                        label = { Text("班级课表") },
+                    )
+                    FilterChip(
+                        selected = personalActive,
+                        enabled = loggedIn,
+                        onClick = { if (!personalActive) onSetTimetable(true) },
+                        label = { Text("个人课表") },
+                    )
+                }
+                Text(
+                    if (personalActive) "当前显示：${personalName}的个人课表"
+                    else "当前显示：${cls?.bjmc ?: "未选班级"}的班级课表",
+                    fontSize = 12.sp,
+                    color = cs.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 14.dp, bottom = 2.dp),
+                )
+            }
+
             // ---------------- 班级 ----------------
             SettingCard {
                 SettingRow(
                     icon = Icons.Rounded.Person,
                     title = cls?.bjmc ?: "还没选班级",
                     subtitle = cls?.let { "${it.yxmc} · ${it.zymc}" } ?: "选好班级就能看课表了",
-                    trailing = { RowTrailing("切换") },
+                    trailing = { RowTrailing("换班") },
                     onClick = onSelectClass,
                 )
             }
 
-            // ---------------- 个人课表 ----------------
-            SectionHeader("个人课表")
+            // ---------------- 个人课表账号 ----------------
+            SectionHeader("个人课表账号")
             SettingCard {
                 val loggedIn = personalName.isNotBlank()
                 SettingRow(
                     icon = Icons.Rounded.ManageAccounts,
                     title = if (loggedIn) personalName else "登录教务账号",
-                    subtitle = when {
-                        !loggedIn -> "选课、重修等专属课表，需短信验证码登录"
-                        personalActive -> "个人课表使用中 · 上次同步 " + formatSynced(personalSyncedAt)
-                        else -> "已登录，点击切换到个人课表"
-                    },
-                    trailing = {
-                        RowTrailing(
-                            when {
-                                !loggedIn -> "登录"
-                                personalActive -> "使用中"
-                                else -> "切换"
-                            },
-                        )
-                    },
-                    onClick = {
-                        if (!loggedIn) onOpenPersonalLogin() else onSwitchPersonal(!personalActive)
-                    },
+                    subtitle = if (!loggedIn) "选课、重修等专属课表，需短信验证码登录"
+                    else "已登录 · 上次同步 " + formatSynced(personalSyncedAt),
+                    trailing = { if (!loggedIn) RowTrailing("登录") },
+                    onClick = if (!loggedIn) onOpenPersonalLogin else null,
                 )
                 if (loggedIn) {
                     SettingRow(

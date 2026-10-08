@@ -125,6 +125,20 @@ v2.0.2 修复:
 - **关于页**: 「更新源」行下新增「源代码已开源 · Gitee」入口
 - **开源准备**: 根目录新增 `README.md`(项目介绍/隐私声明/构建方法/发布体系) 与 `LICENSE`(MIT); git 历史用 filter-repo 清除曾误入库的 `.session/`(cookie/token) 后转公开
 
+## 课表切换统一 (v2.9.0)
+
+**班级⇄个人一键对调**, 收口全部 `setActiveTimetable` 写入点:
+
+- **MoreSheet「当前课表」区** (`MoreSheet.kt` 顶部): 两枚 FilterChip 并排, 选中态=当前生效课表, 点击对调; `onSetTimetable(toPersonal)` 单一入口 (未登录→登录页, 无班级→引导选班), 原 `onSwitchPersonal` 退场; 「我的班级」卡只负责换班, 「个人课表账号」区只负责登录/刷新/退出
+- **顶栏徽标可点** (`ScheduleScreen.kt`): 「个人课表 ⇄ / 班级课表 ⇄」点击即对调, `onToggleTimetable` 默认参数, 走同一 `setTimetable` 收口
+- **换班即看班** (`MainActivity` ChooseClassScreen.onPick): 选完班级自动 `active="class"`, 修复个人课表下换班不生效
+- **冷启动引导条件**: 仅用个人课表的用户 (bjid==null 但 hasData 且 active=personal) 不再强制弹选班页
+- **登录死路修复** (`LoginScreen`): 发送按钮去掉 execution!=null 禁用条件, 点击时 execution 为空先重取 openLoginPage; CAS 会话仍有效时直接走免短信拉课表
+- **今天跟随** (`ScheduleScreen`): `today` 改状态 + 30s ticker 重取, 跨零点/跨周后今日高亮/今日横条/顶栏日期自动跟进
+- **作息防御** (`MainActivity.hasPersonal`): 个人课表 periods 需 ≥4 且 jc 从 1 连续, 否则按无数据处理回退班级课表 (防 SlotModel first{} 崩溃)
+
+体检未修项 (下一版候选): 拖拽会话第二指针污染防护 / 同槽重叠检测 / ClassCache personal 分支损坏回退写班级快照 / Updater ApkUpdate 吞并数据更新 / 假期空周空态 / 徽标触摸目标偏小 / 横屏 CompactBar 无切换入口。
+
 ## 工具链
 
 | 组件 | 版本 | 备注 |

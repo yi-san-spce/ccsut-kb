@@ -198,8 +198,27 @@ fun LoginScreen(
                             error = "先填写手机号或学号"
                             return@Button
                         }
-                        if (execution == null) return@Button   // 探测未完成
                         scope.launch {
+                            // 探测失败/会话失效时 execution 为空: 先重开登录页补取, 不让按钮死在禁用态
+                            var exec = execution
+                            if (exec == null) {
+                                busy = "正在检查登录状态…"
+                                error = null
+                                try {
+                                    exec = withContext(Dispatchers.IO) { CasClient.openLoginPage() }
+                                } catch (e: Throwable) {
+                                    error = friendly(e)
+                                    busy = null
+                                    return@launch
+                                }
+                                if (exec == null) {
+                                    // 返回 null = CAS 会话仍有效: 免短信直接拉课表
+                                    busy = null
+                                    fetchAndFinish(acct)
+                                    return@launch
+                                }
+                                execution = exec
+                            }
                             busy = "正在发送验证码…"
                             error = null
                             note = null
@@ -214,11 +233,12 @@ fun LoginScreen(
                             }
                         }
                     },
-                    enabled = busy == null && countdown == 0 && execution != null,
+                    enabled = busy == null && countdown == 0,
                     shape = RoundedCornerShape(14.dp),
                 ) {
                     Text(
                         when {
+                            busy == "正在检查登录状态…" -> "检查中"
                             busy == "正在发送验证码…" -> "发送中"
                             countdown > 0 -> "${countdown}s"
                             else -> "获取验证码"
