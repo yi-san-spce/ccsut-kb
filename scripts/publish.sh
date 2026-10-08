@@ -3,8 +3,8 @@
 #
 # 更新通道 (Gitee 公开发布仓 yisanspce/ccsut-kb-release):
 #   master 分支 = latest.json + 数据集 + 最新 APK, 每次孤儿提交 force-push, 仓库不积累历史
-#   ⚠️ 故意不用 Release/标签: Gitee Release 页面会自动挂「源码归档」下载按钮, 造成源码公开的误会
-#   仓库内容只有 分发文件 (清单/课表数据/APK/README), 无任何源码; 源码在私有仓 yisanspce/ccsut-kb
+#   仓库内容只有 分发文件 (清单/课表数据/APK/README), 无任何源码
+#   源码已全面开源 (MIT): https://gitee.com/yisanspce/ccsut-kb
 #
 # 前置:
 #   1. .session/cookie.txt   有效的教务系统 Cookie (重新抓取时)
@@ -114,7 +114,7 @@ cat > "$TMP/README.md" <<EOF
 本仓只存放「长工课表通」APP 的更新分发文件（更新清单 / 课表数据 / APK 安装包），**不含任何源码**。
 
 - 更新清单（APP 内更新地址）：https://gitee.com/$OWNER/$REPO/raw/master/latest.json
-- 源码：私有仓 $OWNER/ccsut-kb（不公开）
+- 源码（已全面开源，MIT）：https://gitee.com/$OWNER/ccsut-kb
 
 本仓由 \`scripts/publish.sh\` 自动维护（孤儿提交 force-push），请勿手动提交。
 EOF
