@@ -263,6 +263,10 @@ object UserEdits {
         DebugLog.log("edit", "本地修改已清空")
     }
 
+    /** 两组周次区间是否有交集 (整数区间首尾比较, O(1); 供拖拽/加课的落点占用判定共用) */
+    fun rangesOverlap(a: List<IntRange>, b: List<IntRange>): Boolean =
+        a.any { ra -> b.any { rb -> ra.first <= rb.last && rb.first <= ra.last } }
+
     /** 由勾选周次生成 ("1-4,6-12" 文本, 区间列表) */
     fun zcOf(sel: Set<Int>): Pair<String, List<IntRange>> {
         val ranges = mutableListOf<IntRange>()

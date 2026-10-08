@@ -87,10 +87,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.times
 import com.ccsut.kb.data.BgStore
+import com.ccsut.kb.data.UserEdits
 import com.ccsut.kb.data.Cls
 import com.ccsut.kb.data.Dataset
 import com.ccsut.kb.data.Period
@@ -655,6 +657,7 @@ private fun WeekGrid(
             label = "kbColShimmerX",
         )
     } else null
+    val ctx = LocalContext.current
     val model = remember(dataset.periods) { SlotModel(dataset.periods) }
     val blocksByDay = remember(cls.courses, week) {
         Merger.blocksOf(cls.courses, week).groupBy { it.course.day }
@@ -852,7 +855,9 @@ private fun WeekGrid(
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             }
         }
-        val dragMove: (Block, Offset) -> Unit = { b, amt ->
+        val dragMove: (Block, Offset) -> Unit = dragMove@{ b, amt ->
+            // 会话互斥: 非本会话块的手指事件 (第二根手指长按到另一门课) 一律忽略
+            if (drag.block == null || b != drag.block) return@dragMove
             if (drag.flipInProgress) {
                 // 翻页动画把页面从手指下滑过, positionChange 是假位移, 严禁累计
                 drag.lastActiveAt = System.nanoTime()
@@ -886,13 +891,31 @@ private fun WeekGrid(
                 drag.lastActiveAt = System.nanoTime()
             }
         }
-        val dragEnd: (Block) -> Unit = { b ->
+        val dragEnd: (Block) -> Unit = dragEnd@{ b ->
+            // 会话互斥: 非本会话块的抬手一律忽略
+            if (drag.block == null || b != drag.block) return@dragEnd
             // 跨周只看不放: 翻到别的周的拖拽只用于查看(含翻周后锁未解的纯导航),
             // 松手一律不提交移动 —— 数据层一次移动对所有周生效, 落课必改其它周的课。
             // 药片在起始周原地归位, 并由 flipBackTo effect 自动翻页把镜头带回起始周。
             val navigating = drag.flipLock != 0 || drag.dragWeek != drag.originWeek
-            val moved = !navigating &&
+            var moved = !navigating &&
                 (drag.targetDay != b.course.day || drag.targetJc != b.startJc)
+            // 落点占用检测: 同天 + 节次区间重叠 + 周次有交集的其它课已存在时拒绝落位
+            // (否则两块卡片绝对定位完全重叠, 下层不可见不可点); 单双周错开的同槽仍允许
+            if (moved) {
+                val occupied = blocksByDay[drag.targetDay].orEmpty().any { o ->
+                    o != b &&
+                        o.startJc < drag.targetJc + b.span && drag.targetJc < o.startJc + o.span &&
+                        UserEdits.rangesOverlap(b.course.ranges, o.course.ranges)
+                }
+                if (occupied) {
+                    android.widget.Toast.makeText(
+                        ctx, "该时段已有课程（周次有重叠），换个位置试试", android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    moved = false
+                }
+            }
             // 松手帧的最终视觉偏移 (= settleStart = targetOffset): 落位取目标槽位偏移,
             // 否则取零 —— 协程 snapTo 后 animateTo 同值瞬时完成, 药片直接出现在最终位置不滑行
             val target = with(density) {
@@ -922,8 +945,27 @@ private fun WeekGrid(
             drag.settling = true
         }
 
+        val weekHasCourse = remember(blocksByDay) { blocksByDay.values.any { it.isNotEmpty() } }
         Box(Modifier.fillMaxSize().verticalScroll(vScroll, enabled = drag.block == null)) {
             Box(Modifier.fillMaxWidth().height(totalH)) {
+                // 空周表态: 假期/调休周整周无课时给明确文案, 不再是一屏空的格子框
+                if (!weekHasCourse) {
+                    Column(
+                        Modifier.align(Alignment.TopCenter).offset(y = yTop[0] + (yTop.last() - yTop[0]) / 3),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "本周没有课",
+                            fontSize = 15.sp, fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "假期愉快，翻回有课的周次看看吧",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        )
+                    }
+                }
                 // 大课间分隔带(画在课程卡下层, 全天连堂课不会被切断)
                 for (k in model.breaks) {
                     val prevEnd = dataset.periods.first { it.jc == model.jcRange[k - 1].second }.end

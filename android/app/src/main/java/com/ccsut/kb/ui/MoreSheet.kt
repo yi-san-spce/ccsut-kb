@@ -295,15 +295,17 @@ fun MoreSheet(
                 )
             }
 
-            // ---------------- 班级 ----------------
-            SettingCard {
-                SettingRow(
-                    icon = Icons.Rounded.Person,
-                    title = cls?.bjmc ?: "还没选班级",
-                    subtitle = cls?.let { "${it.yxmc} · ${it.zymc}" } ?: "选好班级就能看课表了",
-                    trailing = { RowTrailing("换班") },
-                    onClick = onSelectClass,
-                )
+            // ---------------- 班级 (仅班级课表模式显示: 个人课表模式下没有「换班」语义) ----------------
+            if (!personalActive) {
+                SettingCard {
+                    SettingRow(
+                        icon = Icons.Rounded.Person,
+                        title = cls?.bjmc ?: "还没选班级",
+                        subtitle = cls?.let { "${it.yxmc} · ${it.zymc}" } ?: "选好班级就能看课表了",
+                        trailing = { RowTrailing("换班") },
+                        onClick = onSelectClass,
+                    )
+                }
             }
 
             // ---------------- 个人课表账号 ----------------

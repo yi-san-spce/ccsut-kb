@@ -208,7 +208,18 @@ fun App() {
                     dataUpdatedTo = r.m.version
                 }
                 // 启动自动检查: 有新 APK → 弹更新页 (欢迎页/选班级时不弹, 进主界面后再弹)
-                if (r is CheckResult.ApkUpdate) apkManifest = r.m
+                if (r is CheckResult.ApkUpdate) {
+                    // 同手动检查: APK 更新不吞数据更新
+                    if (r.m.version > (Repo.dataset?.version ?: 0) &&
+                        withContext(Dispatchers.IO) {
+                            runCatching { Updater.applyDataUpdate(ctx, r.m) }.getOrNull()
+                        } != null
+                    ) {
+                        dataTick++
+                        dataUpdatedTo = r.m.version
+                    }
+                    apkManifest = r.m
+                }
             }
             resync()
         }
@@ -343,6 +354,17 @@ fun App() {
             )
         }
 
+        // 目标时段占用判定: 同天 + 节次区间重叠 + 周次有交集 → 拒绝保存
+        // (周次错开的单双周同槽是合法安排, 放行); selfEditId 供编辑时排除自身各行
+        val slotConflict: (UserEdits.Form, String?) -> Boolean = { f, selfEditId ->
+            cls?.courses.orEmpty().any { c ->
+                (c.editId != null && c.editId == selfEditId) ||
+                    c.day == f.day &&
+                    c.jc < f.startJc + f.span && f.startJc < c.jc + c.djs &&
+                    UserEdits.rangesOverlap(f.ranges, c.ranges)
+            }
+        }
+
         // ---------- 添加课程 (点击课表空白格) ----------
         // 默认勾选点击时正在查看的那一周 (而不是全学期)
         addAt?.let { (d, j, w) ->
@@ -360,6 +382,10 @@ fun App() {
                 ),
                 showDelete = false,
                 onSave = { f ->
+                    if (slotConflict(f, null)) {
+                        Toast.makeText(ctx, "该时段已有课程（周次有重叠），换天/节次或周次试试", Toast.LENGTH_SHORT).show()
+                        return@CourseFormSheet
+                    }
                     addAt = null
                     val id = editTarget
                     if (id != null) applyEdit { UserEdits.add(ctx, id, f) }
@@ -381,6 +407,10 @@ fun App() {
                 ),
                 showDelete = true,
                 onSave = { f ->
+                    if (slotConflict(f, b.course.editId)) {
+                        Toast.makeText(ctx, "该时段已有课程（周次有重叠），换天/节次或周次试试", Toast.LENGTH_SHORT).show()
+                        return@CourseFormSheet
+                    }
                     editBlock = null
                     val id = editTarget
                     if (id != null) applyEdit { UserEdits.saveBlock(ctx, id, b, f) }
@@ -596,6 +626,18 @@ fun App() {
                                 } else onResult("下载或校验失败，请稍后再试")
                             }
                             is CheckResult.ApkUpdate -> {
+                                // 数据与 APK 独立托管: APK 更新期间课表数据也要顺带热更,
+                                // 否则用户推迟装 APK 的整段时间数据一直落后
+                                if (r.m.version > (Repo.dataset?.version ?: 0)) {
+                                    val ok = withContext(Dispatchers.IO) {
+                                        runCatching { Updater.applyDataUpdate(ctx, r.m) }.getOrNull()
+                                    }
+                                    if (ok != null) {
+                                        dataTick++
+                                        resync()
+                                        onResult("课表数据已更新到 v${r.m.version}${editSyncSuffix()}")
+                                    }
+                                }
                                 onResult(null)
                                 showMore = false
                                 apkManifest = r.m

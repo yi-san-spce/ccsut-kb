@@ -28,13 +28,17 @@ object ClassCache {
     fun save(ctx: Context) {
         // 个人课表生效时: 快照直接来自 PersonalRepo (含 UserEdits 覆盖层), 小组件/提醒零改动
         if (Prefs.activeTimetable(ctx) == PersonalRepo.PERSONAL_KEY) {
-            val d = PersonalRepo.current ?: run { ctx.deleteFile(FILE); return }
-            val cls = PersonalRepo.effectiveCls() ?: run { ctx.deleteFile(FILE); return }
-            saveSnapshot(
-                ctx, bjid = PersonalRepo.PERSONAL_BJID, bjmc = cls.bjmc, version = 0,
-                startDate = d.startDate, weeks = d.weeks, periods = d.periods, courses = cls.courses,
-            )
-            return
+            val d = PersonalRepo.current
+            val cls = d?.let { PersonalRepo.effectiveCls() }
+            if (d != null && cls != null) {
+                saveSnapshot(
+                    ctx, bjid = PersonalRepo.PERSONAL_BJID, bjmc = cls.bjmc, version = 0,
+                    startDate = d.startDate, weeks = d.weeks, periods = d.periods, courses = cls.courses,
+                )
+                return
+            }
+            // 个人数据不可用(缓存丢失/损坏): 不再删快照留空 —— 落到下面的班级分支回写班级快照,
+            // 与 App 内「回退显示班级课表」保持同一标准, 小组件/提醒不至于停摆
         }
         val ds = Repo.dataset
         val id = Prefs.bjid(ctx)
