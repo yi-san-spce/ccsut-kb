@@ -1373,6 +1373,14 @@ fun MoreSheet(
                         }
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
+                Text(
+                    "源代码已开源 · Gitee",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                    modifier = Modifier
+                        .clickable { openUrl(ctx, OPEN_SOURCE_URL) }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
             }
 
             Spacer(Modifier.height(28.dp))

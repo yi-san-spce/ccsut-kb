@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -38,8 +39,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Campaign
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EditCalendar
-import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WifiOff
@@ -65,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -77,7 +79,7 @@ import com.ccsut.kb.data.Cls
 import com.ccsut.kb.data.Dataset
 import kotlinx.coroutines.delay
 
-/** 五屏欢迎向导: Slogan → 三件事 → 认识一下(昵称 + 班级抽屉) → 个人课表(可跳过) → 欢迎。全新安装首次启动展示, 右上角可跳过。 */
+/** 四屏欢迎向导: Slogan → 三件事 → 认识一下(昵称 + 班级/个人课表并列选择) → 欢迎。全新安装首次启动展示, 右上角可跳过。 */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WelcomeScreen(
@@ -85,7 +87,7 @@ fun WelcomeScreen(
     personalLoggedIn: Boolean,
     studentName: String,
     onOpenLogin: () -> Unit,
-    onDone: (nickname: String, classId: String) -> Unit,
+    onDone: (nickname: String, classId: String?) -> Unit,
     onSkip: () -> Unit,
 ) {
     var step by remember { mutableIntStateOf(0) }
@@ -106,13 +108,13 @@ fun WelcomeScreen(
     ) {
         // 顶栏: 上一步 / 跳过
         Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (step in 1..3) {
+            if (step in 1..2) {
                 IconButton(onClick = { step-- }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "上一步", tint = cs.onSurfaceVariant)
                 }
             }
             Spacer(Modifier.weight(1f))
-            if (step < 4) {
+            if (step < 3) {
                 TextButton(onClick = onSkip) { Text("跳过", fontSize = 14.sp, color = cs.onSurfaceVariant) }
             }
         }
@@ -141,46 +143,33 @@ fun WelcomeScreen(
                     onNickname = { nickname = it },
                     picked = picked,
                     onPick = { classId = it },
+                    personalLoggedIn = personalLoggedIn,
+                    studentName = studentName,
+                    onOpenLogin = onOpenLogin,
                 )
-                3 -> PersonalBody(personalLoggedIn, studentName, onOpenLogin)
                 else -> DoneBody(nickname = nickname.trim())
             }
         }
 
-        Column {
-            Button(
-                onClick = {
-                    when (step) {
-                        0, 1 -> step++
-                        2 -> step = 3
-                        3 -> if (personalLoggedIn) step = 4 else onOpenLogin()
-                        else -> classId?.let { onDone(nickname.trim(), it) }
-                    }
-                },
-                enabled = step != 2 || classId != null,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 14.dp)
-                    .height(52.dp),
-            ) {
-                Text(
-                    when (step) {
-                        2 -> "完成"
-                        3 -> if (personalLoggedIn) "继续" else "登录教务账号"
-                        4 -> "进入课表"
-                        else -> "继续"
-                    },
-                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
-                )
-            }
-            // 个人课表步骤可跳过: 不登录也能正常使用班级课表
-            if (step == 3 && !personalLoggedIn) {
-                TextButton(
-                    onClick = { step = 4 },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("先不登录，用班级课表", fontSize = 13.sp, color = cs.onSurfaceVariant) }
-            }
+        Button(
+            onClick = {
+                when (step) {
+                    0, 1 -> step++
+                    2 -> step = 3
+                    else -> onDone(nickname.trim(), classId)
+                }
+            },
+            enabled = step != 2 || classId != null || personalLoggedIn,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp, vertical = 14.dp)
+                .height(52.dp),
+        ) {
+            Text(
+                if (step == 3) "进入课表" else "继续",
+                fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+            )
         }
     }
 }
@@ -279,7 +268,7 @@ private fun HonestCard(icon: ImageVector, title: String, sub: String, visible: B
     }
 }
 
-// ---------------- 第 3 屏: 认识一下(昵称 + 班级选择器) ----------------
+// ---------------- 第 3 屏: 认识一下(昵称 + 班级/个人课表并列选择) ----------------
 
 @Composable
 private fun MeetBody(
@@ -288,6 +277,9 @@ private fun MeetBody(
     onNickname: (String) -> Unit,
     picked: Cls?,
     onPick: (String) -> Unit,
+    personalLoggedIn: Boolean,
+    studentName: String,
+    onOpenLogin: () -> Unit,
 ) {
     var showPicker by remember { mutableStateOf(false) }
     val cs = MaterialTheme.colorScheme
@@ -312,38 +304,64 @@ private fun MeetBody(
 
         Spacer(Modifier.height(20.dp))
 
-        // 班级选择器: 点击弹出抽屉(搜索 / 年级→学院→专业→班级)
+        // 课表方式并列选择: 班级课表 / 个人课表, 可任选或都选, 之后在「更多」里随时切换
+        Text("用哪种课表？", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = cs.onSurface)
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            ModeCard(
+                icon = Icons.Filled.School,
+                title = "班级课表",
+                sub = picked?.let { "${it.sznj}级 · ${it.zymc} · ${it.bjmc}" }
+                    ?: "全班统一课表，点这选班级",
+                selected = picked != null,
+                onClick = { showPicker = true },
+                modifier = Modifier.weight(1f),
+            )
+            ModeCard(
+                icon = Icons.Filled.Badge,
+                title = "个人课表",
+                sub = if (personalLoggedIn) {
+                    if (studentName.isNotBlank()) "已登录 · $studentName" else "已登录"
+                } else {
+                    "选课、重修都在，验证码登录"
+                },
+                selected = personalLoggedIn,
+                onClick = onOpenLogin,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "两个都可以选，之后在「更多」里随时切换。",
+            fontSize = 11.sp, color = cs.onSurfaceVariant,
+        )
+
+        Spacer(Modifier.height(18.dp))
+
+        // 个人课表实现方式与信息安全说明 + 开源链接
         Surface(
-            color = cs.surfaceColorAtElevation(2.dp),
+            color = cs.onSurfaceVariant.copy(alpha = 0.06f),
             shape = RoundedCornerShape(18.dp),
-            modifier = Modifier.fillMaxWidth().clickable { showPicker = true },
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Row(
-                Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    Modifier
-                        .size(38.dp)
-                        .background(cs.primary.copy(alpha = 0.10f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Filled.School, contentDescription = null, tint = cs.primary, modifier = Modifier.size(20.dp))
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("我的班级", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = cs.onSurface)
-                    Text(
-                        picked?.let { "${it.sznj}级 · ${it.zymc} · ${it.bjmc}" }
-                            ?: "直接搜，或按年级、学院、专业找",
-                        fontSize = 12.sp, color = cs.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Icon(
-                    Icons.Filled.KeyboardArrowDown,
-                    contentDescription = "选择班级",
-                    tint = cs.onSurfaceVariant,
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                Text("个人课表怎么来的？", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "用你收到的短信验证码登录学校教务网站，只拉取你自己的课表。" +
+                        "验证码用完即弃，登录凭据只存在本机内存，不上传任何第三方服务器，也不写入手机存储。" +
+                        "这段代码已全部开源，欢迎随时审查。",
+                    fontSize = 12.sp, color = cs.onSurfaceVariant, lineHeight = 19.sp,
+                )
+                Spacer(Modifier.height(8.dp))
+                val ctx = LocalContext.current
+                Text(
+                    "查看源代码 →",
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                    color = cs.primary,
+                    modifier = Modifier
+                        .clickable { openUrl(ctx, OPEN_SOURCE_URL) }
+                        .padding(vertical = 2.dp),
                 )
             }
         }
@@ -357,6 +375,58 @@ private fun MeetBody(
             onPick = { onPick(it); showPicker = false },
             onDismiss = { showPicker = false },
         )
+    }
+}
+
+/** 课表方式选择卡: 选中态主色描边 + 右上角对勾 */
+@Composable
+private fun ModeCard(
+    icon: ImageVector,
+    title: String,
+    sub: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cs = MaterialTheme.colorScheme
+    Surface(
+        color = if (selected) cs.primary.copy(alpha = 0.10f) else cs.surfaceColorAtElevation(2.dp),
+        shape = RoundedCornerShape(18.dp),
+        border = BorderStroke(
+            if (selected) 1.5.dp else 1.dp,
+            if (selected) cs.primary.copy(alpha = 0.55f) else cs.outlineVariant.copy(alpha = 0.45f),
+        ),
+        modifier = modifier.clickable(onClick = onClick),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier
+                        .size(34.dp)
+                        .background(cs.primary.copy(alpha = 0.10f), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(icon, contentDescription = null, tint = cs.primary, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.weight(1f))
+                if (selected) {
+                    Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = "已选择",
+                        tint = cs.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+            Spacer(Modifier.height(3.dp))
+            Text(
+                sub,
+                fontSize = 11.sp, color = cs.onSurfaceVariant,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 15.sp,
+            )
+        }
     }
 }
 
@@ -546,60 +616,7 @@ private fun GroupLabel(text: String) {
     Spacer(Modifier.height(8.dp))
 }
 
-// ---------------- 第 4 屏: 个人课表(可选登录) ----------------
-
-@Composable
-private fun PersonalBody(loggedIn: Boolean, name: String, onOpenLogin: () -> Unit) {
-    var shown by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) {
-        delay(250); shown = 1
-        delay(300); shown = 2
-        delay(300); shown = 3
-    }
-    val cs = MaterialTheme.colorScheme
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 32.dp),
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Rise(shown >= 1) {
-            Icon(
-                Icons.Filled.Badge,
-                contentDescription = null,
-                tint = cs.primary,
-                modifier = Modifier.size(44.dp),
-            )
-        }
-        Spacer(Modifier.height(16.dp))
-        Rise(shown >= 2) {
-            Text(
-                "想要更完整的个人课表？",
-                fontSize = 22.sp, fontWeight = FontWeight.Bold, color = cs.onSurface,
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-        Rise(shown >= 3) {
-            Text(
-                "登录教务账号，选课、重修这类属于你一个人的课会一并显示。" +
-                    "登录需要一次短信验证码，不登录也完全能用，班级课表已经就绪。",
-                fontSize = 14.sp, color = cs.onSurfaceVariant, lineHeight = 22.sp,
-            )
-        }
-        if (loggedIn) {
-            Spacer(Modifier.height(14.dp))
-            Rise(true) {
-                Text(
-                    "已登录${if (name.isNotBlank()) "：$name" else ""}，之后可在「更多」里随时切换或刷新。",
-                    fontSize = 13.sp, color = cs.primary, lineHeight = 20.sp,
-                )
-            }
-        }
-    }
-}
-
-// ---------------- 第 5 屏: 欢迎你 ----------------
+// ---------------- 第 4 屏: 欢迎你 ----------------
 
 @Composable
 private fun DoneBody(nickname: String) {

@@ -115,6 +115,16 @@ v2.0.2 修复:
 - **切换语义**: `Prefs.active_timetable` = `class`/`personal`; `ClassCache.save` 按当前模式刷写快照, 小组件/提醒跟随当前生效课表; 登录成功默认切个人课表, 「更多 → 个人课表」可切换/刷新/退出
 - **隐私**: Cookie 只存内存, 退出/杀进程即清; 仅学号(预填)、姓名、同步时间进 SharedPreferences; 课表缓存 `personal_cache.json` 不含凭据
 
+## 开源与引导页 (v2.8.0)
+
+**代码全面开源** (Gitee `yisanspce/ccsut-kb`, MIT), 引导页与「关于」页提供直达链接 (`ui/Links.kt` 的 `OPEN_SOURCE_URL` + `openUrl`, ACTION_VIEW 系统浏览器):
+
+- **引导页四屏**: Slogan → 三件事 → 认识一下(昵称 + 课表方式并列卡) → 欢迎; 原「个人课表」独立步骤并入选择卡, onboarding 逻辑不变
+- **并列选择卡** (`MeetBody` + `ModeCard`): 班级卡点开班级抽屉(ClassPickerSheet), 个人卡跳登录页; 选中态主色描边+对勾, 任选其一或都选, 主按钮需至少选一个; 只选个人课表时 `onDone` 的 classId 为 null, 不落 `Prefs.bjid` —— 完成后 `usePersonal` 生效直接显示个人课表; 若日后退出教务账号切回班级, 由 `cls == null` 分支自动引导到选班级页
+- **透明说明块**: 引导页固定说明个人课表实现方式 (短信验证码登录教务网站、只拉取本人课表) 与隐私保障 (验证码用完即弃/凭据仅存内存/不上传第三方/不落盘), 附「查看源代码 →」链接
+- **关于页**: 「更新源」行下新增「源代码已开源 · Gitee」入口
+- **开源准备**: 根目录新增 `README.md`(项目介绍/隐私声明/构建方法/发布体系) 与 `LICENSE`(MIT); git 历史用 filter-repo 清除曾误入库的 `.session/`(cookie/token) 后转公开
+
 ## 工具链
 
 | 组件 | 版本 | 备注 |

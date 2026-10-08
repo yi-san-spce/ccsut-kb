@@ -215,8 +215,11 @@ fun App() {
                     onDone = { name, id ->
                         Prefs.setOnboardingDone(ctx, true)
                         Prefs.setNickname(ctx, name)
-                        Prefs.setBjid(ctx, id)
-                        clsId = id
+                        // 引导页课表方式并列选择: 只选个人课表时 id 为 null, 不落班级
+                        if (id != null) {
+                            Prefs.setBjid(ctx, id)
+                            clsId = id
+                        }
                         showWelcome = false
                         resync()
                     },
