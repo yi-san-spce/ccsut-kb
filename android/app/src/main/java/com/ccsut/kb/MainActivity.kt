@@ -231,6 +231,8 @@ fun App() {
             // 个人课表缓存损坏等极端情况回退班级数据, 避免白屏 (cls==null 分支会引导去选班级)
             if (usePersonal) PersonalRepo.dataset() ?: Repo.dataset else Repo.dataset
         } ?: return@KbTheme
+        // 班级数据集: 选班页/引导班级抽屉/班级统计永远用它 —— 个人伪数据集 classes 为空, 传过去选班页就是空的
+        val classDataset = remember(dataTick) { Repo.dataset } ?: dataset
         // 生效课表 = 原始数据 + 用户本地修改 (dataTick 变化即重算)
         val cls: Cls? = remember(dataTick, clsId, usePersonal) {
             if (usePersonal) PersonalRepo.effectiveCls() else clsId?.let { Repo.effectiveCls(it) }
@@ -241,7 +243,7 @@ fun App() {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (showWelcome) {
                 WelcomeScreen(
-                    dataset = dataset,
+                    dataset = classDataset,
                     personalLoggedIn = PersonalRepo.hasData(),
                     studentName = studentName,
                     onOpenLogin = { showLogin = true },
@@ -265,7 +267,7 @@ fun App() {
             } else if (screenChoose) {
                 BackHandler { screenChoose = false }
                 ChooseClassScreen(
-                    dataset = dataset,
+                    dataset = classDataset,
                     currentId = clsId,
                     onPick = { id ->
                         Prefs.setBjid(ctx, id)
@@ -429,7 +431,7 @@ fun App() {
         // ---------- 更多面板 ----------
         if (showMore) {
             MoreSheet(
-                dataset = dataset,
+                dataset = classDataset,
                 cls = cls,
                 fromUpdate = Repo.fromUpdate,
                 appVersion = BuildVersion.NAME,
@@ -617,7 +619,7 @@ fun App() {
         // ---------- 开发者模式 ----------
         if (showDev) {
             DevSheet(
-                dataset = dataset,
+                dataset = classDataset,
                 offset = dbgOffset,
                 nextReminderAt = nextReminderAt,
                 onOffsetChange = { v ->
