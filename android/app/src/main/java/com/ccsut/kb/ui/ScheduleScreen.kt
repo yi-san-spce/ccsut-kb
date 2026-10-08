@@ -71,6 +71,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -287,11 +289,12 @@ fun ScheduleScreen(
                 contentScale = ContentScale.Crop,
                 alpha = bgAlpha.coerceIn(0.1f, 1f),
             )
-            // 轻度压一层底色, 保证文字可读
+            // 轻度压一层底色, 保证文字可读; 浅色模式的白纱是泛白元凶, 档位减到 0.10, 深色微降
+            val bgScrim = CourseColors.isDark(MaterialTheme.colorScheme)
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background.copy(alpha = 0.25f)),
+                    .background(MaterialTheme.colorScheme.background.copy(alpha = if (bgScrim) 0.22f else 0.10f)),
             )
         }
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -316,11 +319,11 @@ fun ScheduleScreen(
                         haze,
                         style = HazeStyle(
                             backgroundColor = MaterialTheme.colorScheme.surface,
-                            tints = listOf(HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = 0.68f))),
-                            blurRadius = 24.dp,
+                            tints = listOf(HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))),
+                            blurRadius = 30.dp,
                             noiseFactor = 0f,
                         ),
-                    ) else Modifier,
+                    ).glassEdge(RectangleShape, CourseColors.isDark(MaterialTheme.colorScheme)) else Modifier,
                 )
                 .padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -445,6 +448,7 @@ fun ScheduleScreen(
             beyondViewportPageCount = 1,
         ) { page ->
             WeekGrid(
+                hasBg = bgFile != null,
                 dataset = dataset,
                 cls = cls,
                 week = page + 1,
@@ -495,6 +499,7 @@ private fun TodayBar(
         contentColor = barFg,
         shape = RoundedCornerShape(16.dp),
         modifier = modifier
+            .shadow(6.dp, RoundedCornerShape(16.dp))
             .then(
                 if (haze != null) Modifier
                     .clip(RoundedCornerShape(16.dp))
@@ -502,14 +507,24 @@ private fun TodayBar(
                         haze,
                         style = HazeStyle(
                             backgroundColor = MaterialTheme.colorScheme.surface,
-                            tints = listOf(HazeTint(barBg.copy(alpha = 0.55f))),
-                            blurRadius = 24.dp,
+                            tints = listOf(HazeTint(barBg.copy(alpha = 0.45f))),
+                            blurRadius = 30.dp,
                             noiseFactor = 0f,
                         ),
-                    ) else Modifier,
+                    )
+                    .glassEdge(RoundedCornerShape(16.dp), dark)
+                else Modifier,
             ),
     ) {
         Box {
+            // 顶面反光: 玻璃上沿一道淡白渐变, 悬浮感的关键一笔 (深色模式更弱)
+            Box(
+                Modifier.matchParentSize().background(
+                    Brush.verticalGradient(
+                        listOf(Color.White.copy(alpha = if (dark) 0.10f else 0.22f), Color.Transparent),
+                    ),
+                ),
+            )
             shimmer?.let { Box(Modifier.matchParentSize().background(it)) }
             Row(
                 Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
@@ -630,6 +645,7 @@ private fun WeekGrid(
     cls: Cls,
     week: Int,
     initialWeek: Int,
+    hasBg: Boolean,   // 自定义背景生效中: 课程块 0.97 微透呼应壁纸
     today: LocalDate,
     colorMap: Map<String, Int>,
     drag: DragHost,
@@ -1049,6 +1065,7 @@ private fun WeekGrid(
                                 onDragCancel = dragCancel,
                                 onCourseClick = onCourseClick,
                                 onAddAt = onAddAt,
+                                blockAlpha = if (hasBg) 0.97f else 1f,
                                 modifier = Modifier.weight(1f).fillMaxHeight(),
                             )
                         }
@@ -1140,10 +1157,25 @@ private fun WeekGrid(
                             }
                             .width(colWidthDp)
                             .height(gh)
-                            .shadow(if (gDark) 0.dp else 2.dp, gShape)
+                            .shadow(if (gDark) 3.dp else 4.dp, gShape)
                             .background(
                                 Brush.verticalGradient(
-                                    listOf(lerp(container, Color.White, if (gDark) 0.08f else 0.12f), container),
+                                    listOf(
+                                        lerp(container, Color.White, if (gDark) 0.08f else 0.12f)
+                                            .copy(alpha = if (hasBg) 0.97f else 1f),
+                                        container.copy(alpha = if (hasBg) 0.97f else 1f),
+                                    ),
+                                ),
+                                gShape,
+                            )
+                            // 玻璃贴片高光: 色块从壁纸「立」起来的关键一笔
+                            .border(
+                                0.8.dp,
+                                Brush.verticalGradient(
+                                    listOf(
+                                        Color.White.copy(alpha = if (gDark) 0.16f else 0.34f),
+                                        Color.White.copy(alpha = if (gDark) 0.04f else 0.08f),
+                                    ),
                                 ),
                                 gShape,
                             ),
@@ -1234,6 +1266,7 @@ private fun DayColumn(
     onDragCancel: () -> Unit,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int) -> Unit,
+    blockAlpha: Float = 1f,   // 有自定义背景时 0.97 微透, 色块透出一点壁纸呼吸感
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -1328,10 +1361,24 @@ private fun DayColumn(
                         )
                     }
                     .height(h)
-                    .shadow(if (dark) 0.dp else 2.dp, shape)
+                    .shadow(if (dark) 3.dp else 4.dp, shape)
                     .background(
                         Brush.verticalGradient(
-                            listOf(lerp(container, Color.White, if (dark) 0.08f else 0.12f), container),
+                            listOf(
+                                lerp(container, Color.White, if (dark) 0.08f else 0.12f)
+                                    .copy(alpha = blockAlpha),
+                                container.copy(alpha = blockAlpha),
+                            ),
+                        ),
+                        shape,
+                    )
+                    .border(
+                        0.8.dp,
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.White.copy(alpha = if (dark) 0.16f else 0.34f),
+                                Color.White.copy(alpha = if (dark) 0.04f else 0.08f),
+                            ),
                         ),
                         shape,
                     )
@@ -1388,6 +1435,23 @@ private fun DayColumn(
         }
     }
 }
+
+/**
+ * 液态玻璃边缘高光: 顶部亮、中段渐隐、底部微亮的 1dp 描边。
+ * 有它玻璃表面才有「厚度」—— 否则毛玻璃糊在壁纸上, 与壁纸融为一体没有层次。
+ */
+private fun Modifier.glassEdge(shape: Shape, dark: Boolean, width: Dp = 1.dp, strength: Float = 1f): Modifier =
+    this.border(
+        width,
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = (if (dark) 0.14f else 0.42f) * strength),
+                Color.Transparent,
+                Color.White.copy(alpha = (if (dark) 0.05f else 0.08f) * strength),
+            ),
+        ),
+        shape,
+    )
 
 /** 流光笔刷: x∈[0,1] 为相位, 0=屏外左 1=屏外右(全程穿屏, 循环重置不可见), alpha 为光带强度;
  *  深色底用白光带, 浅色底白光不可见 → 改用黑光带(强度×0.6) */
