@@ -366,12 +366,12 @@ fun ScheduleScreen(
                                 .clickable(onClick = onToggleTimetable)
                                 .background(
                                     MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                                    RoundedCornerShape(6.dp),
+                                    RoundedCornerShape(8.dp),
                                 )
                                 .border(
                                     1.dp,
                                     MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                                    RoundedCornerShape(6.dp),
+                                    RoundedCornerShape(8.dp),
                                 )
                                 .padding(horizontal = 6.dp, vertical = 1.dp),
                         )
@@ -383,11 +383,11 @@ fun ScheduleScreen(
                             modifier = Modifier
                                 .padding(start = 6.dp)
                                 .clickable(onClick = onToggleTimetable)
-                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
                                 .border(
                                     1.dp,
                                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                    RoundedCornerShape(6.dp),
+                                    RoundedCornerShape(8.dp),
                                 )
                                 .padding(horizontal = 6.dp, vertical = 1.dp),
                         )
@@ -1005,7 +1005,7 @@ private fun WeekGrid(
                             fontSize = 8.sp,
                             color = MaterialTheme.colorScheme.outline,
                             modifier = Modifier
-                                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(6.dp))
+                                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
                                 .padding(horizontal = 6.dp),
                         )
                     }
@@ -1083,7 +1083,10 @@ private fun WeekGrid(
                         Box(
                             Modifier
                                 .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)),
+                                .background(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                    RoundedCornerShape(2.dp),  // 细条端头圆润, 与全局圆角语言一致
+                                ),
                         )
                         Box(
                             Modifier

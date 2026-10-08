@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -176,7 +177,7 @@ fun KbSheet(
                     Box(
                         Modifier
                             .size(40.dp, 4.dp)
-                            .background(cs.outlineVariant.copy(alpha = 0.8f), RoundedCornerShape(2.dp)),
+                            .background(cs.outlineVariant.copy(alpha = 0.8f), CircleShape),
                     )
                 }
                 CompositionLocalProvider(LocalContentColor provides contentColorFor(panelColor)) {

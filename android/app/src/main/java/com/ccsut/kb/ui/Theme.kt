@@ -9,7 +9,10 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Shapes
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import kotlin.math.max
@@ -62,7 +65,18 @@ fun KbTheme(themeMode: Int = 0, colorSource: Int = 0, seed: Int = 0, content: @C
         // 跟随系统壁纸 (默认)
         else -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     }
-    MaterialTheme(colorScheme = scheme, content = content)
+    // 全局圆角基线: M3 默认组件(Button/Chip/Card/TextField 等)统一对齐; 显式传 shape 的以各处为准
+    MaterialTheme(
+        colorScheme = scheme,
+        shapes = Shapes(
+            extraSmall = RoundedCornerShape(8.dp),
+            small = RoundedCornerShape(12.dp),
+            medium = RoundedCornerShape(16.dp),
+            large = RoundedCornerShape(22.dp),
+            extraLarge = RoundedCornerShape(28.dp),
+        ),
+        content = content,
+    )
 }
 
 /** 课程块配色: 在动态取色的容器色基础上做色相旋转, 保证整版协调 */

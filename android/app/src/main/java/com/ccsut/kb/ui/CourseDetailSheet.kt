@@ -75,7 +75,7 @@ fun CourseDetailSheet(
                     fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier
-                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp))
                         .padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
