@@ -113,11 +113,13 @@ object CourseColors {
     private fun stableIndexOf(seed: String): Int =
         seedOrder.indexOf(seed).takeIf { it >= 0 } ?: kotlin.math.abs(seed.hashCode())
 
-    /** 主题色板取块色: 超出色板数时同色相做明度偏移续接, 依旧可辨 */
+    /** 主题色板取块色: 课程序号隔 3 位跨步取色 (相邻课程在色板上跳到最远色相),
+     *  超出色板数时同色相做明度偏移续接, 依旧可辨 */
     private fun packBlock(pack: ThemePack, i: Int, dark: Boolean): Color {
         val list = if (dark) pack.blocksDark else pack.blocksLight
-        var c = ThemePacks.blockContainer(pack, i, dark)
-        val cycle = i / list.size
+        val slot = i * 3
+        var c = ThemePacks.blockContainer(pack, slot, dark)
+        val cycle = slot / list.size
         if (cycle > 0) {
             val (h, s, l, a) = hslOf(c)
             c = hsl(h, s, if (dark) (l + 0.07f * cycle).coerceAtMost(0.60f) else (l - 0.08f * cycle).coerceAtLeast(0.58f), a)

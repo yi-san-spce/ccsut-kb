@@ -71,10 +71,10 @@ object ThemePacks {
             surfaceVariant = 0x4A4232, onSurfaceVariant = 0xCEBFA0,
             outline = 0x97886C, outlineVariant = 0x4A4232,
         ),
-        // 琥珀/赤陶/橄榄/雾蓝: 同一暖调荧光屏气质, 拒绝彩虹散射
+        // 琥珀/赤陶/橄榄/雾蓝: 同一暖调荧光屏气质; 浅色块加深加饱, 琥珀要真显琥珀
         blocksLight = listOf(
-            0xFFF2D9A4, 0xFFE9C9B2, 0xFFD9D6A9, 0xFFC9D6B8,
-            0xFFBBD3CD, 0xFFE3D3B9, 0xFFDCC0AC, 0xFFCBC8B0,
+            0xFFF0C060, 0xFFEFA080, 0xFFD6D078, 0xFFB5D08E,
+            0xFF8CC4B8, 0xFFEBD3A8, 0xFFE79B72, 0xFFBFB78E,
         ),
         blocksDark = listOf(
             0xFF8A6420, 0xFF8C4A36, 0xFF6E6A34, 0xFF55704A,
@@ -105,10 +105,10 @@ object ThemePacks {
             surfaceVariant = 0x262629, onSurfaceVariant = 0xA9A9B0,
             outline = 0x55555C, outlineVariant = 0x2A2A2E,
         ),
-        // 墨阶: 冷暖灰温微差代替彩色, 克制但并排可辨
+        // 墨阶: 冷暖灰温拉开 (色板按跨步分配序排列: 蓝→紫→黄→绿…), 克制但并排可辨
         blocksLight = listOf(
-            0xFFE9E9EB, 0xFFE3E6E9, 0xFFEAE6DF, 0xFFE2E7E1,
-            0xFFE7E4EB, 0xFFEDEDED, 0xFFE0E4E6, 0xFFEAE2DA,
+            0xFFC9D6E4, 0xFFC2DCC8, 0xFFDEDEE2, 0xFFDCCCE4,
+            0xFFE6D2BC, 0xFFDCE0BE, 0xFFE8DCBF, 0xFFC4D2DA,
         ),
         blocksDark = listOf(
             0xFF2E2E32, 0xFF2D3136, 0xFF35312B, 0xFF2E3530,
@@ -139,14 +139,15 @@ object ThemePacks {
             surfaceVariant = 0x282828, onSurfaceVariant = 0xB3B3B3,
             outline = 0x8A8A8A, outlineVariant = 0x333333,
         ),
-        // 黑白灰 + 一点红: 红只做点缀, 主体交给排版与描边
+        // 黑白灰 + 一点红: 灰阶 4 档明度阶梯 + 红调 4 档(艳红/鲑红/淡粉/牛血)各自分明,
+        // 跨步序灰红交替, 8 门课全铺开也无一近似
         blocksLight = listOf(
-            0xFFEFEFEF, 0xFFE8E8E8, 0xFFF4F4F4, 0xFFE4E4E4,
-            0xFFF8DAD6, 0xFFECECEC, 0xFFF0E4E2, 0xFFEAEAEA,
+            0xFFD6D6D6, 0xFFF49490, 0xFFB8B8B8, 0xFFE0504A,
+            0xFFC4C4C4, 0xFFF6C3C0, 0xFFA0A0A0, 0xFFB85C58,
         ),
         blocksDark = listOf(
-            0xFF2A2A2A, 0xFF303030, 0xFF262626, 0xFF333333,
-            0xFF6E1A16, 0xFF2C2C2C, 0xFF58201C, 0xFF2E2E2E,
+            0xFF262626, 0xFF8C2B26, 0xFF3A3A3A, 0xFFB33730,
+            0xFF242424, 0xFF7E2420, 0xFF333333, 0xFF58201C,
         ),
     )
 
@@ -173,10 +174,10 @@ object ThemePacks {
             surfaceVariant = 0x463C30, onSurfaceVariant = 0xCDBBA2,
             outline = 0xA18F73, outlineVariant = 0x463C30,
         ),
-        // 黄铜/绯红/常春藤/乌木: 书架上的旧书脊
+        // 黄铜/绯红/常春藤/乌木: 旧书脊色加深加饱; 跨步序=黄→紫→绿→红交替
         blocksLight = listOf(
-            0xFFE9D6B4, 0xFFEACCD0, 0xFFD8DFC4, 0xFFE0D2E0,
-            0xFFE4D8BE, 0xFFD9DDD3, 0xFFE6CBB8, 0xFFD8D0BC,
+            0xFFE3BE6C, 0xFFE99098, 0xFFE0C890, 0xFFC8A2CC,
+            0xFF98BFA8, 0xFFC6B884, 0xFFA8C27E, 0xFFE2A072,
         ),
         blocksDark = listOf(
             0xFF6E5522, 0xFF76323C, 0xFF46543A, 0xFF54425A,
@@ -207,10 +208,10 @@ object ThemePacks {
             surfaceVariant = 0x23232E, onSurfaceVariant = 0xA7A9B8,
             outline = 0x8B8DA0, outlineVariant = 0x2C2C38,
         ),
-        // 霓虹管: 青/品红/绿/紫的深管身, 浅色是同族电光粉彩
+        // 霓虹管: 青/品红/绿/紫深管身; 浅色电光色饱和拉满, 跨步序冷暖交替
         blocksLight = listOf(
-            0xFFC5F0FA, 0xFFF6D2F2, 0xFFD8F0BC, 0xFFDCD8F6,
-            0xFFF6E8C0, 0xFFC2EDE4, 0xFFF8DAD0, 0xFFD4E4F8,
+            0xFF8AE4F2, 0xFFC4B4F2, 0xFFF8B49C, 0xFFF49EE8,
+            0xFFF2D878, 0xFFA6CCF2, 0xFFBCEC8E, 0xFF84E0CE,
         ),
         blocksDark = listOf(
             0xFF00708A, 0xFF8E1C86, 0xFF1F6B2A, 0xFF4A2492,

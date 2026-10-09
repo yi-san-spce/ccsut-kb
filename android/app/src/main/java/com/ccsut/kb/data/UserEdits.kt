@@ -248,21 +248,21 @@ object UserEdits {
                             )
                             if (d == Delta()) edits.remove(e) else replace(e, e.copy(delta = d))
                         } else if (rest.isEmpty()) {
-                            // 生效范围只有这一周: 整条转单周修改(丢弃周次增量, 位置/内容增量保留)
+                            // 生效范围只有这一周: 移动它 = 移动整个生效范围,
+                            // 保留周次修改, 只更新位置; 拖回原始位置 = 还原
                             val d = (e.delta ?: Delta()).copy(
                                 day = newDay.takeIf { it != m.day },
                                 startJc = newStartJc.takeIf { it != m.startJc },
-                                ranges = null, zc = null,
                             )
                             if (d == Delta()) edits.remove(e)
-                            else replace(e, e.copy(week = week, delta = d))
+                            else replace(e, e.copy(delta = d))
                         } else {
                             replace(e, e.copy(delta = (e.delta ?: Delta()).copy(
-                                ranges = rest, zc = e.delta?.zc ?: null)))
+                                ranges = rest, zc = zcText(rest))))
+                            // 副本 delta 必须显式写绝对位置: 拖到的位置可能恰好等于学校原始锚点,
+                            // takeIf 置空会让这条记录变空而不创建, 该周的课就凭空消失了
                             edits += Edit(newId(), bjid, 1, week = week, match = m, delta = Delta(
-                                day = newDay.takeIf { it != m.day },
-                                startJc = newStartJc.takeIf { it != m.startJc },
-                            ))
+                                day = newDay, startJc = newStartJc))
                         }
                     }
                 }
@@ -294,9 +294,19 @@ object UserEdits {
                 return
             }
             val m = e?.match ?: anchorOf(block)
+            // 单周修改的块: 勾选周次没动 → 保持单周语义(delta 不写周次, 拆行照旧);
+            // 勾选周次变了 → 升级为全周修改(week 清空, 增量按表单全量生效)
+            val singleWeek = e?.week
             val d = diff(bjid, m, form)
-            if (e != null) replace(e, e.copy(match = m, delta = d))
-            else edits += Edit(newId(), bjid, 1, match = m, delta = d)
+            if (singleWeek != null && form.ranges == listOf(singleWeek..singleWeek)) {
+                val kept = d.copy(ranges = null, zc = null)
+                if (e != null) replace(e, e.copy(match = m, delta = kept))
+                else edits += Edit(newId(), bjid, 1, week = singleWeek, match = m, delta = kept)
+            } else if (e != null) {
+                replace(e, e.copy(match = m, delta = d, week = null))
+            } else {
+                edits += Edit(newId(), bjid, 1, match = m, delta = d)
+            }
             persist(ctx)
         }
     }
@@ -340,6 +350,25 @@ object UserEdits {
     fun rangesOverlap(a: List<IntRange>, b: List<IntRange>): Boolean =
         a.any { ra -> b.any { rb -> ra.first <= rb.last && rb.first <= ra.last } }
 
+    /** 周次区间扣除单个周 (拆单周移动用); 不含该周则原样返回 */
+    fun minusWeek(ranges: List<IntRange>, week: Int): List<IntRange> {
+        if (ranges.none { week in it }) return ranges
+        val out = mutableListOf<IntRange>()
+        for (r in ranges) when {
+            week < r.first || week > r.last -> out += r
+            r.first == r.last -> {}                   // 整段就是该周, 丢弃
+            week == r.first -> out += (r.first + 1)..r.last
+            week == r.last -> out += r.first..(r.last - 1)
+            else -> { out += r.first..(week - 1); out += (week + 1)..r.last }
+        }
+        return out
+    }
+
+    /** 周次区间 → "1-4,6-16" 显示文本 (与 [zcOf] 同格式) */
+    fun zcText(ranges: List<IntRange>): String = ranges.joinToString(",") {
+        if (it.first == it.last) "${it.first}" else "${it.first}-${it.last}"
+    }
+
     /** 由勾选周次生成 ("1-4,6-12" 文本, 区间列表) */
     fun zcOf(sel: Set<Int>): Pair<String, List<IntRange>> {
         val ranges = mutableListOf<IntRange>()
@@ -348,10 +377,7 @@ object UserEdits {
             if (last != null && last.last == w - 1) ranges[ranges.size - 1] = last.first..w
             else ranges += w..w
         }
-        val text = ranges.joinToString(",") {
-            if (it.first == it.last) "${it.first}" else "${it.first}-${it.last}"
-        }
-        return text to ranges
+        return zcText(ranges) to ranges
     }
 
     // ---------- 内部 ----------
@@ -412,6 +438,7 @@ object UserEdits {
     private fun toJson(e: Edit): JSONObject = JSONObject()
         .put("id", e.id).put("bjid", e.bjid).put("kind", e.kind)
         .apply {
+            e.week?.let { put("week", it) }
             e.match?.let { m ->
                 put("match", JSONObject()
                     .put("kc", m.kc).put("fx", m.fx).put("day", m.day)
@@ -447,6 +474,7 @@ object UserEdits {
             val o = arr.getJSONObject(i)
             Edit(
                 id = o.getString("id"), bjid = o.getString("bjid"), kind = o.optInt("kind", 0),
+                week = o.optInt("week", 0).takeIf { o.has("week") },
                 match = o.optJSONObject("match")?.let { m ->
                     Match(
                         kc = m.getString("kc"), fx = m.optString("fx"), day = m.optInt("day", 1),
