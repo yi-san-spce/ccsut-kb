@@ -57,7 +57,7 @@ object TodayStatus {
                 val left = endMin(current)!! - nowMin
                 Result(
                     title = "正在上 ${current.course.kc}",
-                    sub = "还剩 $left 分钟${where(current).replace(" @ ", " · ")}，加油加油",
+                    sub = "还剩 ${dur(left)}${where(current).replace(" @ ", " · ")}，加油加油",
                     tone = Tone.ACTIVE,
                 )
             }
@@ -70,7 +70,7 @@ object TodayStatus {
                 )
             }
             next != null && doneAny -> Result(
-                title = pick(between, today).format(startMin(next)!! - nowMin),
+                title = pick(between, today).format(dur(startMin(next)!! - nowMin)),
                 sub = "下一节 ${timeOf(next)} ${next.course.kc}${where(next)}",
             )
             next != null -> if (fullDay) Result(
@@ -98,9 +98,9 @@ object TodayStatus {
     // ---------------- 文案池 (活人感版) ----------------
 
     private val between = listOf(
-        "课间 %d 分钟，喝口水歇歇 (´▽`)",
-        "趁课间歇口气～还有 %d 分钟",
-        "还有 %d 分钟才上课，走动走动呀",
+        "课间 %s，喝口水歇歇 (´▽`)",
+        "趁课间歇口气～还有 %s",
+        "还有 %s 才上课，走动走动呀",
     )
     private val fullDayPool = listOf(
         "服了，这臭课表，怎么安排的！(╯°□°）╯",
@@ -136,5 +136,12 @@ object TodayStatus {
     private fun minutes(t: String): Int {
         val (h, m) = t.split(":").map { it.trim().toInt() }
         return h * 60 + m
+    }
+
+    /** 分钟数 → 人话时长: 超过 1 小时改小时制 ("45 分钟" / "1 小时 25 分" / "2 小时") */
+    private fun dur(mins: Int): String = when {
+        mins < 60 -> "$mins 分钟"
+        mins % 60 == 0 -> "${mins / 60} 小时"
+        else -> "${mins / 60} 小时 ${mins % 60} 分"
     }
 }

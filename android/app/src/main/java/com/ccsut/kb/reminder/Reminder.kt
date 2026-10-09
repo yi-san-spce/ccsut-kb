@@ -183,6 +183,8 @@ object ReminderScheduler {
                 .setSmallIcon(R.drawable.ic_stat_bell)
                 .setContentTitle(title)
                 .setContentText(text)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setAutoCancel(true)
                 .build(),
         )
@@ -267,6 +269,8 @@ object ReminderScheduler {
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setCategory(NotificationCompat.CATEGORY_REMINDER)
                 .setAutoCancel(true)
                 .setContentIntent(contentPi)
