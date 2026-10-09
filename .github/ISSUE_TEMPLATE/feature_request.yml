@@ -1,0 +1,28 @@
+name: "💡 功能建议"
+description: 想要新功能或对现有功能的改进
+labels: [enhancement]
+body:
+  - type: textarea
+    id: feature
+    attributes:
+      label: 想要什么功能？
+      placeholder: 希望课程块支持自定义圆角大小……
+    validations:
+      required: true
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 解决什么问题 / 使用场景
+      description: 说清楚场景能帮我们判断优先级
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: 参与意愿
+      options:
+        - label: 我愿意提交 PR 来实现这个功能（维护者会提供指导）
+  - type: markdown
+    attributes:
+      value: |
+        > 想法还不成熟？欢迎先到 [Discussions](https://github.com/yi-san-spce/ccsut-kb/discussions) 聊聊。

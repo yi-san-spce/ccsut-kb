@@ -1,0 +1,71 @@
+name: "🐛 Bug 反馈"
+description: 应用本身的问题 —— 崩溃、显示异常、功能不工作
+labels: [bug]
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: 问题类型
+      options:
+        - 崩溃 / 闪退
+        - 界面显示异常
+        - 功能不工作
+        - 桌面小组件异常
+        - 通知提醒异常
+        - 更新相关
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么？
+      description: 期望的表现 vs 实际的表现
+      placeholder: 打开应用后课表空白，期望显示本周课程……
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开应用
+        2. 点击「…」
+        3. 出现问题
+    validations:
+      required: true
+  - type: dropdown
+    id: version
+    attributes:
+      label: APP 版本
+      description: 「更多 → 关于」可查看版本号
+      options:
+        - v1.0.0（最新）
+        - 更早的内部测试版
+        - 不确定
+    validations:
+      required: true
+  - type: dropdown
+    id: schedule-type
+    attributes:
+      label: 使用的课表类型
+      options:
+        - 班级课表
+        - 个人课表
+        - 两者都有问题
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: 机型与系统版本
+      placeholder: 如 小米 14 / HyperOS 2（Android 15）
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 截图或补充信息
+      description: 可直接粘贴截图；如有崩溃记录或日志请一并贴出
+    validations:
+      required: false

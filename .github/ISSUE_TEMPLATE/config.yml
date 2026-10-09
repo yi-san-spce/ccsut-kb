@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 使用疑问 / 交流讨论
+    url: https://github.com/yi-san-spce/ccsut-kb/discussions
+    about: 不确定是不是 Bug？想提想法或聊聊使用心得？请到 Discussions
+  - name: 🇨🇳 Gitee 镜像
+    url: https://gitee.com/yisanspce/ccsut-kb
+    about: GitHub 访问困难可走 Gitee 镜像获取源码与下载（Issue / PR 仍以 GitHub 为准）
+  - name: 🔒 安全漏洞
+    url: https://github.com/yi-san-spce/ccsut-kb/blob/master/SECURITY.md
+    about: 请勿公开提交安全漏洞，按 SECURITY.md 中的方式私下报告

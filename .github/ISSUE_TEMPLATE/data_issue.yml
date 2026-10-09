@@ -1,0 +1,50 @@
+name: "📅 课表数据问题"
+description: 课表内容不对 —— 少课/多课、时间、教室、周次范围等
+labels: [data]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 问题类型
+      options:
+        - 缺少课程
+        - 多出课程
+        - 上课时间不对
+        - 教室不对
+        - 周次范围不对
+        - 任课教师不对
+        - 新学期数据缺失
+        - 其他
+    validations:
+      required: true
+  - type: input
+    id: class
+    attributes:
+      label: 学院与班级
+      placeholder: 如 计算机学院 · 软件2401
+    validations:
+      required: true
+  - type: textarea
+    id: detail
+    attributes:
+      label: 具体哪节课不对？
+      placeholder: |
+        例：周一第 3 节显示「高等数学 B203」，教务系统上实际是「线性代数 B305」，第 1-16 周
+    validations:
+      required: true
+  - type: dropdown
+    id: term
+    attributes:
+      label: 数据学期
+      options:
+        - "2026-2027-1（当前数据集）"
+        - 其他 / 新学期
+    validations:
+      required: true
+  - type: textarea
+    id: proof
+    attributes:
+      label: 教务系统截图（推荐）
+      description: 附上教务系统的课表截图能大幅加快核对速度
+    validations:
+      required: false
