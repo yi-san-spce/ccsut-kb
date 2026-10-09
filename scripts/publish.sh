@@ -27,14 +27,26 @@ T=$(tr -d '[:space:]' < "$ROOT/.session/gitee_token")
 
 SKIP_SCRAPE=""
 APK_PATH=""
+ALLOW_DIRTY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip) SKIP_SCRAPE=1 ;;
     --apk)  APK_PATH="$2"; shift ;;
+    --allow-dirty) ALLOW_DIRTY=1 ;;
     *) echo "未知参数: $1"; exit 1 ;;
   esac
   shift
 done
+
+# ---------- 0. 发布门禁: 工作区必须干净 ----------
+# 教训 (v2.10.3): 发版构建与并行会话的提交同分钟竞态, APK 裹进了半成品代码导致启动闪退。
+# 未提交改动可能是别人会话的中间态 —— 要么先提交, 要么确知无误时用 --allow-dirty 自担风险。
+if [ -n "$(git status --porcelain)" ] && [ -z "$ALLOW_DIRTY" ]; then
+  echo "❌ 发布中止: 工作区有未提交改动 (可能混入并行会话的半成品):"
+  git status --short | head -10
+  echo "   先 commit, 或确知无误时用 --allow-dirty 跳过本检查。"
+  exit 1
+fi
 
 # ---------- 1. 抓取最新课表并生成数据集 ----------
 if [ -z "$SKIP_SCRAPE" ]; then
