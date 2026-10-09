@@ -90,7 +90,9 @@ fun App() {
     // remember 不能写在 && 右侧(短路会跳过组合), 先单独取
     // 个人课表数据来自教务透传: 作息(节次)必须 ≥2 个大节且 jc 从 1 连续, 否则渲染层 SlotModel
     // 的 first{} / 空槽位表会直接崩 —— 校验不过按「无个人数据」处理, 回退班级课表/引导选班, 不崩不白屏
-    val hasPersonal = remember(dataTick) {
+    // ready 必须作为 key: 本 lambda 在首次组合时执行 (PersonalRepo 尚未异步加载完), 若只挂 dataTick,
+    // 加载完成后的重组会命中缓存 false, 冷启动永远回退班级课表 (v2.11.2 修复)
+    val hasPersonal = remember(dataTick, ready) {
         val jcs = if (PersonalRepo.hasData()) PersonalRepo.dataset()?.periods?.map { it.jc }?.sorted().orEmpty()
         else emptyList()
         jcs.size >= 4 && jcs == (1..jcs.size).toList()
