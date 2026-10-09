@@ -116,6 +116,7 @@ fun App() {
     var bgAlpha by remember { mutableIntStateOf(Prefs.bgAlpha(ctx)) }
     var colorSource by remember { mutableIntStateOf(Prefs.colorSource(ctx)) }
     var bgSeed by remember { mutableIntStateOf(Prefs.bgSeed(ctx)) }
+    var styleTheme by remember { mutableIntStateOf(Prefs.styleTheme(ctx)) }
     var reminderOn by remember { mutableStateOf(Prefs.reminderOn(ctx)) }
     var reminderLead by remember { mutableIntStateOf(Prefs.reminderLead(ctx)) }
     var nextReminderAt by remember { mutableLongStateOf(Prefs.nextReminderAt(ctx)) }
@@ -228,7 +229,7 @@ fun App() {
         }
     }
 
-    KbTheme(themeMode, colorSource, bgSeed) {
+    KbTheme(themeMode, colorSource, bgSeed, styleTheme) {
         if (!ready) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
@@ -470,6 +471,7 @@ fun App() {
                 bgAlpha = bgAlpha,
                 colorSource = colorSource,
                 bgSeed = bgSeed,
+                styleTheme = styleTheme,
                 reminderOn = reminderOn,
                 reminderLead = reminderLead,
                 nextReminderAt = nextReminderAt,
@@ -519,6 +521,10 @@ fun App() {
                     Prefs.setColorSource(ctx, v)
                     colorSource = v
                     runCatching { com.ccsut.kb.widget.WidgetRenderer.updateAll(ctx) }
+                },
+                onStyleTheme = { v ->
+                    Prefs.setStyleTheme(ctx, v)
+                    styleTheme = v
                 },
                 onReminderToggle = { on ->
                     Prefs.setReminderOn(ctx, on)
@@ -741,6 +747,7 @@ fun App() {
                         themeMode = 0
                         colorSource = 0
                         bgSeed = 0
+                        styleTheme = 0
                         DebugLog.log("dev", "已重置个性化设置")
                         Toast.makeText(ctx, "个性化设置已重置", Toast.LENGTH_SHORT).show()
                     }
@@ -769,6 +776,7 @@ fun App() {
                         themeMode = 0
                         colorSource = 0
                         bgSeed = 0
+                        styleTheme = 0
                         reminderOn = false
                         nextReminderAt = 0
                         dbgOffset = 0

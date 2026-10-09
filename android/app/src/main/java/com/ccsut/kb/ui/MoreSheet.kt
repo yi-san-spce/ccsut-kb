@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,12 +31,15 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Celebration
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.ManageAccounts
@@ -51,6 +55,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -102,6 +107,7 @@ fun MoreSheet(
     bgAlpha: Int,
     colorSource: Int,
     bgSeed: Int,
+    styleTheme: Int,
     reminderOn: Boolean,
     reminderLead: Int,
     nextReminderAt: Long,
@@ -116,6 +122,7 @@ fun MoreSheet(
     onRemoveBg: () -> Unit,
     onBgAlpha: (Int) -> Unit,
     onColorSource: (Int) -> Unit,
+    onStyleTheme: (Int) -> Unit,
     onReminderToggle: (Boolean) -> Unit,
     onLeadChange: (Int) -> Unit,
     onAfterClassChange: (Boolean) -> Unit,
@@ -136,6 +143,7 @@ fun MoreSheet(
     var url by remember { mutableStateOf(Updater.manifestUrl(ctx)) }
     var urlDraft by remember { mutableStateOf("") }
     var showBgDialog by remember { mutableStateOf(false) }
+    var showStylePicker by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
@@ -199,6 +207,36 @@ fun MoreSheet(
                 TextButton(onClick = { showBgDialog = false; onRemoveBg() }) { Text("移除") }
             },
         )
+    }
+    // ---------------- 主题风格选择 ----------------
+    if (showStylePicker) {
+        KbSheet(onDismiss = { showStylePicker = false }) {
+            Text(
+                "主题风格",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 8.dp),
+            )
+            // 默认: 不接管配色, 色卡取当前生效 scheme
+            StyleOptionRow(
+                title = "默认",
+                tagline = "跟随系统壁纸 / 背景图 / 品牌色",
+                selected = styleTheme == 0,
+                swatches = listOf(cs.background, cs.primary, cs.primaryContainer, cs.secondaryContainer, cs.tertiaryContainer),
+                onClick = { onStyleTheme(0); showStylePicker = false },
+            )
+            ThemePacks.ALL.forEach { p ->
+                StyleOptionRow(
+                    title = p.title,
+                    tagline = p.tagline,
+                    selected = styleTheme == p.id,
+                    swatches = ThemePacks.previewOf(p),
+                    onClick = { onStyleTheme(p.id); showStylePicker = false },
+                )
+            }
+            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.navigationBarsPadding())
+        }
     }
     if (showUrlDialog) {
         val ok = urlDraft.trim().startsWith("https://")
@@ -359,9 +397,16 @@ fun MoreSheet(
                     },
                 )
                 SettingRow(
+                    icon = Icons.Rounded.Style,
+                    title = "主题风格",
+                    subtitle = ThemePacks.byId(styleTheme)?.title ?: "默认（动态取色）",
+                    trailing = { RowTrailing("切换") },
+                    onClick = { showStylePicker = true },
+                )
+                SettingRow(
                     icon = Icons.Rounded.Palette,
                     title = "主题配色",
-                    subtitle = when (colorSource) {
+                    subtitle = if (styleTheme != 0) "由主题风格接管" else when (colorSource) {
                         1 -> if (bgOn) "跟随背景图取色" else "跟随背景图（未设背景）"
                         2 -> "固定品牌色"
                         else -> "跟随系统壁纸"
@@ -372,7 +417,7 @@ fun MoreSheet(
                             srcs.forEachIndexed { i, (label, v) ->
                                 SegmentedButton(
                                     selected = colorSource == v,
-                                    enabled = v != 1 || bgOn,
+                                    enabled = styleTheme == 0 && (v != 1 || bgOn),
                                     onClick = { onColorSource(v) },
                                     shape = SegmentedButtonDefaults.itemShape(i, srcs.size),
                                 ) { Text(label, fontSize = 12.sp) }
@@ -653,4 +698,52 @@ fun MoreSheet(
 @Composable
 internal fun DevActionRow(title: String, subtitle: String, onClick: () -> Unit) {
     SettingRow(title = title, subtitle = subtitle, trailing = { RowTrailing() }, onClick = onClick)
+}
+
+// ==================== 主题风格选择 ====================
+
+/** 主题风格选项行: 名称+标语 + 色卡预览圆点 + 选中勾 */
+@Composable
+private fun StyleOptionRow(
+    title: String,
+    tagline: String,
+    selected: Boolean,
+    swatches: List<Color>,
+    onClick: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 11.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = cs.onSurface)
+            Text(tagline, fontSize = 12.sp, color = cs.onSurfaceVariant, lineHeight = 16.sp)
+        }
+        swatches.forEach { c ->
+            Box(
+                Modifier
+                    .padding(start = 4.dp)
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(c)
+                    .border(1.dp, cs.outlineVariant.copy(alpha = 0.6f), CircleShape),
+            )
+        }
+        Spacer(Modifier.size(12.dp))
+        if (selected) {
+            Icon(
+                Icons.Rounded.Check,
+                contentDescription = null,
+                tint = cs.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        } else {
+            Spacer(Modifier.size(20.dp))
+        }
+    }
 }

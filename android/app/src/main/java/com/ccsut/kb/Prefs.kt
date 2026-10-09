@@ -72,6 +72,15 @@ object Prefs {
         sp(ctx).edit().putInt("bg_seed", argb).apply()
     }
 
+    // ---------------- 主题风格包 ----------------
+
+    /** 0=默认(动态取色/品牌) 1..N=ThemePacks 固定主题, 选中后接管 colorSource */
+    fun styleTheme(ctx: Context): Int = sp(ctx).getInt("style_theme", 0)
+
+    fun setStyleTheme(ctx: Context, v: Int) {
+        sp(ctx).edit().putInt("style_theme", v).apply()
+    }
+
     // ---------------- 课前提醒 ----------------
 
     fun reminderOn(ctx: Context): Boolean = sp(ctx).getBoolean("reminder_on", false)
@@ -177,6 +186,7 @@ object Prefs {
             .putBoolean("bg_on", false)
             .putInt("theme_mode", 0)
             .putInt("color_source", 0)
+            .putInt("style_theme", 0)
             .remove("bg_seed")
             .apply()
     }

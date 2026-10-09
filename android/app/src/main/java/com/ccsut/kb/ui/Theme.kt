@@ -43,16 +43,25 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun KbTheme(themeMode: Int = 0, colorSource: Int = 0, seed: Int = 0, content: @Composable () -> Unit) {
+fun KbTheme(
+    themeMode: Int = 0,
+    colorSource: Int = 0,
+    seed: Int = 0,
+    styleTheme: Int = 0,
+    content: @Composable () -> Unit,
+) {
     val context = LocalContext.current
     val dark = when (themeMode) {
         1 -> false
         2 -> true
         else -> isSystemInDarkTheme()
     }
-    val scheme: ColorScheme = when (colorSource) {
+    // 主题风格包优先: 选中后接管全局配色, 短路动态取色 (id 失效时自然回落)
+    val pack = if (styleTheme != 0) ThemePacks.byId(styleTheme) else null
+    val scheme: ColorScheme = when {
+        pack != null -> if (dark) pack.dark else pack.light
         // 跟随背景图取色: 种子色缺失时退回壁纸配色
-        1 -> if (seed != 0) {
+        colorSource == 1 -> if (seed != 0) {
             com.materialkolor.dynamicColorScheme(
                 seedColor = Color(seed),
                 isDark = dark,
@@ -61,7 +70,7 @@ fun KbTheme(themeMode: Int = 0, colorSource: Int = 0, seed: Int = 0, content: @C
             )
         } else if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         // 固定品牌色
-        2 -> if (dark) DarkColors else LightColors
+        colorSource == 2 -> if (dark) DarkColors else LightColors
         // 跟随系统壁纸 (默认)
         else -> if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     }
@@ -104,8 +113,20 @@ object CourseColors {
             1 -> base.secondaryContainer
             else -> base.tertiaryContainer
         }
+        // 低彩度主题(极简/瑞士)的容器色近灰阶: 色相旋转对灰色无效, 改按课程种子
+        // 直接在全色轮上取低饱和淡彩, 保证课程之间依然一眼可辨
+        if (hslOf(src)[1] < 0.15f) {
+            val h = (kotlin.math.abs(seed.hashCode()) % 360).toFloat()
+            return hsl(h, 0.32f, if (dark) 0.40f else 0.86f)
+        }
         val rotated = rotateHue(src, ((kotlin.math.abs(seed.hashCode()) % 8) - 3.5f) * 24f)
-        return vivid(rotated, dark)
+        val vivid = vivid(rotated, dark)
+        // 浅色下发闷的兜底钳制
+        if (!dark) {
+            val (h, s, l, a) = hslOf(vivid)
+            if (s < 0.25f) return hsl(h, 0.25f, l, a)
+        }
+        return vivid
     }
 
     /** 深色模式提鲜: 饱和度×1.35(≤0.65)、亮度+0.07(≤0.42), 摆脱动态取色容器色的灰闷感 */
