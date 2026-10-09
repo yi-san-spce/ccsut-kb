@@ -18,9 +18,10 @@ object Weeks {
         val start = runCatching { LocalDate.parse(startDate, fmt) }.getOrNull()
             ?: return 1
         val days = java.time.temporal.ChronoUnit.DAYS.between(start, today)
+        // weeks.coerceAtLeast(1): 快照 JSON 显式写 0 时 coerceIn(1,0) 会抛 IllegalArgumentException
         return when {
             days < 0 -> 1
-            else -> (days / 7 + 1).toInt().coerceIn(1, weeks)
+            else -> (days / 7 + 1).toInt().coerceIn(1, weeks.coerceAtLeast(1))
         }
     }
 

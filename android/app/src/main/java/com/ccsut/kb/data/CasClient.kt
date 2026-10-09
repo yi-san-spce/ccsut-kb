@@ -99,10 +99,14 @@ object CasClient {
     }
 
     private fun cookiesFor(host: String): String {
-        // 同名 Cookie 去重: 通配桶(.ccsut.cn)先放, host 精确桶覆盖 —— 重复同名 Cookie 会被网关 400 拒绝
+        // 同名 Cookie 去重: 通配域桶先放, host 精确桶覆盖 —— 重复同名 Cookie 会被网关 400 拒绝
         val merged = LinkedHashMap<String, String>()
         synchronized(this) {
-            for ((_, m) in wildcard) m.forEach { (k, v) -> merged[k] = v }
+            // 通配桶只发「域后缀确实匹配请求 host」的: 防同会话内 A 域下发的域 cookie 泄漏给 B 域
+            for ((domain, m) in wildcard) {
+                val d = domain.removePrefix(".")
+                if (host == d || host.endsWith(".$d")) m.forEach { (k, v) -> merged[k] = v }
+            }
             exact[host]?.forEach { (k, v) -> merged[k] = v }
         }
         return merged.entries.joinToString("; ") { "${it.key}=${it.value}" }
@@ -123,11 +127,16 @@ object CasClient {
                 val dead = value.isEmpty() || "expires=thu, 01 jan 1970" in lower ||
                     RE_MAX_AGE_0.containsMatchIn(sc)
                 val domainAttr = RE_DOMAIN_ATTR.find(sc)?.groupValues?.get(1)?.trim()?.lowercase()
-                if (domainAttr != null && domainAttr.startsWith(".")) {
-                    val bucket = wildcard.getOrPut(domainAttr) { HashMap() }
-                    if (dead) bucket.remove(name) else bucket[name] = value
+                if (domainAttr != null) {
+                    // 显式 Domain= 属性: 统一按域桶存, 发送时按后缀匹配 (RFC 6265);
+                    // 与请求 host 无关的域 cookie 直接丢弃, 不给其它域搭车机会
+                    val d = domainAttr.removePrefix(".")
+                    if (host == d || host.endsWith(".$d")) {
+                        val bucket = wildcard.getOrPut(".$d") { HashMap() }
+                        if (dead) bucket.remove(name) else bucket[name] = value
+                    }
                 } else {
-                    val bucket = exact.getOrPut(domainAttr ?: host) { HashMap() }
+                    val bucket = exact.getOrPut(host) { HashMap() }
                     if (dead) bucket.remove(name) else bucket[name] = value
                 }
             }
@@ -308,17 +317,20 @@ object CasClient {
         url.substringBefore("?").let { u -> if (u.length > 90) u.take(87) + "…" else u }
 
     /** 识别最终落点页面, 用于错误提示与远程排障 */
-    fun diagnose(r: Response): String {
-        val t = r.text()
-        val host = runCatching { URL(r.url).host }.getOrDefault("?")
+    fun diagnose(r: Response): String = diagnose(url = r.url, html = r.text())
+
+    /** 同上, html 已取出的场景 (PersonalRepo 异常文案复用同一套识别, 勿再各写一份) */
+    fun diagnose(url: String = "", html: String): String {
+        val host = runCatching { URL(url).host }.getOrDefault("?")
         return when {
-            t.contains("75500006") || t.contains("当前账号已在线") -> "aTrust 提示账号已在线(等约3分钟)"
-            t.contains("sfDomainParam") || t.contains("locationUrl") -> "aTrust 网关跳转页"
-            t.contains("flowExecutionKey") -> "CAS 登录页"
-            t.contains("账号登录") && t.contains("统一认证") -> "教务登录页(tls 会话未建立)"
-            t.contains("app_center") || t.contains("工作台") -> "aTrust 工作台"
-            t.contains("xhid") -> "教务课表页"
-            else -> "未知页面($host, ${t.length}B)"
+            html.contains("75500006") || html.contains("当前账号已在线") -> "aTrust 提示账号已在线(等约3分钟)"
+            html.contains("sfDomainParam") || html.contains("locationUrl") -> "aTrust 网关跳转页"
+            html.contains("flowExecutionKey") -> "CAS 登录页"
+            html.contains("账号登录") && html.contains("统一认证") -> "教务登录页(tls 会话未建立)"
+            html.contains("app_center") || html.contains("工作台") -> "aTrust 工作台"
+            html.contains("xhid") -> "教务课表页"
+            html.isBlank() -> "空响应"
+            else -> "未知页面($host, ${html.length}B)"
         }
     }
 
@@ -511,7 +523,8 @@ object CasClient {
             last = r
             if (isTlsAlive()) return
         }
-        val r = last!!
+        // 显式判空而非 last!!: 防未来 repeat 改成条件循环时 last 未赋值直接 NPE
+        val r = last ?: throw CasException(CasException.Kind.NOT_LOGGED_IN, "教务登录未完成，请重新验证码登录")
         throw CasException(
             CasException.Kind.NOT_LOGGED_IN,
             "教务登录未完成（${diagnose(r)}），请重新验证码登录",

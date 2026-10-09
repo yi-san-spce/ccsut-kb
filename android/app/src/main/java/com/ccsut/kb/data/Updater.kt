@@ -33,7 +33,7 @@ sealed class CheckResult {
 
 object Updater {
 
-    // Gitee 发布仓 raw 直链: 清单+数据包在 master 分支, APK 走 Release 附件绝对 URL
+    // Gitee 发布仓 raw 直链: 清单+数据包+APK 都在 master 分支 (孤儿提交, 见 scripts/publish.sh)
     const val DEFAULT_URL = "https://gitee.com/yisanspce/ccsut-kb-release/raw/master/latest.json"
 
     fun manifestUrl(ctx: Context): String =
@@ -143,7 +143,8 @@ object Updater {
 
     // ---------------------------------------------------------------- 工具
 
-    private fun parseManifest(o: JSONObject): Manifest {
+    /** internal 仅为单测可及; 清单字段缺失时给默认值, 不抛格式异常 (格式异常由调用方兜) */
+    internal fun parseManifest(o: JSONObject): Manifest {
         val apk = o.optJSONObject("apk")
         val notes = apk?.optJSONArray("notes")?.let { arr ->
             (0 until arr.length()).mapNotNull { i ->
@@ -169,8 +170,13 @@ object Updater {
     private fun manifestBase(manifestUrl: String) =
         manifestUrl.substringBeforeLast('/')
 
-    private fun resolve(base: String, file: String): String =
-        if (file.startsWith("http")) file else "$base/$file"
+    /** 清单相对地址 → 绝对地址; 绝对地址仅接受 https (http 明文拒绝, 防清单被改后降级下载) */
+    internal fun resolve(base: String, file: String): String =
+        when {
+            file.startsWith("https://") -> file
+            file.startsWith("http://") -> error("拒绝明文 http 下载地址: $file")
+            else -> "$base/$file"
+        }
 
     private fun httpGet(url: String, maxBytes: Long = 64L * 1024 * 1024, onProgress: ((Long, Long) -> Unit)? = null): ByteArray {
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -206,6 +212,6 @@ object Updater {
 
 /** 编译期版本号, 独立对象便于测试与避免 BuildConfig 依赖 */
 object BuildVersion {
-    const val CODE = 35
-    const val NAME = "2.11.3"
+    const val CODE = 36
+    const val NAME = "2.12.0"
 }

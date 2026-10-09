@@ -2,8 +2,10 @@ package com.ccsut.kb.data
 
 import android.content.Context
 import com.ccsut.kb.Prefs
+import com.ccsut.kb.util.TimeParse
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /**
  * 当前班级的轻量快照 (filesDir/class_cache.json, 几十 KB)。
@@ -23,6 +25,9 @@ object ClassCache {
     )
 
     private const val FILE = "class_cache.json"
+
+    // App 内多处在途并发写快照(启动更新检查/resync/登出): 互斥防两份 tmp 交错
+    private val writeLock = Any()
 
     /** APP 侧调用: 把当前生效课表写成快照; 未选班且无个人课表则删除快照 */
     fun save(ctx: Context) {
@@ -78,11 +83,25 @@ object ClassCache {
         })
         root.put("courses", JSONArray().apply {
             courses.forEach { c ->
-                put(
-CourseCodec.toJson(c))
+                put(CourseCodec.toJson(c))
             }
         })
-        ctx.openFileOutput(FILE, Context.MODE_PRIVATE).use { it.write(root.toString().toByteArray()) }
+        // tmp+rename 原子写 (与 UserEdits 同款): 写一半崩溃不损坏快照,
+        // 小组件/提醒进程也读不到撕裂文件; 对照旧实现 openFileOutput 直写
+        synchronized(writeLock) {
+            val dst = File(ctx.filesDir, FILE)
+            val tmp = File(ctx.filesDir, "$FILE.tmp")
+            runCatching {
+                tmp.writeText(root.toString())
+                if (!tmp.renameTo(dst)) {
+                    dst.writeText(root.toString())  // 同分区 rename 失败极少见, 兜底直写
+                    tmp.delete()
+                }
+            }.onFailure {
+                tmp.delete()
+                throw it
+            }
+        }
     }
 
     fun load(ctx: Context): Snapshot? {
@@ -92,11 +111,7 @@ CourseCodec.toJson(c))
     }
 
     /** "8:20" 这种无前导零格式也能解析; 脏数据返回 -1 (调用方按无时间处理), 不让小组件进程崩 */
-    fun minutesOf(t: String): Int {
-        val parts = t.split(":").mapNotNull { it.trim().toIntOrNull() }
-        if (parts.size != 2) return -1
-        return parts[0] * 60 + parts[1]
-    }
+    fun minutesOf(t: String): Int = TimeParse.minutesOf(t) ?: -1
 
     private fun parse(text: String): Snapshot {
         val o = JSONObject(text)

@@ -35,7 +35,8 @@ object PersonalRepo {
         val syncedAt: Long,
     )
 
-    /** 当前内存中的个人课表 (App 启动时从 PersonalCache 载入) */
+    /** 当前内存中的个人课表 (App 启动时从 PersonalCache 载入; IO 线程写 / UI 线程读) */
+    @Volatile
     var current: PersonalData? = null
         private set
 
@@ -141,9 +142,14 @@ object PersonalRepo {
         // 缓存写盘失败不阻断登录流程 (内存态已生效), 只记日志 —— 下次启动仍可用旧缓存
         runCatching { PersonalCache.save(ctx, data) }
             .onFailure { DebugLog.log("personal", "个人课表缓存写盘失败: ${it.message}") }
-        DebugLog.log("personal", "拉取个人课表成功: ${courses.size} 条 / $xnxq / $studentName")
+        // 日志会进 logcat 与诊断报告(可被分享), 姓名打码不留实名
+        DebugLog.log("personal", "拉取个人课表成功: ${courses.size} 条 / $xnxq / ${maskName(studentName)}")
         return data
     }
+
+    /** 姓名打码: "王小明" → "王××"; 单字名原样 (无信息量) */
+    private fun maskName(n: String): String =
+        if (n.length <= 1) n else n.first() + "×".repeat(n.length - 1)
 
     /** 按今天推算当前学年学期 (如 2026-10 → 2026-2027-1) */
     fun guessXnxq(today: LocalDate): String {
@@ -165,14 +171,8 @@ object PersonalRepo {
             "${msg?.let { ": $it" } ?: ""})"
     }
 
-    /** 响应 HTML 落点识别 (诊断信息) */
-    private fun diagPage(html: String): String = when {
-        html.contains("75500006") || html.contains("当前账号已在线") -> "aTrust 提示账号已在线"
-        html.contains("账号登录") && html.contains("统一认证") -> "落在教务登录页"
-        html.contains("flowExecutionKey") -> "落在 CAS 登录页"
-        html.isBlank() -> "空响应"
-        else -> "未知页面 ${html.length}B"
-    }
+    /** 响应 HTML 落点识别: 统一走 [CasClient.diagnose], 不再重复维护一套 when */
+    private fun diagPage(html: String): String = CasClient.diagnose(html = html)
 
     // ---------------------------------------------------------------- 解析
 
@@ -186,7 +186,7 @@ object PersonalRepo {
         val xhid = hidden("xhid")?.takeIf { it.isNotBlank() } ?: return null
         val xnxq = hidden("xnxq")?.takeIf { it.isNotBlank() } ?: return null
         val campus = hidden("xqdm")?.takeIf { it.isNotBlank() } ?: "01"
-        // 标题形如 "2026-2027学年第1学期王奕的课表"
+        // 标题形如 "2026-2027学年第1学期张三的课表" (样例化名)
         val name = Regex("学年第\\d学期([^<]{1,12}?)的课表").find(html)?.groupValues?.get(1)?.trim() ?: ""
         return Quad(xnxq, xhid, campus, name)
     }

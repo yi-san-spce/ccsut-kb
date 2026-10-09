@@ -2,6 +2,7 @@ package com.ccsut.kb.ui
 
 import com.ccsut.kb.data.Period
 import com.ccsut.kb.util.Block
+import com.ccsut.kb.util.TimeParse
 import java.time.LocalDate
 
 /**
@@ -32,8 +33,9 @@ object TodayStatus {
         today: LocalDate = LocalDate.now(),
     ): Result {
         val pm = periods.associateBy { it.jc }
-        fun startMin(b: Block) = pm[b.startJc]?.let { minutes(it.start) }
-        fun endMin(b: Block) = pm[b.startJc + b.span - 1]?.let { minutes(it.end) }
+        // 脏作息时间(空串/带秒/非数字)由 TimeParse 防御为 null, 含脏时间的块按无时间块过滤掉
+        fun startMin(b: Block) = pm[b.startJc]?.let { TimeParse.minutesOf(it.start) }
+        fun endMin(b: Block) = pm[b.startJc + b.span - 1]?.let { TimeParse.minutesOf(it.end) }
         fun timeOf(b: Block) = pm[b.startJc]?.start ?: ""
         fun where(b: Block): String {
             val r = b.rooms.ifBlank { b.course.room }.trim()
@@ -131,12 +133,6 @@ object TodayStatus {
     )
 
     private fun <T> pick(pool: List<T>, day: LocalDate): T = pool[(day.dayOfYear - 1) % pool.size]
-
-    /** "8:20" 这种无前导零格式也能解析 */
-    private fun minutes(t: String): Int {
-        val (h, m) = t.split(":").map { it.trim().toInt() }
-        return h * 60 + m
-    }
 
     /** 分钟数 → 人话时长: 超过 1 小时改小时制 ("45 分钟" / "1 小时 25 分" / "2 小时") */
     private fun dur(mins: Int): String = when {

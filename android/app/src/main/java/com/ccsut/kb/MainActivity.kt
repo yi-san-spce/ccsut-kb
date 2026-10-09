@@ -91,7 +91,7 @@ fun App() {
     // 个人课表数据来自教务透传: 作息(节次)必须 ≥2 个大节且 jc 从 1 连续, 否则渲染层 SlotModel
     // 的 first{} / 空槽位表会直接崩 —— 校验不过按「无个人数据」处理, 回退班级课表/引导选班, 不崩不白屏
     // ready 必须作为 key: 本 lambda 在首次组合时执行 (PersonalRepo 尚未异步加载完), 若只挂 dataTick,
-    // 加载完成后的重组会命中缓存 false, 冷启动永远回退班级课表 (v2.11.2 修复)
+    // 加载完成后的重组会命中缓存 false, 冷启动永远回退班级课表 (v2.11.3 修复)
     val hasPersonal = remember(dataTick, ready) {
         val jcs = if (PersonalRepo.hasData()) PersonalRepo.dataset()?.periods?.map { it.jc }?.sorted().orEmpty()
         else emptyList()
@@ -132,6 +132,17 @@ fun App() {
 
     val bgFile = remember(bgOn, bgTick) {
         if (bgOn) BgStore.file(ctx).takeIf { it.exists() } else null
+    }
+
+    // 主题/外观相关状态的一键还原 (重置个性化 / 完全重置共用, 勿在单处散写漏项)
+    fun resetVisualState() {
+        colorMap = emptyMap()
+        bgOn = false
+        bgTick++
+        themeMode = 0
+        colorSource = 0
+        bgSeed = 0
+        styleTheme = 0
     }
 
     // 数据/班级/设置变化后的统一收尾: 刷班级快照 + 重排提醒 + 刷小组件
@@ -743,13 +754,7 @@ fun App() {
                             Prefs.clearPersonal(ctx)
                             runCatching { BgStore.delete(ctx) }
                         }
-                        colorMap = emptyMap()
-                        bgOn = false
-                        bgTick++
-                        themeMode = 0
-                        colorSource = 0
-                        bgSeed = 0
-                        styleTheme = 0
+                        resetVisualState()
                         DebugLog.log("dev", "已重置个性化设置")
                         Toast.makeText(ctx, "个性化设置已重置", Toast.LENGTH_SHORT).show()
                     }
@@ -772,13 +777,7 @@ fun App() {
                             active = "class"
                             studentName = ""
                             lastSyncAt = 0L
-                        colorMap = emptyMap()
-                        bgOn = false
-                        bgTick++
-                        themeMode = 0
-                        colorSource = 0
-                        bgSeed = 0
-                        styleTheme = 0
+                        resetVisualState()
                         reminderOn = false
                         nextReminderAt = 0
                         dbgOffset = 0
@@ -832,6 +831,20 @@ fun App() {
 }
 
 private fun installApk(ctx: Context, file: File) {
+    // Android 8+ 需用户逐应用授予「安装未知应用」: 未授权时引导去设置页, 不再静默失败
+    if (!ctx.packageManager.canRequestPackageInstalls()) {
+        Toast.makeText(ctx, "请先允许「安装未知应用」，授权后重新点「立即更新」", Toast.LENGTH_LONG).show()
+        runCatching {
+            ctx.startActivity(
+                Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES)
+                    .setData(android.net.Uri.parse("package:${ctx.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }.onFailure {
+            Toast.makeText(ctx, "请在系统设置 → 应用里为本应用开启「安装未知应用」", Toast.LENGTH_LONG).show()
+        }
+        return
+    }
     val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", file)
     val intent = Intent(Intent.ACTION_VIEW)
         .setDataAndType(uri, "application/vnd.android.package-archive")

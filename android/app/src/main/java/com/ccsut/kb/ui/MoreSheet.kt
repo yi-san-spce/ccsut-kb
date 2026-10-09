@@ -275,10 +275,12 @@ fun MoreSheet(
             )
             Spacer(Modifier.height(14.dp))
 
+            // 登录态 = 教务姓名非空; 当前课表卡与账号卡两处共用同一判定
+            val personalLoggedIn = personalName.isNotBlank()
+
             // ---------------- 当前课表 ----------------
             SectionHeader("当前课表")
             SettingCard {
-                val loggedIn = personalName.isNotBlank()
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
@@ -291,7 +293,7 @@ fun MoreSheet(
                     )
                     FilterChip(
                         selected = personalActive,
-                        enabled = loggedIn,
+                        enabled = personalLoggedIn,
                         onClick = { if (!personalActive) onSetTimetable(true) },
                         label = { Text("个人课表") },
                     )
@@ -319,8 +321,7 @@ fun MoreSheet(
             // ---------------- 个人课表: 账号生命周期 ----------------
             SectionHeader("个人课表")
             SettingCard {
-                val loggedIn = personalName.isNotBlank()
-                if (!loggedIn) {
+                if (!personalLoggedIn) {
                     SettingRow(
                         icon = Icons.Rounded.ManageAccounts,
                         title = "登录教务账号",
@@ -625,9 +626,12 @@ fun MoreSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 )
                 // 数据信息行: 点一下 = 手动检查更新 (结果用 toast 反馈), 不再单占一个「数据」区块
-                val genDate = dataset.generatedAt.substringBefore('T').split('-').let { d ->
-                    if (d.size == 3) "${d[1].trim().toInt()}月${d[2].trim().toInt()}日" else ""
-                }
+                // runCatching: 远端数据 generatedAt 字段畸形(非数字段)时不让更多面板组合期崩溃
+                val genDate = runCatching {
+                    dataset.generatedAt.substringBefore('T').split('-').let { d ->
+                        if (d.size == 3) "${d[1].trim().toInt()}月${d[2].trim().toInt()}日" else ""
+                    }
+                }.getOrDefault("")
                 Text(
                     if (checking) "正在检查更新…"
                     else "课表数据 · ${genDate}更新 · ${dataset.classes.size} 个班 · 点按检查",

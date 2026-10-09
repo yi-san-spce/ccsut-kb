@@ -19,6 +19,7 @@ import com.ccsut.kb.util.Block
 import com.ccsut.kb.util.DebugLog
 import com.ccsut.kb.util.KbClock
 import com.ccsut.kb.util.Merger
+import com.ccsut.kb.util.TimeParse
 import com.ccsut.kb.widget.WidgetRenderer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -77,15 +78,14 @@ object ReminderScheduler {
         val week = (ChronoUnit.DAYS.between(start, day) / 7 + 1).toInt()
         if (week < 1 || week > snap.weeks) return emptyList()
         val pm = snap.periods.associateBy { it.jc }
-        fun mins(t: String): Int {
-            val (h, m) = t.split(":").map { it.trim().toInt() }
-            return h * 60 + m
-        }
+        // 脏时间(空串/带秒/非数字)防御为 -1: 下面按 <0 过滤, 别让闹钟调度崩在后台线程
+        fun mins(t: String): Int = TimeParse.minutesOf(t) ?: -1
         fun at(d: LocalDate, min: Int) = d.atTime(min / 60, min % 60)
 
         val blocks = Merger.blocksOf(snap.courses, week)
             .filter { it.course.day == day.dayOfWeek.value }
             .filter { pm[it.startJc] != null && pm[it.startJc + it.span - 1] != null }
+            .filter { mins(pm[it.startJc]!!.start) >= 0 && mins(pm[it.startJc + it.span - 1]!!.end) >= 0 }
         val out = mutableListOf<Ev>()
         if (blocks.isNotEmpty()) {
             for (b in blocks) {
@@ -104,7 +104,7 @@ object ReminderScheduler {
                 val first = Merger.blocksOf(snap.courses, tw)
                     .filter { it.course.day == tmr.dayOfWeek.value }
                     .minByOrNull { it.startJc }
-                if (first != null && first.startJc == 1 && pm[1] != null) {
+                if (first != null && first.startJc == 1 && pm[1] != null && mins(pm[1]!!.start) >= 0) {
                     out += Ev(TYPE_EARLY, day.atTime(EARLY_AT), first, at(tmr, mins(pm[1]!!.start)))
                 }
             }

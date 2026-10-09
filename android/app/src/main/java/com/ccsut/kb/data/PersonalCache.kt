@@ -3,6 +3,7 @@ package com.ccsut.kb.data
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 /**
  * 个人课表缓存 (filesDir/personal_cache.json)。
@@ -27,11 +28,22 @@ object PersonalCache {
         })
         root.put("courses", JSONArray().apply {
             d.courses.forEach { c ->
-                put(
-CourseCodec.toJson(c))
+                put(CourseCodec.toJson(c))
             }
         })
-        ctx.openFileOutput(FILE, Context.MODE_PRIVATE).use { it.write(root.toString().toByteArray()) }
+        // tmp+rename 原子写 (与 UserEdits/ClassCache 同款), 写一半崩溃不留损坏缓存
+        val dst = File(ctx.filesDir, FILE)
+        val tmp = File(ctx.filesDir, "$FILE.tmp")
+        runCatching {
+            tmp.writeText(root.toString())
+            if (!tmp.renameTo(dst)) {
+                dst.writeText(root.toString())
+                tmp.delete()
+            }
+        }.onFailure {
+            tmp.delete()
+            throw it
+        }
     }
 
     fun load(ctx: Context): PersonalRepo.PersonalData? {

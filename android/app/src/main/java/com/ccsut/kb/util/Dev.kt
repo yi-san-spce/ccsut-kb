@@ -5,6 +5,7 @@ import android.os.Build
 import com.ccsut.kb.data.BuildVersion
 import com.ccsut.kb.Prefs
 import com.ccsut.kb.data.ClassCache
+import com.ccsut.kb.data.PersonalRepo
 import com.ccsut.kb.data.Repo
 import java.io.File
 import java.time.LocalDate
@@ -81,7 +82,7 @@ object Diag {
         appendLine()
         appendLine("-- 班级快照 --")
         ClassCache.load(ctx)?.let { s ->
-            appendLine("班级: ${s.bjmc} (${s.bjid})")
+            appendLine("班级: ${snapBjmcForDiag(s)} (${s.bjid})")
             appendLine("课程条目: ${s.courses.size} · 节次: ${s.periods.size}")
         } ?: appendLine("无快照(未选班级)")
         val f = ctx.getFileStreamPath("class_cache.json")
@@ -103,4 +104,14 @@ object Diag {
         appendLine("-- 最近日志 --")
         appendLine(DebugLog.dump().ifBlank { "(空)" })
     }
+
+    /**
+     * 诊断报告可能被整段分享出去, 个人课表快照的班级名含学生实名 —— 打码为 "王××的个人课表"。
+     * 班级课表名(公开教学安排)不打码。
+     */
+    private fun snapBjmcForDiag(s: ClassCache.Snapshot): String =
+        if (s.bjid == PersonalRepo.PERSONAL_BJID) {
+            val n = s.bjmc.removeSuffix("的个人课表")
+            (if (n.isEmpty()) "" else n.first().toString()) + "××的个人课表"
+        } else s.bjmc
 }

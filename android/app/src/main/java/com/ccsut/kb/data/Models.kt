@@ -109,8 +109,11 @@ object DatasetParser {
 
 /** 数据仓库: 内置 assets 优先级低于已下载的更新数据 */
 object Repo {
+    // @Volatile: IO 线程 applyUpdate 热切换写、UI/小组件线程读, 保证跨线程立即可见
+    @Volatile
     var dataset: Dataset? = null
         private set
+    @Volatile
     var fromUpdate = false
         private set
 
@@ -135,7 +138,20 @@ object Repo {
     fun applyUpdate(ctx: Context, bytes: ByteArray): Dataset? {
         val text = bytes.toString(Charsets.UTF_8)
         val parsed = runCatching { DatasetParser.parse(text) }.getOrNull() ?: return null
-        ctx.openFileOutput("dataset.json", Context.MODE_PRIVATE).use { it.write(bytes) }
+        // tmp+rename 原子落盘: 写一半崩溃不会留下半截 dataset.json (load 有 runCatching
+        // 兜底, 但损坏即静默回退内置数据, 用户的更新白下了)
+        val dst = java.io.File(ctx.filesDir, "dataset.json")
+        val tmp = java.io.File(ctx.filesDir, "dataset.json.tmp")
+        runCatching {
+            tmp.writeBytes(bytes)
+            if (!tmp.renameTo(dst)) {
+                dst.writeBytes(bytes)
+                tmp.delete()
+            }
+        }.onFailure {
+            tmp.delete()
+            throw it
+        }
         dataset = parsed
         fromUpdate = true
         UserEdits.ensureLoaded(ctx)

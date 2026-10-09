@@ -1,0 +1,40 @@
+name: CI
+
+# 每次推送/PR 自动: 版本双写校验 → 单元测试 → 构建冒烟。
+# 背景: v2.10.3 发布事故 (APK 裹进半成品代码启动闪退) 的防线延伸 —— 源码仓 HEAD 必须可编译可测试。
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle 缓存
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 版本双写一致性 (build.gradle ↔ Updater.kt)
+        run: ./gradlew checkVersionSync
+
+      - name: 单元测试
+        run: ./gradlew testDebugUnitTest
+
+      - name: 构建冒烟
+        run: ./gradlew assembleDebug
+
+      - name: 上传测试报告 (失败时)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: app/build/reports/tests/
+          if-no-files-found: ignore

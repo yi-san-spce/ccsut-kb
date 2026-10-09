@@ -9,6 +9,9 @@ __pycache__/
 # 签名与发布产物
 keystore/
 dist/
+# 签名文件双保险: 即使挪了目录也不许进 git
+*.jks
+*.keystore
 
 # Android 构建
 android/.gradle/
@@ -17,4 +20,7 @@ android/app/build/
 android/.kotlin/
 android/local.properties
 android/.idea/
+.idea/
+captures/
+.externalNativeBuild/
 *.iml

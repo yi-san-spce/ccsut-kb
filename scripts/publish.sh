@@ -4,7 +4,7 @@
 # 更新通道 (Gitee 公开发布仓 yisanspce/ccsut-kb-release):
 #   master 分支 = latest.json + 数据集 + 最新 APK, 每次孤儿提交 force-push, 仓库不积累历史
 #   仓库内容只有 分发文件 (清单/课表数据/APK/README), 无任何源码
-#   源码已全面开源 (MIT): GitHub 主站 https://github.com/yi-san-spce/ccsut-kb
+#   源码已全面开源 (GPL-3.0, v2.12.0 前为 MIT): GitHub 主站 https://github.com/yi-san-spce/ccsut-kb
 #                         Gitee 中国区镜像 https://gitee.com/yisanspce/ccsut-kb (scripts/push.sh 双站同步)
 #
 # 前置:
@@ -127,7 +127,7 @@ cat > "$TMP/README.md" <<EOF
 本仓只存放「长工课表通」APP 的更新分发文件（更新清单 / 课表数据 / APK 安装包），**不含任何源码**。
 
 - 更新清单（APP 内更新地址）：https://gitee.com/$OWNER/$REPO/raw/master/latest.json
-- 源码主站（GitHub，MIT）：https://github.com/yi-san-spce/ccsut-kb
+- 源码主站（GitHub，GPL-3.0）：https://github.com/yi-san-spce/ccsut-kb
 - 源码中国区镜像（Gitee）：https://gitee.com/$OWNER/ccsut-kb
 
 本仓由 \`scripts/publish.sh\` 自动维护（孤儿提交 force-push），请勿手动提交。

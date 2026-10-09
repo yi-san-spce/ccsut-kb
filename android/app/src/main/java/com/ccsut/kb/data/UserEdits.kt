@@ -74,6 +74,10 @@ object UserEdits {
     private val io = java.util.concurrent.Executors.newSingleThreadExecutor()
     private var edits: MutableList<Edit> = mutableListOf()
     private var loaded = false
+    // 快照代数: clear 自增后, 队列里残留的旧 persist 任务因代数不匹配自弃 ——
+    // 否则旧快照会在 clear 删文件之后落盘, 已清空的编辑被"复活"到下一次启动
+    @Volatile
+    private var gen = 0
 
     /** 最近一次 [effective] 的统计, 供数据更新完成的提示展示 */
     var lastApplied = 0
@@ -340,10 +344,16 @@ object UserEdits {
         synchronized(lock) {
             loaded = true
             edits = mutableListOf()
+            gen++
         }
-        ctx.deleteFile(FILE)
-        io.execute { ctx.getFileStreamPath("$FILE.tmp")?.delete() }
-        DebugLog.log("edit", "本地修改已清空")
+        // 文件删除走同一 io 队列: 排在所有在途 persist 之后执行 (在途任务因 gen 不匹配自弃)
+        io.execute {
+            runCatching {
+                ctx.deleteFile(FILE)
+                ctx.getFileStreamPath("$FILE.tmp")?.delete()
+            }
+            DebugLog.log("edit", "本地修改已清空")
+        }
     }
 
     /** 两组周次区间是否有交集 (整数区间首尾比较, O(1); 供拖拽/加课的落点占用判定共用) */
@@ -417,8 +427,10 @@ object UserEdits {
 
     /** 同步改内存 → 异步落盘: tmp+rename 原子写, 写一半崩溃不会损坏正式文件 */
     private fun persist(ctx: Context) {
-        val snapshot = synchronized(lock) { edits.toList() }
+        val myGen: Int
+        val snapshot = synchronized(lock) { myGen = gen; edits.toList() }
         io.execute {
+            if (myGen != gen) return@execute   // clear 已使本快照过期, 写回会复活已删编辑
             runCatching {
                 val arr = JSONArray()
                 for (e in snapshot) arr.put(toJson(e))

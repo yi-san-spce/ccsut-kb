@@ -25,7 +25,6 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 import kotlin.concurrent.thread
-import kotlin.math.abs
 
 /** 今日课程小组件: 只读 ClassCache 快照, 30 分钟周期 / APP 数据变化 / 尺寸变化 / 闹钟触发时刷新 */
 class WidgetProvider : AppWidgetProvider() {
@@ -247,8 +246,9 @@ object WidgetRenderer {
         timeline.take(rows).forEach { (b, span, _) ->
             val item = RemoteViews(ctx.packageName, R.layout.widget_item)
             val seed = CourseColors.seedOf(b.course.kc, b.course.fx)
-            // 自定义颜色优先; 未自定义按种子稳定取 12 色板
-            val i = colors[seed] ?: abs(seed.hashCode()) % 12
+            // 自定义颜色优先; 未自定义按课程稳定排序取 12 色板 (与 App 侧 stableIndexOf
+            // 同源 —— 旧实现 abs(hashCode)%12 与主界面口径脱节, 同一门课两端不同色且可能撞色)
+            val i = colors[seed] ?: CourseColors.autoIndexOf(seed) % 12
             item.setInt(R.id.w_item, "setBackgroundResource", if (dark) PILL_D[i] else PILL[i])
             val on = CourseColors.customOnContainer(i, dark).toArgb()
             item.setTextColor(R.id.w_name, on)

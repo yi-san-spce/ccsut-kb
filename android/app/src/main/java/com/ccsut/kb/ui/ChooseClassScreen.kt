@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -54,8 +55,9 @@ fun ChooseClassScreen(
     onPick: (String) -> Unit,
     onBack: () -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
-    var expanded by remember { mutableStateOf(setOf<String>()) }
+    var query by rememberSaveable { mutableStateOf("") }
+    // rememberSaveable: 旋转/进程重建后学院折叠展开态不丢 (Set 为 Serializable 可存 Bundle)
+    var expanded by rememberSaveable { mutableStateOf(setOf<String>()) }
 
     Column(
         Modifier.fillMaxSize()

@@ -3,6 +3,14 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+// 签名口令不再写入仓库 (旧版曾明文提交, v2.12.0 起外置):
+// 本机放 android/local.properties (gitignored): keystore.password=xxx
+// 或环境变量 KB_KEYSTORE_PASSWORD; 都缺省时 release 无法签名 (debug 构建不受影响)
+def localProps = new Properties()
+def lpFile = rootProject.file('local.properties')
+if (lpFile.exists()) localProps.load(new FileInputStream(lpFile))
+def ksPass = localProps.getProperty('keystore.password') ?: System.getenv('KB_KEYSTORE_PASSWORD') ?: ''
+
 android {
     namespace 'com.ccsut.kb'
     compileSdk 37
@@ -11,16 +19,16 @@ android {
         applicationId "com.ccsut.kb"
         minSdk 31
         targetSdk 36
-        versionCode 35
-        versionName "2.11.3"
+        versionCode 36
+        versionName "2.12.0"
     }
 
     signingConfigs {
         release {
             storeFile file('../../keystore/release.keystore')
-            storePassword 'ccsut-kb-2026'
+            storePassword ksPass
             keyAlias 'kb'
-            keyPassword 'ccsut-kb-2026'
+            keyPassword ksPass
         }
     }
 
@@ -63,4 +71,27 @@ dependencies {
     implementation 'com.materialkolor:material-kolor:2.1.1'
     // 毛玻璃: 背景图之上的玻璃材质 (RenderEffect, minSdk 31 满足)
     implementation 'dev.chrisbanes.haze:haze:1.5.3'
+
+    // 纯函数单元测试 (android.jar 里的 org.json 是抛异常的桩, 测试classpath 换真实现)
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
+
+// 版本双写防漂移: build.gradle 与 data/Updater.kt 的 BuildVersion 必须一致
+// (v2.4.0 时代失同步过一次: gradle 已 12/2.4.0 而 Updater 还是 11/2.3.0, 差点发错版本)
+tasks.register('checkVersionSync') {
+    group = 'verification'
+    description = '校验 build.gradle 与 Updater.kt BuildVersion 的版本号双写一致'
+    doLast {
+        def gc = android.defaultConfig.versionCode
+        def gn = android.defaultConfig.versionName
+        def src = file('src/main/java/com/ccsut/kb/data/Updater.kt').text
+        def mc = (src =~ /CODE\s*=\s*(\d+)/)
+        def mn = (src =~ /NAME\s*=\s*"([^"]+)"/)
+        if (!mc.find() || !mn.find())
+            throw new GradleException('Updater.kt 里找不到 BuildVersion.CODE/NAME 常量')
+        if (mc.group(1) != gc.toString() || mn.group(1) != gn)
+            throw new GradleException("版本双写不同步: build.gradle=${gc}/${gn} vs BuildVersion=${mc.group(1)}/${mn.group(1)}")
+        println "版本双写一致: ${gc}/${gn}"
+    }
 }

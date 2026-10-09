@@ -4,6 +4,8 @@
 
 > 让查看课表这件事，不再那么狼狈。
 
+![License](https://img.shields.io/badge/license-GPL--3.0-blue) ![Platform](https://img.shields.io/badge/platform-Android%208%2B-green) ![CI](https://github.com/yi-san-spce/ccsut-kb/actions/workflows/ci.yml/badge.svg)
+
 ## 功能
 
 - **班级课表**：内置全院班级课表数据集，选择班级即用，无网也能看；支持周次切换、今日状态、课程详情
@@ -12,11 +14,12 @@
 - **桌面小组件**：跟随当前生效课表（班级或个人），Material You 动态取色
 - **课前提醒**：每节课开始前定时通知，可自定义提前量
 - **主题**：Material You 动态取色 / 液态玻璃 / 背景图取色 / 5 套主题风格（卡带未来主义、极简主义、瑞士国际主义、学院风、赛博朋克）/ 浅色与暗色
-- **更新**：应用内自动检查新版本与课表数据更新（Gitee 通道）
+- **更新**：应用内自动检查新版本与课表数据更新（Gitee 通道），数据集可热更、无需重装
 
 ## 下载
 
-前往[发布仓 releases 数据页](https://gitee.com/yisanspce/ccsut-kb-release/raw/master/latest.json)获取最新 APK 直链，或在应用内「更多 → 检查更新」自动升级。
+- **应用内更新**（推荐）：已安装用户在「更多 → 检查更新」或启动时自动获取新版本
+- **全新安装**：前往[发布仓 `ccsut-kb-release`](https://gitee.com/yisanspce/ccsut-kb-release)（master 分支托管最新版 APK 与更新清单，国内直连快），或直接获取[最新版本清单 `latest.json`](https://gitee.com/yisanspce/ccsut-kb-release/raw/master/latest.json)（含 APK 直链与 sha256）
 
 ## 隐私与信息安全（重要）
 
@@ -28,18 +31,24 @@
 - 本地存储仅含：课表缓存、你选的班级、（可选）用于预填的手机号/学号、昵称
 - 整段登录与抓取代码全部开源（`data/CasClient.kt`、`data/PersonalRepo.kt`），技术细节见 [`docs/api-personal.md`](docs/api-personal.md)，欢迎审查
 
+完整数据清单、权限逐条用途与删除方式见独立 [隐私政策](PRIVACY.md)。
+
 ## 构建
 
-要求：JDK 17、Android SDK（compileSdk 36）。
+要求：JDK 17、Android SDK（compileSdk 37）。
 
 ```bash
 git clone https://github.com/yi-san-spce/ccsut-kb.git   # 主站
 # 中国区镜像: git clone https://gitee.com/yisanspce/ccsut-kb.git
 cd ccsut-kb/android
-../gradlew assembleDebug     # 或在 Android Studio 中直接打开 android/ 目录
+./gradlew assembleDebug        # 或在 Android Studio 中直接打开 android/ 目录
+./gradlew testDebugUnitTest    # 纯函数单元测试 (49 个)
+./gradlew checkVersionSync     # 版本双写一致性校验 (build.gradle ↔ Updater.kt)
 ```
 
-产物在 `app/build/outputs/apk/`。发布签名请自建 `keystore/` 与签名配置。
+产物在 `app/build/outputs/apk/`。
+
+发布签名：自建 `keystore/release.keystore`，口令写入 `android/local.properties` 的 `keystore.password=<你的口令>`（该文件已被 gitignore，**不要**把口令提交进仓库）。
 
 ## 项目结构
 
@@ -51,7 +60,7 @@ android/app/src/main/java/com/ccsut/kb/
 │   ├── CasClient.kt       # 登录链路: CAS 短信验证码 + aTrust 网关会话激活
 │   ├── PersonalRepo.kt    # 个人课表抓取与解析 (教务接口)
 │   ├── PersonalCache.kt   # 个人课表本地缓存
-│   ├── Repo.kt            # 班级课表内置数据集
+│   ├── Models.kt          # 数据模型 + DatasetParser + Repo (班级课表数据仓库)
 │   ├── ClassCache.kt      # 生效课表快照 (小组件/提醒进程读取)
 │   └── Updater.kt         # 应用内更新 (清单+APK 双通道)
 ├── ui/                    # 全 Compose: 课表/引导/登录/弹层/今日状态
@@ -59,8 +68,16 @@ android/app/src/main/java/com/ccsut/kb/
 └── ...
 data/                      # 课表数据集与更新清单 (发布产物源)
 docs/                      # 技术文档 (接口逆向、应用架构、发版说明)
+docs/release-notes/        # 逐版本更新说明 (CHANGELOG.md 为汇总索引)
 scripts/                   # 数据抓取与发布脚本
+.github/workflows/         # CI: 版本双写校验 + 单元测试 + 构建冒烟
 ```
+
+## 质量保障
+
+- **单元测试**：解析、周次计算、合并、编辑覆盖层等纯函数 49 个用例（`android/app/src/test/`）
+- **CI**：每次推送自动跑版本双写校验 + 测试 + 构建冒烟（v2.10.3 发布事故后的制度化防线）
+- **发布门禁**：`scripts/publish.sh` 拒绝在脏工作区发版，APK 版本号从产物本身读取而非配置文件
 
 ## 仓库与镜像
 
@@ -75,8 +92,8 @@ scripts/                   # 数据抓取与发布脚本
 
 ## 参与贡献
 
-发现 Bug、想要新功能、或者课表数据不对？欢迎提 [Issue](https://github.com/yi-san-spce/ccsut-kb/issues) 或 PR。
+发现 Bug、想要新功能、或者课表数据不对？欢迎提 [Issue](https://github.com/yi-san-spce/ccsut-kb/issues) 或 PR。提交 PR 前请确认 `./gradlew checkVersionSync testDebugUnitTest` 通过。
 
 ## License
 
-[MIT](LICENSE)
+[GPL-3.0](LICENSE)。以源码形式二次分发请保持同协议开源；分发 APK 时请按协议提供对应源码获取途径（本仓库 GitHub / Gitee 地址即可）。

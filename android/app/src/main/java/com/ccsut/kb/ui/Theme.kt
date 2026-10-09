@@ -113,6 +113,9 @@ object CourseColors {
     private fun stableIndexOf(seed: String): Int =
         seedOrder.indexOf(seed).takeIf { it >= 0 } ?: kotlin.math.abs(seed.hashCode())
 
+    /** 自动配色的稳定序号 (开放给小组件): 12 色板按同一份课程排序分配, 与 App 侧同源不撞色 */
+    fun autoIndexOf(seed: String): Int = stableIndexOf(seed)
+
     /** 主题色板取块色: 课程序号隔 3 位跨步取色 (相邻课程在色板上跳到最远色相),
      *  超出色板数时同色相做明度偏移续接, 依旧可辨 */
     private fun packBlock(pack: ThemePack, i: Int, dark: Boolean): Color {
@@ -207,23 +210,10 @@ object CourseColors {
     fun customOnContainer(idx: Int, dark: Boolean): Color =
         if (dark) hsl(idx * 30f, 0.55f, 0.90f) else hsl(idx * 30f, 0.72f, 0.28f)
 
-    /** ARGB -> HSL 色相旋转 -> ARGB */
+    /** ARGB -> HSL 色相旋转 -> ARGB (HSL 计算统一走 [hslOf], 勿再复制内联实现) */
     fun rotateHue(c: Color, degrees: Float): Color {
-        val a = (c.toArgb() ushr 24) / 255f
-        val r = ((c.toArgb() shr 16) and 0xFF) / 255f
-        val g = ((c.toArgb() shr 8) and 0xFF) / 255f
-        val b = (c.toArgb() and 0xFF) / 255f
-        val mx = max(r, max(g, b)); val mn = min(r, min(g, b)); val d = mx - mn
-        var h = when {
-            d == 0f -> 0f
-            mx == r -> 60f * (((g - b) / d) % 6f)
-            mx == g -> 60f * ((b - r) / d + 2f)
-            else -> 60f * ((r - g) / d + 4f)
-        }
-        if (h < 0) h += 360f
-        val l = (mx + mn) / 2f
-        val s = if (d == 0f) 0f else d / (1f - kotlin.math.abs(2f * l - 1f))
-        return hsl(h + degrees, s.coerceIn(0f, 1f), l, a)
+        val (h, s, l, a) = hslOf(c)
+        return hsl(h + degrees, s, l, a)
     }
 
     fun hsl(h: Float, s: Float, l: Float, a: Float = 1f): Color = hslToColor(h, s, l, a)

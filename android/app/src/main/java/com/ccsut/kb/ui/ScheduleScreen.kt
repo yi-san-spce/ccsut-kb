@@ -104,6 +104,7 @@ import com.ccsut.kb.util.Block
 import com.ccsut.kb.util.DebugLog
 import com.ccsut.kb.util.KbClock
 import com.ccsut.kb.util.Merger
+import com.ccsut.kb.util.TimeParse
 import com.ccsut.kb.util.Weeks
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -176,29 +177,34 @@ private class DragHost {
     var originWeek by mutableIntStateOf(0)
     // 大于 0 时自动翻回的目标周: 跨周导航松手后由 LaunchedEffect 消费(把镜头带回起始周)后清零
     var flipBackTo by mutableIntStateOf(0)
-}
-
-private fun minutes(t: String): Int {
-    val (h, m) = t.split(":").map { it.trim().toInt() }
-    return h * 60 + m
+    // 每次提交移动(onMoveBlock)自增: 钉住解锁的兜底信号 —— 同内容提交(如拖回原状)时
+    // cls.courses 内容不变, 数据帧永远不来, 靠它 + 短延时兜底解锁翻页
+    var commitGen by mutableIntStateOf(0)
 }
 
 /** 大节模型: 槽位 k 覆盖 jc (2k+1, 2k+2) */
 private class SlotModel(periods: List<Period>) {
-    val slots = periods.size / 2
-    val mainSlots = slots - 1
+    val slots: Int
+    val mainSlots: Int
     val breaks = mutableSetOf<Int>()
     val times = mutableListOf<Pair<Int, Int>>()
     val jcRange = mutableListOf<Pair<Int, Int>>()
 
     init {
-        for (k in 0 until slots) {
-            val a = periods.first { it.jc == 2 * k + 1 }
-            val b = periods.first { it.jc == 2 * k + 2 }
-            times += minutes(a.start) to minutes(b.end)
+        val byJc = periods.associateBy { it.jc }
+        // 缺节/脏时间的槽位跳过而非 first{} 抛异常 —— 教务作息字段异常时降级渲染, 不崩组合期
+        for (k in 0 until (byJc.keys.maxOrNull() ?: 0) / 2) {
+            val a = byJc[2 * k + 1] ?: continue
+            val b = byJc[2 * k + 2] ?: continue
+            val s = TimeParse.minutesOf(a.start) ?: continue
+            val e = TimeParse.minutesOf(b.end) ?: continue
+            val idx = times.size
+            times += s to e
             jcRange += a.jc to b.jc
-            if (k > 0 && times[k].first - times[k - 1].second >= 60) breaks += k
+            if (idx > 0 && s - times[idx - 1].second >= 60) breaks += idx
         }
+        slots = times.size
+        mainSlots = (slots - 1).coerceAtLeast(0)
     }
 }
 
@@ -734,15 +740,16 @@ private fun WeekGrid(
             }
             ys
         }
-        val totalH = yTop.last() + EVE_H
+        val totalH = (yTop.lastOrNull() ?: 0.dp) + EVE_H
         val slotH: (Int) -> Dp = { k -> if (k < model.mainSlots) mainH else EVE_H }
+        // 作息极端缺失时 yTop 可能为空/越界: 兜底取 0dp 保证不崩 (正常数据走不到)
         val yOfJc: (Int) -> Dp = { jc ->
             val k = (jc - 1) / 2
-            yTop[k] + ((jc - 1) % 2) * (slotH(k) / 2)
+            (yTop.getOrElse(k) { 0.dp }) + (((jc - 1) % 2) * (slotH(k) / 2))
         }
         val yBottomJc: (Int) -> Dp = { jc ->
             val k = (jc - 1) / 2
-            yTop[k] + (((jc - 1) % 2) + 1) * (slotH(k) / 2)
+            (yTop.getOrElse(k) { 0.dp }) + ((((jc - 1) % 2) + 1) * (slotH(k) / 2))
         }
 
         // 当前进行中的大节 (左侧时间轴加粗高亮用); 课间/午休/放学后 = -1 不高亮
@@ -806,10 +813,28 @@ private fun WeekGrid(
                 drag.pinning = true
                 drag.pinnedOffset = drag.targetOffset
                 onMoveBlock(pm.block, pm.day, pm.jc, pm.week)
+                // 兜底解锁信号: 同内容提交(拖回原状/还原)时数据帧不来, 见下方 commitGen effect
+                drag.commitGen++
             }
         }
-        // 钉住解除: 新数据落地(任一课表数据变化)即清拖拽会话, 解锁翻页
+        // 钉住解除(主路径): 新数据落地(任一课表数据变化)即清拖拽会话, 解锁翻页
         LaunchedEffect(cls.courses) {
+            if (drag.pinning) {
+                drag.pinning = false
+                drag.block = null
+                drag.raw = Offset.Zero
+                drag.edgeHint = 0
+                drag.flipLock = 0
+                drag.originWeek = 0
+                drag.pendingMove = null
+            }
+        }
+        // 钉住解除(兜底): 移动被提交但数据内容不变(cls.courses 不触发重组)时,
+        // 数据帧永远等不来, 翻页会锁死到看门狗 6 秒强拆 —— commitGen + 短延时兜底。
+        // 仅在「数据不变」场景走到延时, 此时钉住的视觉位置就是数据位置, 释放无可见跳变。
+        LaunchedEffect(drag.commitGen) {
+            if (drag.commitGen == 0) return@LaunchedEffect
+            delay(200)
             if (drag.pinning) {
                 drag.pinning = false
                 drag.block = null
