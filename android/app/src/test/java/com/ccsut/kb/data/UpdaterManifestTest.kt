@@ -27,13 +27,13 @@ class UpdaterManifestTest {
         val m = Updater.parseManifest(
             org.json.JSONObject(
                 """{"version":3,"xnxq":"x","file":"d.json","sha256":"a","bytes":1,"generatedAt":"g",
-                    "apk":{"versionCode":36,"versionName":"2.12.0","file":"ccsut-kb-2.12.0.apk",
+                    "apk":{"versionCode":1,"versionName":"1.0.0","file":"ccsut-kb-1.0.0.apk",
                            "sha256":"deadbeef","bytes":2998092,"notes":["第一条","  ","第二条"]}}"""
             )
         )
-        assertEquals(36, m.apkVersionCode)
-        assertEquals("2.12.0", m.apkVersionName)
-        assertEquals("ccsut-kb-2.12.0.apk", m.apkFile)
+        assertEquals(1, m.apkVersionCode)
+        assertEquals("1.0.0", m.apkVersionName)
+        assertEquals("ccsut-kb-1.0.0.apk", m.apkFile)
         assertEquals("deadbeef", m.apkSha256)
         assertEquals(2998092L, m.apkBytes)
         assertEquals(listOf("第一条", "第二条"), m.apkNotes)

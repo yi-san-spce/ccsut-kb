@@ -3,7 +3,7 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
-// 签名口令不再写入仓库 (旧版曾明文提交, v2.12.0 起外置):
+// 签名口令不再写入仓库 (旧版曾明文提交, v1.0.0 起外置):
 // 本机放 android/local.properties (gitignored): keystore.password=xxx
 // 或环境变量 KB_KEYSTORE_PASSWORD; 都缺省时 release 无法签名 (debug 构建不受影响)
 def localProps = new Properties()
@@ -19,8 +19,8 @@ android {
         applicationId "com.ccsut.kb"
         minSdk 31
         targetSdk 36
-        versionCode 36
-        versionName "2.12.0"
+        versionCode 1
+        versionName "1.0.0"
     }
 
     signingConfigs {

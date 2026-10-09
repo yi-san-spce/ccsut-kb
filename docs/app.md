@@ -24,7 +24,7 @@ data/                        # 抓取产物 (数据集 + latest.json 清单)
 scripts/scrape.py            # 全量抓取脚本 (见 docs/api.md)
 scripts/publish.sh           # 抓取 → 数据集 → Gitee 发布 (Release + 更新清单)
 docs/release-notes/          # 各版本更新说明手稿 (发版文案/群公告用)
-keystore/release.keystore    # 签名 (口令在 android/local.properties 的 keystore.password, 别名 kb, 30年; v2.12.0 起不再写入仓库)
+keystore/release.keystore    # 签名 (口令在 android/local.properties 的 keystore.password, 别名 kb, 30年; v1.0.0 起不再写入仓库)
 ```
 
 ## 二版功能 (v2.0.1)
@@ -117,7 +117,7 @@ v2.0.2 修复:
 
 ## 开源与引导页 (v2.8.0)
 
-**代码全面开源** (Gitee `yisanspce/ccsut-kb`, v2.8.0 时为 MIT, v2.12.0 起改为 GPL-3.0), 引导页与「关于」页提供直达链接 (`ui/Links.kt` 的 `OPEN_SOURCE_URL` + `openUrl`, ACTION_VIEW 系统浏览器):
+**代码全面开源** (Gitee `yisanspce/ccsut-kb`, v2.8.0 时为 MIT, v1.0.0 起改为 GPL-3.0), 引导页与「关于」页提供直达链接 (`ui/Links.kt` 的 `OPEN_SOURCE_URL` + `openUrl`, ACTION_VIEW 系统浏览器):
 
 - **引导页四屏**: Slogan → 三件事 → 认识一下(昵称 + 课表方式并列卡) → 欢迎; 原「个人课表」独立步骤并入选择卡, onboarding 逻辑不变
 - **并列选择卡** (`MeetBody` + `ModeCard`): 班级卡点开班级抽屉(ClassPickerSheet), 个人卡跳登录页; 选中态主色描边+对勾, 任选其一或都选, 主按钮需至少选一个; 只选个人课表时 `onDone` 的 classId 为 null, 不落 `Prefs.bjid` —— 完成后 `usePersonal` 生效直接显示个人课表; 若日后退出教务账号切回班级, 由 `cls == null` 分支自动引导到选班级页

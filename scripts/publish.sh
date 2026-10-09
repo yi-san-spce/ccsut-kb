@@ -4,7 +4,7 @@
 # 更新通道 (Gitee 公开发布仓 yisanspce/ccsut-kb-release):
 #   master 分支 = latest.json + 数据集 + 最新 APK, 每次孤儿提交 force-push, 仓库不积累历史
 #   仓库内容只有 分发文件 (清单/课表数据/APK/README), 无任何源码
-#   源码已全面开源 (GPL-3.0, v2.12.0 前为 MIT): GitHub 主站 https://github.com/yi-san-spce/ccsut-kb
+#   源码已全面开源 (GPL-3.0, v1.0.0 前为 MIT): GitHub 主站 https://github.com/yi-san-spce/ccsut-kb
 #                         Gitee 中国区镜像 https://gitee.com/yisanspce/ccsut-kb (scripts/push.sh 双站同步)
 #
 # 前置:
