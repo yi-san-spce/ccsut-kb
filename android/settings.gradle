@@ -1,8 +1,13 @@
+// CI 环境 (GitHub Actions) 不走国内镜像: runner 访问阿里云不稳定会拖垮整个依赖解析; 本地保持阿里云优先
+// 注意: pluginManagement 必须是 settings 脚本第一条语句, 条件变量只能在块内声明
 pluginManagement {
+    def useCnMirror = !System.getenv('CI')
     repositories {
-        maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
-        maven { url 'https://maven.aliyun.com/repository/google' }
-        maven { url 'https://maven.aliyun.com/repository/public' }
+        if (useCnMirror) {
+            maven { url 'https://maven.aliyun.com/repository/gradle-plugin' }
+            maven { url 'https://maven.aliyun.com/repository/google' }
+            maven { url 'https://maven.aliyun.com/repository/public' }
+        }
         google()
         mavenCentral()
         gradlePluginPortal()
@@ -10,9 +15,12 @@ pluginManagement {
 }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    def useCnMirror = !System.getenv('CI')
     repositories {
-        maven { url 'https://maven.aliyun.com/repository/google' }
-        maven { url 'https://maven.aliyun.com/repository/public' }
+        if (useCnMirror) {
+            maven { url 'https://maven.aliyun.com/repository/google' }
+            maven { url 'https://maven.aliyun.com/repository/public' }
+        }
         google()
         mavenCentral()
     }
