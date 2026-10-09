@@ -49,6 +49,7 @@ object UserEdits {
         val id: String,
         val bjid: String,
         val kind: Int,              // 0=自建 1=修改 2=隐藏
+        val week: Int? = null,      // null=对该课所有周生效; 非 null=仅该周(拖拽单周移动产生)
         val match: Match? = null,
         val delta: Delta? = null,
         val course: Course? = null, // 自建课(单条, djs=连堂数, 生效时展开成每节一行)
@@ -67,7 +68,7 @@ object UserEdits {
     )
 
     private const val FILE = "user_edits.json"
-    private const val VERSION = 1
+    private const val VERSION = 2
     private val lock = Any()
     // 单线程串行落盘: 同步改内存, 异步原子写文件 (tmp+rename, 崩溃不损坏)
     private val io = java.util.concurrent.Executors.newSingleThreadExecutor()
@@ -134,6 +135,28 @@ object UserEdits {
             if (e.kind == 2) continue
             val span = (d?.span ?: (m.endJc - m.startJc + 1)).coerceAtLeast(1)
             val base = d?.startJc ?: m.startJc
+            if (e.week != null) {
+                // 单周修改(拖拽产生): 原始行扣除该周原样保留(其余周不动), 该周输出移动后的副本。
+                // 两部分都沿用原始 zc 文本保持锚点/身份稳定, 详情页的周次以 ranges 渲染为准。
+                val w = e.week
+                for (src in rows) {
+                    val rest = minusWeek(src.ranges, w)
+                    if (rest.isNotEmpty()) out += src.copy(ranges = rest, editId = null)
+                }
+                for (i in 0 until span) {
+                    val src = rows.getOrNull(i) ?: rows.last()
+                    out += src.copy(
+                        kc = d?.kc ?: src.kc,
+                        teacher = d?.teacher ?: src.teacher,
+                        room = d?.room ?: src.room,
+                        day = d?.day ?: src.day,
+                        jc = base + i,
+                        ranges = listOf(w..w),
+                        editId = e.id,
+                    )
+                }
+                continue
+            }
             for (i in 0 until span) {
                 val src = rows.getOrNull(i) ?: rows.last()
                 out += src.copy(
@@ -176,22 +199,72 @@ object UserEdits {
         persist(ctx)
     }
 
-    /** 拖拽移动课块 (newDay/newStartJc 为落点) */
-    fun moveBlock(ctx: Context, bjid: String, block: Block, newDay: Int, newStartJc: Int) {
+    /**
+     * 拖拽移动课块 (newDay/newStartJc 为落点, week=拖拽所在周)。
+     * 语义: 只移动该周的这一节课, 其它周的原课不动 ——
+     * 多周课会被拆成「其余周(原位) + 该周(新位置)」两条记录; 拖回学校原始位置 = 单周修改自动还原。
+     */
+    fun moveBlock(ctx: Context, bjid: String, block: Block, newDay: Int, newStartJc: Int, week: Int) {
         ensureLoaded(ctx)
         synchronized(lock) {
             val e = editOfLocked(block.course.editId)
             when (e?.kind) {
-                0 -> replace(e, e.copy(course = e.course!!.copy(day = newDay, jc = newStartJc)))
+                0 -> {
+                    // 自建课: 多周行拆出单周副本移走, 单周行直接移动
+                    val c = e.course!!
+                    val rest = minusWeek(c.ranges, week)
+                    if (rest.size == c.ranges.size) {
+                        replace(e, e.copy(course = c.copy(day = newDay, jc = newStartJc)))
+                    } else if (rest.isEmpty()) {
+                        replace(e, e.copy(course = c.copy(day = newDay, jc = newStartJc, ranges = listOf(week..week))))
+                    } else {
+                        replace(e, e.copy(course = c.copy(ranges = rest)))
+                        edits += Edit(newId(), bjid, 0, course = c.copy(
+                            day = newDay, jc = newStartJc, ranges = listOf(week..week)))
+                    }
+                }
                 1 -> {
                     val m = e.match!!
-                    val d = (e.delta ?: Delta()).copy(
-                        day = newDay.takeIf { it != m.day },
-                        startJc = newStartJc.takeIf { it != m.startJc },
-                    )
-                    // 拖回学校原始位置 = 修改自动还原, 空增量记录直接删除
-                    if (d == Delta()) edits.remove(e)
-                    else replace(e, e.copy(delta = d))
+                    if (e.week != null) {
+                        // 已是单周修改: 更新该周位置; 拖回学校原始位置 = 还原(其余周本来就没动)
+                        val d = (e.delta ?: Delta()).copy(
+                            day = newDay.takeIf { it != m.day },
+                            startJc = newStartJc.takeIf { it != m.startJc },
+                        )
+                        if (d == Delta()) edits.remove(e)
+                        else replace(e, e.copy(delta = d))
+                    } else {
+                        // 全周修改再拖拽: 生效范围扣除该周留给原记录, 该周另开单周修改
+                        val ref = Repo.dataset?.classes?.get(bjid)?.courses?.firstOrNull {
+                            it.kc == m.kc && it.fx == m.fx && it.zc == m.zc && it.day == m.day && it.jc == m.startJc
+                        }
+                        val cur = e.delta?.ranges ?: ref?.ranges ?: block.course.ranges
+                        val rest = minusWeek(cur, week)
+                        if (rest.size == cur.size) {
+                            // 该周不在生效范围(异常), 退回整行移动的旧语义
+                            val d = (e.delta ?: Delta()).copy(
+                                day = newDay.takeIf { it != m.day },
+                                startJc = newStartJc.takeIf { it != m.startJc },
+                            )
+                            if (d == Delta()) edits.remove(e) else replace(e, e.copy(delta = d))
+                        } else if (rest.isEmpty()) {
+                            // 生效范围只有这一周: 整条转单周修改(丢弃周次增量, 位置/内容增量保留)
+                            val d = (e.delta ?: Delta()).copy(
+                                day = newDay.takeIf { it != m.day },
+                                startJc = newStartJc.takeIf { it != m.startJc },
+                                ranges = null, zc = null,
+                            )
+                            if (d == Delta()) edits.remove(e)
+                            else replace(e, e.copy(week = week, delta = d))
+                        } else {
+                            replace(e, e.copy(delta = (e.delta ?: Delta()).copy(
+                                ranges = rest, zc = e.delta?.zc ?: null)))
+                            edits += Edit(newId(), bjid, 1, week = week, match = m, delta = Delta(
+                                day = newDay.takeIf { it != m.day },
+                                startJc = newStartJc.takeIf { it != m.startJc },
+                            ))
+                        }
+                    }
                 }
                 else -> {
                     val m = anchorOf(block)
@@ -200,7 +273,7 @@ object UserEdits {
                         startJc = newStartJc.takeIf { it != m.startJc },
                     )
                     if (d.day != null || d.startJc != null)
-                        edits += Edit(newId(), bjid, 1, match = m, delta = d)
+                        edits += Edit(newId(), bjid, 1, week = week, match = m, delta = d)
                 }
             }
         }

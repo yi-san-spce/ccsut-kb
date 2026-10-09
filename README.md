@@ -64,9 +64,8 @@ scripts/                   # 数据抓取与发布脚本
 
 ## 仓库与镜像
 
-- **主站（GitHub）**：本仓库，Issue / PR / Release 均以此为准
-- **中国区副站（Gitee 镜像）**：[yisanspce/ccsut-kb](https://gitee.com/yisanspce/ccsut-kb)，每次提交双站同步（`scripts/push.sh`）
-- **应用内更新通道**：走 Gitee 发布仓（国内下载快），与源码托管相互独立
+- **代码主站（GitHub）**：本仓库，Issue / PR 以此为准
+- **更新发布主站 + 中国区镜像（Gitee）**：[yisanspce/ccsut-kb](https://gitee.com/yisanspce/ccsut-kb)——**应用内更新固定走 Gitee**（国内直连快，GitHub 打开困难也不影响升级），源码每次提交双站同步（`scripts/push.sh`），APP 内关于页/引导页均提供双通道入口
 
 ## 数据来源与更新体系
 

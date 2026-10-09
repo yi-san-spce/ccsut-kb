@@ -4,8 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 
-/** 源码主站 (GitHub)。引导页与「关于」共用; Gitee 同步镜像为中国区副站。 */
+/** 源码主站 (GitHub)。引导页与「关于」共用。 */
 const val OPEN_SOURCE_URL = "https://github.com/yi-san-spce/ccsut-kb"
+
+/** 中国区镜像 (Gitee), GitHub 直连困难时的一键后备通道。 */
+const val OPEN_SOURCE_MIRROR_URL = "https://gitee.com/yisanspce/ccsut-kb"
 
 /** 用系统浏览器打开链接; 无浏览器等异常时静默忽略。 */
 fun openUrl(ctx: Context, url: String) {

@@ -359,14 +359,25 @@ private fun MeetBody(
                 )
                 Spacer(Modifier.height(8.dp))
                 val ctx = LocalContext.current
-                Text(
-                    "查看源代码 →",
-                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                    color = cs.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp)).clickable { openUrl(ctx, OPEN_SOURCE_URL) }
-                        .padding(vertical = 2.dp),
-                )
+                Row {
+                    Text(
+                        "查看源代码 →",
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        color = cs.primary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp)).clickable { openUrl(ctx, OPEN_SOURCE_URL) }
+                            .padding(vertical = 2.dp),
+                    )
+                    Spacer(Modifier.width(14.dp))
+                    Text(
+                        "国内镜像 →",
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        color = cs.primary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp)).clickable { openUrl(ctx, OPEN_SOURCE_MIRROR_URL) }
+                            .padding(vertical = 2.dp),
+                    )
+                }
             }
         }
 
