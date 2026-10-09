@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -142,7 +144,6 @@ fun MoreSheet(
     var url by remember { mutableStateOf(Updater.manifestUrl(ctx)) }
     var urlDraft by remember { mutableStateOf("") }
     var showBgDialog by remember { mutableStateOf(false) }
-    var showStylePicker by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
     var checking by remember { mutableStateOf(false) }
@@ -206,39 +207,6 @@ fun MoreSheet(
                 TextButton(onClick = { showBgDialog = false; onRemoveBg() }) { Text("移除") }
             },
         )
-    }
-    // ---------------- 主题风格选择 ----------------
-    if (showStylePicker) {
-        KbSheet(onDismiss = { showStylePicker = false }) {
-            Text(
-                "主题风格",
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 8.dp),
-            )
-            // 品牌档第一项: 经典品牌蓝 (固定, 不随壁纸/背景变化)
-            StyleOptionRow(
-                title = "经典品牌蓝",
-                tagline = "固定蓝色 · 默认品牌配色",
-                selected = styleTheme == 0 && colorSource == 2,
-                swatches = listOf(
-                    LightColors.background, LightColors.primary, LightColors.primaryContainer,
-                    LightColors.secondary, LightColors.tertiary,
-                ),
-                onClick = { onStyleTheme(0); onColorSource(2); showStylePicker = false },
-            )
-            ThemePacks.ALL.forEach { p ->
-                StyleOptionRow(
-                    title = p.title,
-                    tagline = p.tagline,
-                    selected = styleTheme == p.id,
-                    swatches = ThemePacks.previewOf(p),
-                    onClick = { onStyleTheme(p.id); onColorSource(2); showStylePicker = false },
-                )
-            }
-            Spacer(Modifier.height(18.dp))
-            Spacer(Modifier.navigationBarsPadding())
-        }
     }
     if (showUrlDialog) {
         val ok = urlDraft.trim().startsWith("https://")
@@ -414,7 +382,8 @@ fun MoreSheet(
                                     enabled = v != 1 || bgOn,
                                     onClick = {
                                         when (v) {
-                                            2 -> showStylePicker = true
+                                            // 品牌 = 固定配色档: 已选主题风格则保持, 否则回经典品牌蓝
+                                            2 -> onColorSource(2)
                                             else -> {
                                                 if (styleTheme != 0) onStyleTheme(0)
                                                 onColorSource(v)
@@ -427,6 +396,38 @@ fun MoreSheet(
                         }
                     },
                 )
+                // ---------------- 主题风格直达: 色卡平铺, 点选即换 ----------------
+                Text(
+                    "主题风格",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(start = 14.dp, top = 8.dp),
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 10.dp),
+                ) {
+                    ThemeSwatchCard(
+                        title = "经典品牌蓝",
+                        selected = styleTheme == 0 && colorSource == 2,
+                        preview = listOf(
+                            LightColors.background, LightColors.primary, LightColors.primaryContainer,
+                            LightColors.secondaryContainer, LightColors.tertiaryContainer,
+                        ),
+                        onClick = { onStyleTheme(0); onColorSource(2) },
+                    )
+                    ThemePacks.ALL.forEach { p ->
+                        ThemeSwatchCard(
+                            title = p.title,
+                            selected = styleTheme == p.id,
+                            preview = ThemePacks.previewOf(p),
+                            onClick = { onStyleTheme(p.id); onColorSource(2) },
+                        )
+                    }
+                }
                 SettingRow(
                     icon = Icons.Rounded.Wallpaper,
                     title = "课表背景",
@@ -701,48 +702,67 @@ internal fun DevActionRow(title: String, subtitle: String, onClick: () -> Unit) 
 
 // ==================== 主题风格选择 ====================
 
-/** 主题风格选项行: 名称+标语 + 色卡预览圆点 + 选中勾 */
+/** 主题风格色卡: 迷你课表预览(底色+主色条+容器块) + 名称, 选中描边高亮 */
 @Composable
-private fun StyleOptionRow(
+private fun ThemeSwatchCard(
     title: String,
-    tagline: String,
     selected: Boolean,
-    swatches: List<Color>,
+    preview: List<Color>,
     onClick: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
-            .fillMaxWidth()
+            .width(76.dp)
             .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 11.dp),
+            .padding(vertical = 5.dp),
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = cs.onSurface)
-            Text(tagline, fontSize = 12.sp, color = cs.onSurfaceVariant, lineHeight = 16.sp)
+        Box(
+            Modifier
+                .padding(horizontal = 6.dp)
+                .fillMaxWidth()
+                .height(46.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(preview[0])
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) cs.primary else cs.outlineVariant.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .padding(7.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                // 主色条 = 顶栏, 三个容器块 = 课程卡
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.62f)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(preview[1]),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    listOf(preview[2], preview[3], preview[4]).forEach { c ->
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .height(16.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(c),
+                        )
+                    }
+                }
+            }
         }
-        swatches.forEach { c ->
-            Box(
-                Modifier
-                    .padding(start = 4.dp)
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .background(c)
-                    .border(1.dp, cs.outlineVariant.copy(alpha = 0.6f), CircleShape),
-            )
-        }
-        Spacer(Modifier.size(12.dp))
-        if (selected) {
-            Icon(
-                Icons.Rounded.Check,
-                contentDescription = null,
-                tint = cs.primary,
-                modifier = Modifier.size(20.dp),
-            )
-        } else {
-            Spacer(Modifier.size(20.dp))
-        }
+        Spacer(Modifier.height(3.dp))
+        Text(
+            title,
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            maxLines = 1,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected) cs.primary else cs.onSurfaceVariant,
+        )
     }
 }

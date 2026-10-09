@@ -206,6 +206,6 @@ object Updater {
 
 /** 编译期版本号, 独立对象便于测试与避免 BuildConfig 依赖 */
 object BuildVersion {
-    const val CODE = 32
-    const val NAME = "2.11.0"
+    const val CODE = 33
+    const val NAME = "2.11.1"
 }
