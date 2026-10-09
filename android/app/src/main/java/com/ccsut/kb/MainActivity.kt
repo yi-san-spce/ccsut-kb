@@ -313,9 +313,9 @@ fun App() {
                         onOpenMore = { showMore = true },
                         onCourseClick = { detailCourse = it },
                         onAddAt = { d, j, w -> addAt = Triple(d, j, w) },
-                        onMoveBlock = { b, d, j ->
+                        onMoveBlock = { b, d, j, w ->
                             val id = editTarget
-                            if (id != null) applyEdit { UserEdits.moveBlock(ctx, id, b, d, j) }
+                            if (id != null) applyEdit { UserEdits.moveBlock(ctx, id, b, d, j, w) }
                         },
                     )
                 }

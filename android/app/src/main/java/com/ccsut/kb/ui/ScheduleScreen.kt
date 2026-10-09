@@ -101,6 +101,7 @@ import com.ccsut.kb.data.Cls
 import com.ccsut.kb.data.Dataset
 import com.ccsut.kb.data.Period
 import com.ccsut.kb.util.Block
+import com.ccsut.kb.util.DebugLog
 import com.ccsut.kb.util.KbClock
 import com.ccsut.kb.util.Merger
 import com.ccsut.kb.util.Weeks
@@ -141,6 +142,9 @@ private fun Block.effSpan(): Int = if (editSpan in 1..span) editSpan else span
  * pendingMove: 待提交的移动, settle 结束后才调 onMoveBlock ——
  *              提交瞬间数据位置变化与视觉归零同帧重合, 彻底消除松手帧跳。
  */
+/** 一次待提交的拖拽移动: week=拖拽起始周, 数据层只移动该周的这节课 */
+private data class PendingMove(val block: Block, val day: Int, val jc: Int, val week: Int)
+
 private class DragHost {
     var block by mutableStateOf<Block?>(null)
     var dragWeek by mutableIntStateOf(0)
@@ -151,7 +155,7 @@ private class DragHost {
     var edgeHint by mutableIntStateOf(0)    // -1 悬停在左缘 / 0 无 / 1 悬停在右缘
     var settling by mutableStateOf(false)
     var targetOffset by mutableStateOf(Offset.Zero)
-    var pendingMove by mutableStateOf<Triple<Block, Int, Int>?>(null)
+    var pendingMove by mutableStateOf<PendingMove?>(null)
     // 松手首帧: dragEnd 在手势线程同步算好最终视觉偏移, 协程 snapTo 前的重组帧不会闪回原位
     var settleStart by mutableStateOf(Offset.Zero)
     var settleStarted by mutableStateOf(false)
@@ -167,8 +171,8 @@ private class DragHost {
     var flipInProgress by mutableStateOf(false)
     // 最近一次手势活动时间 (System.nanoTime), 供看门狗判断手势协程是否已被翻页连带杀死
     var lastActiveAt: Long = 0L
-    // 本次拖拽的起始周: 数据层一次移动对所有周生效, 跨周松手落课会误改其它周的课,
-    // 故翻周拖拽只看不放 —— 松手一律切回 originWeek 原地归位, 不提交移动
+    // 本次拖拽的起始周: 拖拽语义 = 只移动该周的这节课 (数据层按 week 拆分),
+    // 跨周松手仍只看不放 —— 翻周页面不属于起始周, 落课必是误操作
     var originWeek by mutableIntStateOf(0)
     // 大于 0 时自动翻回的目标周: 跨周导航松手后由 LaunchedEffect 消费(把镜头带回起始周)后清零
     var flipBackTo by mutableIntStateOf(0)
@@ -213,7 +217,7 @@ fun ScheduleScreen(
     onOpenMore: () -> Unit,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int, Int) -> Unit,   // (day, jc, week) —— week 供加课表单默认勾选当前周
-    onMoveBlock: (Block, Int, Int) -> Unit,
+    onMoveBlock: (Block, Int, Int, Int) -> Unit,
 ) {
     // 长按拖拽会话: 期间禁用周翻页, 避免父级抢手势
     val drag = remember { DragHost() }
@@ -659,7 +663,7 @@ private fun WeekGrid(
     pagerState: PagerState,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int) -> Unit,
-    onMoveBlock: (Block, Int, Int) -> Unit,
+    onMoveBlock: (Block, Int, Int, Int) -> Unit,   // (block, day, jc, week) —— week=拖拽起始周
 ) {
     val todayDay = today.dayOfWeek.value
     val isCurrentWeek = week == initialWeek
@@ -737,13 +741,27 @@ private fun WeekGrid(
             yTop[k] + (((jc - 1) % 2) + 1) * (slotH(k) / 2)
         }
 
-        val nowSlotIdx = if (isCurrentWeek)
+        // 当前进行中的大节 (左侧时间轴加粗高亮用); 课间/午休/放学后 = -1 不高亮
+        val activeSlot = if (isCurrentWeek)
             model.times.indexOfFirst { (s, e) -> nowMin in s until e } else -1
-        val nowY: Dp? = if (nowSlotIdx >= 0) {
-            val (s, e) = model.times[nowSlotIdx]
-            val frac = ((nowMin - s).toFloat() / (e - s)).coerceIn(0f, 1f)
-            yTop[nowSlotIdx] + slotH(nowSlotIdx) * frac
-        } else null
+        // 当前时间线: 有课时段按真实分钟比例走; 课间/午休钳到上一节槽底, 早八前贴顶;
+        // 晚上最后一节结束后隐藏, 翻到非本周也隐藏 —— 不再出现「时间线时有时无」
+        val nowY: Dp? = if (!isCurrentWeek || model.times.isEmpty()) null else {
+            val idx = model.times.indexOfFirst { (s, e) -> nowMin in s until e }
+            when {
+                idx >= 0 -> {
+                    val (s, e) = model.times[idx]
+                    val frac = ((nowMin - s).toFloat() / (e - s)).coerceIn(0f, 1f)
+                    yTop[idx] + slotH(idx) * frac
+                }
+                nowMin < model.times.first().first -> yTop[0]
+                nowMin >= model.times.last().second -> null
+                else -> {
+                    val k = model.times.indexOfLast { it.second <= nowMin }
+                    yTop[k] + slotH(k)
+                }
+            }
+        }
 
         // ---- 长按拖拽换位: 锚定列吸附 + 松手即落位、settle 结束才提交移动 (无帧跳) ----
         val density = LocalDensity.current
@@ -783,7 +801,7 @@ private fun WeekGrid(
                 // 旧 Block 实例被新课表替换, 视觉无缝交接 —— 不再闪回原位
                 drag.pinning = true
                 drag.pinnedOffset = drag.targetOffset
-                onMoveBlock(pm.first, pm.second, pm.third)
+                onMoveBlock(pm.block, pm.day, pm.jc, pm.week)
             }
         }
         // 钉住解除: 新数据落地(任一课表数据变化)即清拖拽会话, 解锁翻页
@@ -920,22 +938,21 @@ private fun WeekGrid(
             // 会话互斥: 非本会话块的抬手一律忽略
             if (drag.block == null || b != drag.block) return@dragEnd
             // 跨周只看不放: 翻到别的周的拖拽只用于查看(含翻周后锁未解的纯导航),
-            // 松手一律不提交移动 —— 数据层一次移动对所有周生效, 落课必改其它周的课。
+            // 松手一律不提交移动 —— 落课语义只认起始周, 翻周页面落课必是误操作。
             // 药片在起始周原地归位, 并由 flipBackTo effect 自动翻页把镜头带回起始周。
             val navigating = drag.flipLock != 0 || drag.dragWeek != drag.originWeek
             var moved = !navigating &&
                 (drag.targetDay != b.course.day || drag.targetJc != b.startJc)
-            // 落点占用检测: 同天 + 节次区间重叠 + 周次有交集的其它课已存在时拒绝落位
-            // (否则两块卡片绝对定位完全重叠, 下层不可见不可点); 单双周错开的同槽仍允许
+            // 落点占用检测: 单周拖拽下, 当前周视图里的块都在同一周, 节次区间重叠即绝对冲突
+            // (两块卡片绝对定位完全重叠, 下层不可见不可点)
             if (moved) {
                 val occupied = blocksByDay[drag.targetDay].orEmpty().any { o ->
                     o != b &&
-                        o.startJc < drag.targetJc + b.span && drag.targetJc < o.startJc + o.span &&
-                        UserEdits.rangesOverlap(b.course.ranges, o.course.ranges)
+                        o.startJc < drag.targetJc + b.span && drag.targetJc < o.startJc + o.span
                 }
                 if (occupied) {
                     android.widget.Toast.makeText(
-                        ctx, "该时段已有课程（周次有重叠），换个位置试试", android.widget.Toast.LENGTH_SHORT,
+                        ctx, "该时段已有课程，换个位置试试", android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     moved = false
@@ -956,7 +973,7 @@ private fun WeekGrid(
                 drag.dragWeek = drag.originWeek
                 drag.flipBackTo = drag.originWeek
             }
-            drag.pendingMove = if (moved) Triple(b, drag.targetDay, drag.targetJc) else null
+            drag.pendingMove = if (moved) PendingMove(b, drag.targetDay, drag.targetJc, drag.originWeek) else null
             drag.settling = true
             if (moved) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
         }
@@ -1041,8 +1058,8 @@ private fun WeekGrid(
                                     Text(
                                         "$j1-$j2",
                                         fontSize = 9.sp,
-                                        fontWeight = if (k == nowSlotIdx) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (k == nowSlotIdx) MaterialTheme.colorScheme.primary
+                                        fontWeight = if (k == activeSlot) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (k == activeSlot) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                     Text(teStr, fontSize = 8.sp, color = MaterialTheme.colorScheme.outline)
@@ -1080,7 +1097,7 @@ private fun WeekGrid(
                         }
                     }
                 }
-                // 当前时间线(避开左侧时间列)
+                // 当前时间线(避开左侧时间列): 跟随主题色, 左实右渐隐 + 圆点光环
                 nowY?.let { y ->
                     Box(
                         Modifier
@@ -1093,18 +1110,33 @@ private fun WeekGrid(
                             Modifier
                                 .fillMaxSize()
                                 .background(
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.95f),
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
+                                        ),
+                                    ),
                                     RoundedCornerShape(2.dp),  // 细条端头圆润, 与全局圆角语言一致
                                 ),
                         )
                         Box(
                             Modifier
                                 .align(Alignment.CenterStart)
-                                .offset(x = (-1).dp, y = (-3).dp)
-                                .width(8.dp)
-                                .height(8.dp)
-                                .background(MaterialTheme.colorScheme.primary, CircleShape),
-                        )
+                                .offset(x = (-2).dp, y = (-5).dp)
+                                .size(12.dp),
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(12.dp)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f), CircleShape),
+                            )
+                            Box(
+                                Modifier
+                                    .align(Alignment.Center)
+                                    .size(8.dp)
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape),
+                            )
+                        }
                     }
                 }
                 // 拖到左右边缘时的翻周提示: 对应侧一条向内渐隐的竖向光带

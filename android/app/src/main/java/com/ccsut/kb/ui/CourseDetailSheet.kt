@@ -89,7 +89,8 @@ fun CourseDetailSheet(
             )
             DetailRow("教师", course.teacher.ifBlank { "待定" })
             DetailRow("教室", course.room.ifBlank { "—" })
-            DetailRow("周次", course.zc.ifBlank { "—" })
+            // 周次以 ranges 渲染为准: 拆分后的单周块/修改块 zc 文本可能停留在原始整学期文本
+            DetailRow("周次", if (course.ranges.isNotEmpty()) UserEdits.zcText(course.ranges) else course.zc.ifBlank { "—" })
             if (course.jxb.isNotEmpty()) DetailRow("教学班", course.jxb)
             if (course.jxbzc.isNotEmpty()) DetailRow("合班", course.jxbzc)
             if (className.isNotEmpty()) DetailRow("查询班级", className)
