@@ -10,6 +10,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android   # gradlew 与 settings.gradle 都在 android/ 子目录
     steps:
       - uses: actions/checkout@v4
 
@@ -36,5 +39,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-reports
-          path: app/build/reports/tests/
+          path: android/app/build/reports/tests/   # upload-artifact 不受 working-directory 影响, 相对仓库根
           if-no-files-found: ignore
