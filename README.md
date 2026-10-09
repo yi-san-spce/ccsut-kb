@@ -11,7 +11,7 @@
 - **本地编辑**：点空格加课、长按拖拽换课/改时间、改色、隐藏、一键还原；编辑只存在本机，学校换课后自动重套（自建课保留、修改安全丢弃并提示）
 - **桌面小组件**：跟随当前生效课表（班级或个人），Material You 动态取色
 - **课前提醒**：每节课开始前定时通知，可自定义提前量
-- **主题**：Material You / 毛玻璃 / 背景图取色 / 浅色与暗色
+- **主题**：Material You 动态取色 / 液态玻璃 / 背景图取色 / 5 套主题风格（卡带未来主义、极简主义、瑞士国际主义、学院风、赛博朋克）/ 浅色与暗色
 - **更新**：应用内自动检查新版本与课表数据更新（Gitee 通道）
 
 ## 下载
@@ -33,7 +33,8 @@
 要求：JDK 17、Android SDK（compileSdk 36）。
 
 ```bash
-git clone https://gitee.com/yisanspce/ccsut-kb.git
+git clone https://github.com/yi-san-spce/ccsut-kb.git   # 主站
+# 中国区镜像: git clone https://gitee.com/yisanspce/ccsut-kb.git
 cd ccsut-kb/android
 ../gradlew assembleDebug     # 或在 Android Studio 中直接打开 android/ 目录
 ```
@@ -61,6 +62,12 @@ docs/                      # 技术文档 (接口逆向、应用架构、发版�
 scripts/                   # 数据抓取与发布脚本
 ```
 
+## 仓库与镜像
+
+- **主站（GitHub）**：本仓库，Issue / PR / Release 均以此为准
+- **中国区副站（Gitee 镜像）**：[yisanspce/ccsut-kb](https://gitee.com/yisanspce/ccsut-kb)，每次提交双站同步（`scripts/push.sh`）
+- **应用内更新通道**：走 Gitee 发布仓（国内下载快），与源码托管相互独立
+
 ## 数据来源与更新体系
 
 - **班级课表数据集**：从学校教务系统公开接口抓取，打包进应用并可通过更新通道热更新（无需发新版 APK）
@@ -69,7 +76,7 @@ scripts/                   # 数据抓取与发布脚本
 
 ## 参与贡献
 
-发现 Bug、想要新功能、或者课表数据不对？欢迎提 [Issue](https://gitee.com/yisanspce/ccsut-kb/issues) 或 PR。
+发现 Bug、想要新功能、或者课表数据不对？欢迎提 [Issue](https://github.com/yi-san-spce/ccsut-kb/issues) 或 PR。
 
 ## License
 

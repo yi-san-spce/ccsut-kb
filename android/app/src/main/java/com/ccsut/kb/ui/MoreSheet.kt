@@ -683,7 +683,7 @@ fun MoreSheet(
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
                 Text(
-                    "源代码已开源 · Gitee",
+                    "源代码已开源 · GitHub",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                     modifier = Modifier
