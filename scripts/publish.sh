@@ -14,7 +14,10 @@
 # 用法:
 #   scripts/publish.sh                                          # 抓取 + 发布数据
 #   scripts/publish.sh --skip                                   # 不重新抓取, 发布现有数据集
-#   scripts/publish.sh --skip --apk dist/长工课表通_v2.3.0.apk   # 连最新 APK 一起发布
+#   scripts/publish.sh --skip --apk dist/ccsut-kb-1.0.0.apk     # 连最新 APK 一起发布
+#
+# 带 APK 发版时自动完成: Gitee 更新通道孤儿提交 → 打 annotated tag v* 推双站 →
+# 创建 GitHub Release (APK 附件 + release-notes 正文, 相对链接转绝对)。
 
 set -e
 cd "$(dirname "$0")/.."
@@ -121,17 +124,61 @@ TMP=$(mktemp -d)
 git -C "$TMP" init -q -b master
 cp "$DIST/latest.json" "$DIST/$DATASET_FILE" "$TMP/"
 if [ -n "$APK_NAME" ]; then cp "$DIST/$APK_NAME" "$TMP/"; fi
-cat > "$TMP/README.md" <<EOF
-# 长工课表通 · 更新发布仓
-
-本仓只存放「长工课表通」APP 的更新分发文件（更新清单 / 课表数据 / APK 安装包），**不含任何源码**。
-
-- 更新清单（APP 内更新地址）：https://gitee.com/$OWNER/$REPO/raw/master/latest.json
-- 源码主站（GitHub，GPL-3.0）：https://github.com/yi-san-spce/ccsut-kb
-- 源码中国区镜像（Gitee）：https://gitee.com/$OWNER/ccsut-kb
-
-本仓由 \`scripts/publish.sh\` 自动维护（孤儿提交 force-push），请勿手动提交。
-EOF
+# 发布仓 README 由 latest.json 单一数据源生成 (当前版本 / 更新内容 / 文件直链表格)
+python3 - "$DIST/latest.json" "$TMP" "$OWNER/$REPO" <<'PYEOF'
+import json, os, sys
+latest, tmp, slug = sys.argv[1], sys.argv[2], sys.argv[3]
+m = json.load(open(latest))
+apk = m.get("apk") or {}
+lines = []
+w = lines.append
+w("# 长工课表通 · 更新发布仓")
+w("")
+w("本仓只存放「长工课表通」APP 的更新分发文件（更新清单 / 课表数据 / APK 安装包），**不含任何源码**。")
+w("由 `scripts/publish.sh` 自动维护（孤儿提交 force-push），请勿手动提交。")
+w("")
+w("## 当前版本")
+w("")
+if apk.get("versionName"):
+    w(f"**APK v{apk['versionName']}**（versionCode {apk['versionCode']}） · 课表数据集 v{m.get('version')}（{m.get('xnxq', '')}）")
+else:
+    w(f"课表数据集 v{m.get('version')}（{m.get('xnxq', '')}），本次未随新 APK")
+w(f"清单生成时间：{m.get('generatedAt', '')}")
+w("")
+notes = apk.get("notes") or []
+if notes:
+    w("## 更新内容")
+    w("")
+    for n in notes:
+        w(f"- {n}")
+    w("")
+w("## 文件直链（点击即下载）")
+w("")
+w("| 文件 | 大小 | 说明 |")
+w("|---|---|---|")
+def size_fmt(p):
+    try:
+        b = os.path.getsize(p)
+    except OSError:
+        return "-"
+    return f"{b / 1048576:.2f} MB" if b > 1048576 else f"{b / 1024:.0f} KB"
+base = f"https://gitee.com/{slug}/raw/master/"
+if apk.get("file"):
+    w(f"| [APK 安装包]({base}{apk['file']}) | {size_fmt(os.path.join(tmp, apk['file']))} | sha256 `{(apk.get('sha256') or '')[:16]}…`（完整值见 latest.json） |")
+w(f"| [课表数据集]({base}{m.get('file', '')}) | {size_fmt(os.path.join(tmp, m.get('file', '')))} | 数据集 v{m.get('version')}，应用内热更通道 |")
+w(f"| [latest.json]({base}latest.json) | {size_fmt(os.path.join(tmp, 'latest.json'))} | 更新清单（应用内更新地址） |")
+w("")
+w("## 历史版本")
+w("")
+w("全部历史版本与更新说明见 GitHub Releases：<https://github.com/yi-san-spce/ccsut-kb/releases>")
+w("")
+w("## 相关仓库")
+w("")
+w("- 源码主站（GitHub，GPL-3.0）：<https://github.com/yi-san-spce/ccsut-kb>")
+w("- 源码中国区镜像（Gitee）：<https://gitee.com/yisanspce/ccsut-kb>")
+open(os.path.join(tmp, "README.md"), "w", encoding="utf-8").write("\n".join(lines) + "\n")
+print("发布仓 README 已生成")
+PYEOF
 git -C "$TMP" add -A
 git -C "$TMP" -c user.name=yisanspce -c user.email=yisanspce@noreply.gitee.com \
   commit -qm "publish: 数据 v$DATA_VERSION · ${APK_NAME:-无新APK} · $(date +%F' '%H:%M)"
@@ -142,4 +189,42 @@ rm -rf "$TMP"
 echo "✅ 发布完成: https://gitee.com/$OWNER/$REPO/raw/master/latest.json"
 if [ -n "$APK_NAME" ]; then
   echo "✅ APK 直链: https://gitee.com/$OWNER/$REPO/raw/master/$APK_NAME"
+fi
+
+# ---------- 5. 打 tag 推双站 + 创建 GitHub Release (仅 APK 发版时) ----------
+GH_SLUG=yi-san-spce/ccsut-kb
+if [ -n "$APK_NAME" ] && [ -n "$VNAME" ]; then
+  TAG="v$VNAME"
+  if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+    echo "tag $TAG 已存在, 跳过打 tag"
+  else
+    git tag -a "$TAG" -m "长工课表通 $TAG"
+    echo "✅ 已打 tag $TAG"
+  fi
+  git push -q github "refs/tags/$TAG" 2>/dev/null \
+    && echo "✅ tag 已推送 GitHub" \
+    || echo "⚠️ tag 推送 GitHub 失败, 可稍后 git push github $TAG"
+  git push -q origin "refs/tags/$TAG" 2>/dev/null \
+    && echo "✅ tag 已推送 Gitee 镜像" \
+    || echo "⚠️ tag 推送 Gitee 失败, 可稍后 git push origin $TAG"
+
+  if gh release view "$TAG" -R "$GH_SLUG" >/dev/null 2>&1; then
+    echo "GitHub Release $TAG 已存在, 跳过"
+  else
+    BODY=$(mktemp)
+    NOTES="docs/release-notes/v$VNAME.md"
+    if [ -f "$NOTES" ]; then
+      # 相对链接在 Release 页面会失效, 转为仓库绝对链接
+      sed -E 's|\]\((\.\./)+|](https://github.com/'"$GH_SLUG"'/blob/master/|g' "$NOTES" > "$BODY"
+    else
+      echo "长工课表通 $TAG" > "$BODY"
+    fi
+    if gh release create "$TAG" "$DIST/$APK_NAME" -R "$GH_SLUG" \
+        --title "长工课表通 $TAG" --notes-file "$BODY"; then
+      echo "✅ GitHub Release: https://github.com/$GH_SLUG/releases/tag/$TAG"
+    else
+      echo "⚠️ GitHub Release 创建失败 (tag 已推送, 可在 GitHub 手动补建并上传 $APK_NAME)"
+    fi
+    rm -f "$BODY"
+  fi
 fi
