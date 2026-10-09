@@ -18,7 +18,8 @@ import androidx.compose.ui.platform.LocalContext
 import kotlin.math.max
 import kotlin.math.min
 
-private val LightColors = lightColorScheme(
+/** 经典品牌色 (主题配色"品牌"档的默认蓝), 选择器预览要用, 开放 internal 访问 */
+val LightColors = lightColorScheme(
     primary = Color(0xFF3B64D8),
     onPrimary = Color.White,
     primaryContainer = Color(0xFFDCE3FF),
@@ -30,7 +31,7 @@ private val LightColors = lightColorScheme(
     surfaceVariant = Color(0xFFE2E2EC),
 )
 
-private val DarkColors = darkColorScheme(
+val DarkColors = darkColorScheme(
     primary = Color(0xFFB7C4FF),
     onPrimary = Color(0xFF24337A),
     primaryContainer = Color(0xFF3C4A96),
@@ -56,8 +57,10 @@ fun KbTheme(
         2 -> true
         else -> isSystemInDarkTheme()
     }
-    // 主题风格包优先: 选中后接管全局配色, 短路动态取色 (id 失效时自然回落)
+    // 主题风格包优先: 选中后接管全局配色, 永不随壁纸/背景变化 (id 失效时自然回落)
     val pack = if (styleTheme != 0) ThemePacks.byId(styleTheme) else null
+    // 课程块配色也要跟主题走: 写入全局覆盖 (小组件等非组合场景读不到, 保持默认)
+    CourseColors.packOverride = styleTheme
     val scheme: ColorScheme = when {
         pack != null -> if (dark) pack.dark else pack.light
         // 跟随背景图取色: 种子色缺失时退回壁纸配色
@@ -88,10 +91,39 @@ fun KbTheme(
     )
 }
 
-/** 课程块配色: 在动态取色的容器色基础上做色相旋转, 保证整版协调 */
+/** 课程块配色: 在动态取色的容器色基础上做色相旋转, 保证整版协调; 选中主题风格包时改用主题精选色板 */
 object CourseColors {
 
     private const val N = 10
+
+    /** 当前生效的主题风格包 id (KbTheme 组合时写入; 小组件等非组合场景为 0=默认动态配色) */
+    @Volatile
+    var packOverride: Int = 0
+
+    /** 本学期全部课程种子的稳定排序 (主界面/小组件渲染前绑定同一份): 色板按序分配, 不同课程必不同色 */
+    @Volatile
+    private var seedOrder: List<String> = emptyList()
+
+    fun bindOrder(seeds: Collection<String>) {
+        val next = seeds.distinct().sorted()
+        if (next != seedOrder) seedOrder = next
+    }
+
+    /** 课程稳定序号: 排序表命中用序号, 未命中 (极端时序) 退回哈希 */
+    private fun stableIndexOf(seed: String): Int =
+        seedOrder.indexOf(seed).takeIf { it >= 0 } ?: kotlin.math.abs(seed.hashCode())
+
+    /** 主题色板取块色: 超出色板数时同色相做明度偏移续接, 依旧可辨 */
+    private fun packBlock(pack: ThemePack, i: Int, dark: Boolean): Color {
+        val list = if (dark) pack.blocksDark else pack.blocksLight
+        var c = ThemePacks.blockContainer(pack, i, dark)
+        val cycle = i / list.size
+        if (cycle > 0) {
+            val (h, s, l, a) = hslOf(c)
+            c = hsl(h, s, if (dark) (l + 0.07f * cycle).coerceAtMost(0.60f) else (l - 0.08f * cycle).coerceAtLeast(0.58f), a)
+        }
+        return c
+    }
 
     /** 自动配色的种子: 同一门课(同名+同分项)共用一个颜色 */
     fun seedOf(kc: String, fx: String) = "$kc|$fx"
@@ -108,18 +140,24 @@ object CourseColors {
 
     private fun autoContainer(base: ColorScheme, seed: String): Color {
         val dark = isDark(base)
-        val src = when (kotlin.math.abs(seed.hashCode()) % 3) {
+        val i = stableIndexOf(seed)
+        // 主题风格包生效: 用与主题气质同族的精选色板, 按课程排序分配保证互不相同
+        val pack = if (packOverride != 0) ThemePacks.byId(packOverride) else null
+        if (pack != null) {
+            val list = if (dark) pack.blocksDark else pack.blocksLight
+            if (list.isNotEmpty()) return packBlock(pack, i, dark)
+        }
+        val src = when (i % 3) {
             0 -> base.primaryContainer
             1 -> base.secondaryContainer
             else -> base.tertiaryContainer
         }
-        // 低彩度主题(极简/瑞士)的容器色近灰阶: 色相旋转对灰色无效, 改按课程种子
-        // 直接在全色轮上取低饱和淡彩, 保证课程之间依然一眼可辨
+        // 低彩度容器色近灰阶: 色相旋转对灰色无效, 改按课程序号在全色轮取低饱和淡彩
         if (hslOf(src)[1] < 0.15f) {
-            val h = (kotlin.math.abs(seed.hashCode()) % 360).toFloat()
+            val h = (i * 137 % 360).toFloat()
             return hsl(h, 0.32f, if (dark) 0.40f else 0.86f)
         }
-        val rotated = rotateHue(src, ((kotlin.math.abs(seed.hashCode()) % 8) - 3.5f) * 24f)
+        val rotated = rotateHue(src, ((i % 8) - 3.5f) * 24f)
         val vivid = vivid(rotated, dark)
         // 浅色下发闷的兜底钳制
         if (!dark) {
@@ -137,12 +175,24 @@ object CourseColors {
     }
 
     private fun autoOnContainer(base: ColorScheme, seed: String): Color {
-        val src = when (kotlin.math.abs(seed.hashCode()) % 3) {
+        val dark = isDark(base)
+        val i = stableIndexOf(seed)
+        // 主题风格包生效: on 色从同一精选块色的色相派生 (与自定义色板同款明度套路)
+        val pack = if (packOverride != 0) ThemePacks.byId(packOverride) else null
+        if (pack != null) {
+            val list = if (dark) pack.blocksDark else pack.blocksLight
+            if (list.isNotEmpty()) {
+                val (h, s, _, a) = hslOf(packBlock(pack, i, dark))
+                return if (dark) hsl(h, (s * 1.2f).coerceAtMost(0.6f), 0.90f, a)
+                else hsl(h, (s * 1.6f).coerceAtMost(0.72f), 0.26f, a)
+            }
+        }
+        val src = when (i % 3) {
             0 -> base.onPrimaryContainer
             1 -> base.onSecondaryContainer
             else -> base.onTertiaryContainer
         }
-        return rotateHue(src, ((kotlin.math.abs(seed.hashCode()) % 8) - 3.5f) * 24f)
+        return rotateHue(src, ((i % 8) - 3.5f) * 24f)
     }
 
     /** 当前配色方案是否为深色(按背景亮度判断, 不依赖系统主题) */

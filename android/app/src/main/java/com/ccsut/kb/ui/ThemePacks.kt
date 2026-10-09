@@ -7,12 +7,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 
 /**
- * 主题风格包 (v2.10.0): 每套固定气质的光/暗双配色, 选中后接管全局 ColorScheme,
- * 短路动态取色 (壁纸/背景图/品牌)。课程块自动配色、玻璃顶栏、背景蒙层均从
- * scheme 派生, 换包即全局生效; 全局圆角基线 (M3 Shapes) 不随主题变化。
+ * 主题风格包 (v2.10.0, v2.10.1 收编为"品牌"档): 每套固定气质的光/暗双配色,
+ * 选中后接管全局 ColorScheme, 永不随壁纸/背景变化。课程块、玻璃顶栏、背景
+ * 蒙层均从 scheme/色板派生, 换包即全局生效; 全局圆角基线 (M3 Shapes) 不随主题变化。
  *
  * 机械 token (surfaceContainer 族/inverse 族/scrim 等) 由 packScheme 从核心色
- * 推导, 只需为每套主题手写 20 个核心色值。
+ * 推导, 只需为每套主题手写 20 个核心色值; 课程块用与主题同族气质的精选色板
+ * (blocksLight/blocksDark), 代替全局的色相散射, 保证整版色调协调。
+ * 注意: 所有色值一律写 8 位 0xFFxxxxxx —— Color(Long) 按 0xAARRGGBB 解析。
  */
 data class ThemePack(
     val id: Int,
@@ -20,6 +22,9 @@ data class ThemePack(
     val tagline: String,
     val light: ColorScheme,
     val dark: ColorScheme,
+    /** 主题内课程块精选色板 (容器色, 8 位 ARGB), 空表 = 走全局自动配色 */
+    val blocksLight: List<Long> = emptyList(),
+    val blocksDark: List<Long> = emptyList(),
 )
 
 object ThemePacks {
@@ -35,6 +40,14 @@ object ThemePacks {
 
     fun byId(id: Int): ThemePack? = ALL.find { it.id == id }
 
+    /** 主题课程块容器色: 按课程在排序表中的序号取色 (on 色由 CourseColors 从同一色相派生) */
+    fun blockContainer(p: ThemePack, idx: Int, dark: Boolean): Color {
+        val list = if (dark) p.blocksDark else p.blocksLight
+        return Color(list[idx % list.size].toArgbInt())
+    }
+
+    private fun Long.toArgbInt(): Int = (this or 0xFF000000L).toInt()
+
     // ---------------- 1. 卡带未来主义: 80 年代模拟电脑, 米色面板 + 琥珀荧光屏 ----------------
     private val cassette = ThemePack(
         id = 1,
@@ -45,7 +58,7 @@ object ThemePacks {
             primary = 0x8A5A00, onPrimary = 0xFFFFFF, primaryContainer = 0xFFD79E, onPrimaryContainer = 0x2B1700,
             secondary = 0x6C5C3F, onSecondary = 0xFFFFFF, secondaryContainer = 0xF5E0BA, onSecondaryContainer = 0x241A04,
             tertiary = 0x4D6545, onTertiary = 0xFFFFFF, tertiaryContainer = 0xCFE3C4, onTertiaryContainer = 0x0C2008,
-            background = 0xF4EFE4, onBackground = 0x352B1C,
+            background = 0xF2EBDC, onBackground = 0x352B1C,
             surfaceVariant = 0xE7DEC9, onSurfaceVariant = 0x6B5D45,
             outline = 0x84755A, outlineVariant = 0xD5C9AC,
         ),
@@ -58,6 +71,15 @@ object ThemePacks {
             surfaceVariant = 0x4A4232, onSurfaceVariant = 0xCEBFA0,
             outline = 0x97886C, outlineVariant = 0x4A4232,
         ),
+        // 琥珀/赤陶/橄榄/雾蓝: 同一暖调荧光屏气质, 拒绝彩虹散射
+        blocksLight = listOf(
+            0xFFF2D9A4, 0xFFE9C9B2, 0xFFD9D6A9, 0xFFC9D6B8,
+            0xFFBBD3CD, 0xFFE3D3B9, 0xFFDCC0AC, 0xFFCBC8B0,
+        ),
+        blocksDark = listOf(
+            0xFF8A6420, 0xFF8C4A36, 0xFF6E6A34, 0xFF55704A,
+            0xFF3C6A62, 0xFF7A6848, 0xFF7E4A38, 0xFF6A5E40,
+        ),
     )
 
     // ---------------- 2. 极简主义: 近单色石墨灰阶, 克制留白 ----------------
@@ -67,12 +89,12 @@ object ThemePacks {
         tagline = "石墨灰阶 · 克制留白",
         light = packScheme(
             dark = false,
-            primary = 0x3F3F46, onPrimary = 0xFFFFFF, primaryContainer = 0xE8E8EA, onPrimaryContainer = 0x1A1A1C,
+            primary = 0x242429, onPrimary = 0xFFFFFF, primaryContainer = 0xE8E8EA, onPrimaryContainer = 0x1A1A1C,
             secondary = 0x57575E, onSecondary = 0xFFFFFF, secondaryContainer = 0xE3E3E6, onSecondaryContainer = 0x1D1D20,
             tertiary = 0x6E6E76, onTertiary = 0xFFFFFF, tertiaryContainer = 0xE9E9EB, onTertiaryContainer = 0x1F1F22,
             background = 0xFFFFFF, onBackground = 0x1A1A1A,
             surfaceVariant = 0xF0F0F1, onSurfaceVariant = 0x6E6E73,
-            outline = 0xC7C7CC, outlineVariant = 0xE4E4E7,
+            outline = 0xB4B4BA, outlineVariant = 0xE4E4E7,
         ),
         dark = packScheme(
             dark = true,
@@ -82,6 +104,15 @@ object ThemePacks {
             background = 0x0A0A0B, onBackground = 0xE8E8EA,
             surfaceVariant = 0x262629, onSurfaceVariant = 0xA9A9B0,
             outline = 0x55555C, outlineVariant = 0x2A2A2E,
+        ),
+        // 墨阶: 冷暖灰温微差代替彩色, 克制但并排可辨
+        blocksLight = listOf(
+            0xFFE9E9EB, 0xFFE3E6E9, 0xFFEAE6DF, 0xFFE2E7E1,
+            0xFFE7E4EB, 0xFFEDEDED, 0xFFE0E4E6, 0xFFEAE2DA,
+        ),
+        blocksDark = listOf(
+            0xFF2E2E32, 0xFF2D3136, 0xFF35312B, 0xFF2E3530,
+            0xFF332E36, 0xFF2A2A2C, 0xFF2C3235, 0xFF363029,
         ),
     )
 
@@ -97,7 +128,7 @@ object ThemePacks {
             tertiary = 0x1C1C1C, onTertiary = 0xFFFFFF, tertiaryContainer = 0xDEDEDE, onTertiaryContainer = 0x161616,
             background = 0xFFFFFF, onBackground = 0x111111,
             surfaceVariant = 0xEFEFEF, onSurfaceVariant = 0x616161,
-            outline = 0x9E9E9E, outlineVariant = 0xDEDEDE,
+            outline = 0x8A8A8A, outlineVariant = 0xDEDEDE,
         ),
         dark = packScheme(
             dark = true,
@@ -107,6 +138,15 @@ object ThemePacks {
             background = 0x0D0D0D, onBackground = 0xF2F2F2,
             surfaceVariant = 0x282828, onSurfaceVariant = 0xB3B3B3,
             outline = 0x8A8A8A, outlineVariant = 0x333333,
+        ),
+        // 黑白灰 + 一点红: 红只做点缀, 主体交给排版与描边
+        blocksLight = listOf(
+            0xFFEFEFEF, 0xFFE8E8E8, 0xFFF4F4F4, 0xFFE4E4E4,
+            0xFFF8DAD6, 0xFFECECEC, 0xFFF0E4E2, 0xFFEAEAEA,
+        ),
+        blocksDark = listOf(
+            0xFF2A2A2A, 0xFF303030, 0xFF262626, 0xFF333333,
+            0xFF6E1A16, 0xFF2C2C2C, 0xFF58201C, 0xFF2E2E2E,
         ),
     )
 
@@ -133,6 +173,15 @@ object ThemePacks {
             surfaceVariant = 0x463C30, onSurfaceVariant = 0xCDBBA2,
             outline = 0xA18F73, outlineVariant = 0x463C30,
         ),
+        // 黄铜/绯红/常春藤/乌木: 书架上的旧书脊
+        blocksLight = listOf(
+            0xFFE9D6B4, 0xFFEACCD0, 0xFFD8DFC4, 0xFFE0D2E0,
+            0xFFE4D8BE, 0xFFD9DDD3, 0xFFE6CBB8, 0xFFD8D0BC,
+        ),
+        blocksDark = listOf(
+            0xFF6E5522, 0xFF76323C, 0xFF46543A, 0xFF54425A,
+            0xFF6A5C40, 0xFF3E4C42, 0xFF704838, 0xFF54503E,
+        ),
     )
 
     // ---------------- 5. 赛博朋克: 深空夜城 + 霓虹青/品红/荧光绿 ----------------
@@ -145,9 +194,9 @@ object ThemePacks {
             primary = 0x0E7490, onPrimary = 0xFFFFFF, primaryContainer = 0xC5F0FA, onPrimaryContainer = 0x00323E,
             secondary = 0xA62183, onSecondary = 0xFFFFFF, secondaryContainer = 0xF9D4F0, onSecondaryContainer = 0x3A0A30,
             tertiary = 0x4A7222, onTertiary = 0xFFFFFF, tertiaryContainer = 0xD8F0B8, onTertiaryContainer = 0x142600,
-            background = 0xEEF1F4, onBackground = 0x14181D,
+            background = 0xE9EDF2, onBackground = 0x14181D,
             surfaceVariant = 0xDEE4EA, onSurfaceVariant = 0x5A6570,
-            outline = 0x7C8894, outlineVariant = 0xD0D8DF,
+            outline = 0x6E7A88, outlineVariant = 0xD0D8DF,
         ),
         dark = packScheme(
             dark = true,
@@ -157,6 +206,15 @@ object ThemePacks {
             background = 0x0A0A0F, onBackground = 0xE2E4EA,
             surfaceVariant = 0x23232E, onSurfaceVariant = 0xA7A9B8,
             outline = 0x8B8DA0, outlineVariant = 0x2C2C38,
+        ),
+        // 霓虹管: 青/品红/绿/紫的深管身, 浅色是同族电光粉彩
+        blocksLight = listOf(
+            0xFFC5F0FA, 0xFFF6D2F2, 0xFFD8F0BC, 0xFFDCD8F6,
+            0xFFF6E8C0, 0xFFC2EDE4, 0xFFF8DAD0, 0xFFD4E4F8,
+        ),
+        blocksDark = listOf(
+            0xFF00708A, 0xFF8E1C86, 0xFF1F6B2A, 0xFF4A2492,
+            0xFF8A6A14, 0xFF0E5A5E, 0xFF7E3020, 0xFF1C4E8A,
         ),
     )
 
@@ -239,7 +297,4 @@ object ThemePacks {
             surfaceContainerLow = low, surfaceContainerLowest = lowest,
         )
     }
-
-    /** 6 位 RGB 立即数 → ARGB Int (Color(Long) 按 0xAARRGGBB 解析, 必须补 FF alpha) */
-    private fun Long.toArgbInt(): Int = (this or 0xFF000000L).toInt()
 }

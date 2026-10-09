@@ -200,7 +200,10 @@ object WidgetRenderer {
         rv.setTextViewText(R.id.w_title, "第${week}周 · ${Weeks.cnDay(day)}")
         rv.setTextViewText(R.id.w_date, "${today.monthValue}/${today.dayOfMonth}")
 
-        val blocks: List<Block> = Merger.blocksOf(snapIn.courses, week).filter { it.course.day == day }
+        val blocks: List<Block> = Merger.blocksOf(snapIn.courses, week).also {
+            // 与主界面绑同一份全学期课程排序, 保证同一门课在桌面和 APP 里同色且互不相同
+            CourseColors.bindOrder(snapIn.courses.map { c -> CourseColors.seedOf(c.kc, c.fx) })
+        }.filter { it.course.day == day }
         rv.removeAllViews(R.id.w_rows)
 
         if (blocks.isEmpty()) {

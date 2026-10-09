@@ -39,7 +39,6 @@ import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Celebration
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.ManageAccounts
@@ -217,13 +216,16 @@ fun MoreSheet(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 8.dp),
             )
-            // 默认: 不接管配色, 色卡取当前生效 scheme
+            // 品牌档第一项: 经典品牌蓝 (固定, 不随壁纸/背景变化)
             StyleOptionRow(
-                title = "默认",
-                tagline = "跟随系统壁纸 / 背景图 / 品牌色",
-                selected = styleTheme == 0,
-                swatches = listOf(cs.background, cs.primary, cs.primaryContainer, cs.secondaryContainer, cs.tertiaryContainer),
-                onClick = { onStyleTheme(0); showStylePicker = false },
+                title = "经典品牌蓝",
+                tagline = "固定蓝色 · 默认品牌配色",
+                selected = styleTheme == 0 && colorSource == 2,
+                swatches = listOf(
+                    LightColors.background, LightColors.primary, LightColors.primaryContainer,
+                    LightColors.secondary, LightColors.tertiary,
+                ),
+                onClick = { onStyleTheme(0); onColorSource(2); showStylePicker = false },
             )
             ThemePacks.ALL.forEach { p ->
                 StyleOptionRow(
@@ -231,7 +233,7 @@ fun MoreSheet(
                     tagline = p.tagline,
                     selected = styleTheme == p.id,
                     swatches = ThemePacks.previewOf(p),
-                    onClick = { onStyleTheme(p.id); showStylePicker = false },
+                    onClick = { onStyleTheme(p.id); onColorSource(2); showStylePicker = false },
                 )
             }
             Spacer(Modifier.height(18.dp))
@@ -397,18 +399,11 @@ fun MoreSheet(
                     },
                 )
                 SettingRow(
-                    icon = Icons.Rounded.Style,
-                    title = "主题风格",
-                    subtitle = ThemePacks.byId(styleTheme)?.title ?: "默认（动态取色）",
-                    trailing = { RowTrailing("切换") },
-                    onClick = { showStylePicker = true },
-                )
-                SettingRow(
                     icon = Icons.Rounded.Palette,
                     title = "主题配色",
-                    subtitle = if (styleTheme != 0) "由主题风格接管" else when (colorSource) {
+                    subtitle = if (styleTheme != 0) "品牌 · ${ThemePacks.byId(styleTheme)?.title}" else when (colorSource) {
                         1 -> if (bgOn) "跟随背景图取色" else "跟随背景图（未设背景）"
-                        2 -> "固定品牌色"
+                        2 -> "经典品牌蓝"
                         else -> "跟随系统壁纸"
                     },
                     trailing = {
@@ -416,9 +411,18 @@ fun MoreSheet(
                             val srcs = listOf("壁纸" to 0, "背景图" to 1, "品牌" to 2)
                             srcs.forEachIndexed { i, (label, v) ->
                                 SegmentedButton(
-                                    selected = colorSource == v,
-                                    enabled = styleTheme == 0 && (v != 1 || bgOn),
-                                    onClick = { onColorSource(v) },
+                                    // 主题风格归入品牌档: 固定配色, 永不随壁纸/背景变化
+                                    selected = if (styleTheme != 0) v == 2 else colorSource == v,
+                                    enabled = v != 1 || bgOn,
+                                    onClick = {
+                                        when (v) {
+                                            2 -> showStylePicker = true
+                                            else -> {
+                                                if (styleTheme != 0) onStyleTheme(0)
+                                                onColorSource(v)
+                                            }
+                                        }
+                                    },
                                     shape = SegmentedButtonDefaults.itemShape(i, srcs.size),
                                 ) { Text(label, fontSize = 12.sp) }
                             }

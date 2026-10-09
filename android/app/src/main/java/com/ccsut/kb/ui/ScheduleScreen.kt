@@ -683,6 +683,8 @@ private fun WeekGrid(
     val ctx = LocalContext.current
     val model = remember(dataset.periods) { SlotModel(dataset.periods) }
     val blocksByDay = remember(cls.courses, week) {
+        // 色板按全学期课程排序分配, 不同课程必不同色 (小组件绑同一份 ClassCache 排序)
+        CourseColors.bindOrder(cls.courses.map { CourseColors.seedOf(it.kc, it.fx) })
         Merger.blocksOf(cls.courses, week).groupBy { it.course.day }
     }
 
