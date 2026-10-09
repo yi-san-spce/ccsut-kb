@@ -35,12 +35,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Celebration
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DarkMode
-import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.ManageAccounts
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
@@ -328,18 +328,8 @@ fun MoreSheet(
                         label = { Text("个人课表") },
                     )
                 }
-                Text(
-                    if (personalActive) "当前显示：${personalName}的个人课表"
-                    else "当前显示：${cls?.bjmc ?: "未选班级"}的班级课表",
-                    fontSize = 12.sp,
-                    color = cs.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 14.dp, bottom = 2.dp),
-                )
-            }
-
-            // ---------------- 班级 (仅班级课表模式显示: 个人课表模式下没有「换班」语义) ----------------
-            if (!personalActive) {
-                SettingCard {
+                // 当前生效对象 + 主操作一行说清, 不再重复显示「当前显示:…」
+                if (!personalActive) {
                     SettingRow(
                         icon = Icons.Rounded.Person,
                         title = cls?.bjmc ?: "还没选班级",
@@ -347,33 +337,41 @@ fun MoreSheet(
                         trailing = { RowTrailing("换班") },
                         onClick = onSelectClass,
                     )
+                } else {
+                    SettingRow(
+                        icon = Icons.Rounded.Person,
+                        title = "个人课表",
+                        subtitle = "上次同步 " + formatSynced(personalSyncedAt),
+                        trailing = { RowTrailing("同步") },
+                        onClick = onRefreshPersonal,
+                    )
                 }
             }
 
-            // ---------------- 个人课表账号 ----------------
-            SectionHeader("个人课表账号")
+            // ---------------- 个人课表: 账号生命周期 ----------------
+            SectionHeader("个人课表")
             SettingCard {
                 val loggedIn = personalName.isNotBlank()
-                SettingRow(
-                    icon = Icons.Rounded.ManageAccounts,
-                    title = if (loggedIn) personalName else "登录教务账号",
-                    subtitle = if (!loggedIn) "选课、重修等专属课表，需短信验证码登录"
-                    else "已登录 · 上次同步 " + formatSynced(personalSyncedAt),
-                    trailing = { if (!loggedIn) RowTrailing("登录") },
-                    onClick = if (!loggedIn) onOpenPersonalLogin else null,
-                )
-                if (loggedIn) {
+                if (!loggedIn) {
                     SettingRow(
-                        icon = Icons.Rounded.Refresh,
-                        title = "刷新个人课表",
-                        subtitle = "教务会话有时效，刷新需重新验证码登录",
-                        trailing = { RowTrailing("去刷新") },
+                        icon = Icons.Rounded.ManageAccounts,
+                        title = "登录教务账号",
+                        subtitle = "短信验证码直连教务，只拉你自己的课表",
+                        trailing = { RowTrailing("登录") },
+                        onClick = onOpenPersonalLogin,
+                    )
+                } else {
+                    SettingRow(
+                        icon = Icons.Rounded.ManageAccounts,
+                        title = personalName,
+                        subtitle = "已登录 · 上次同步 " + formatSynced(personalSyncedAt),
+                        trailing = { RowTrailing("同步") },
                         onClick = onRefreshPersonal,
                     )
                     SettingRow(
-                        icon = Icons.Rounded.Logout,
-                        title = "退出教务账号",
-                        subtitle = "清除手机上的个人课表数据",
+                        icon = Icons.AutoMirrored.Rounded.Logout,
+                        title = "退出登录",
+                        subtitle = "清除本机个人课表与登录状态",
                         onClick = onLogoutPersonal,
                     )
                 }
@@ -463,7 +461,7 @@ fun MoreSheet(
                 SettingRow(
                     icon = Icons.Rounded.Palette,
                     title = "课程颜色",
-                    subtitle = "点课程块就能换色",
+                    subtitle = "在课程详情里为单门课自定义颜色",
                 )
             }
 
@@ -472,7 +470,7 @@ fun MoreSheet(
             SettingCard {
                 data class RemState(val sub: String, val err: Boolean, val click: (() -> Unit)?)
                 val rem = when {
-                    !reminderOn -> RemState("上课前喊你一声", false, null)
+                    !reminderOn -> RemState("每节课开始前按时提醒", false, null)
                     !notifGranted -> RemState(
                         "先去开通知权限", true,
                     ) { permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
@@ -528,7 +526,7 @@ fun MoreSheet(
                     SettingRow(
                         icon = Icons.Rounded.Celebration,
                         title = "下课后小结",
-                        subtitle = "最后一节下课时夸夸你",
+                        subtitle = "最后一节下课后推送今日课程小结",
                         trailing = { Switch(checked = afterClassOn, onCheckedChange = onAfterClassChange) },
                     )
                     SettingRow(
@@ -543,52 +541,6 @@ fun MoreSheet(
                     title = "桌面小组件",
                     subtitle = "长按桌面空白处添加",
                 )
-            }
-
-            // ---------------- 数据 ----------------
-            SectionHeader("数据")
-            SettingCard {
-                val genDate = dataset.generatedAt.substringBefore('T').split('-').let { d ->
-                    if (d.size == 3) "${d[1].trim().toInt()}月${d[2].trim().toInt()}日" else ""
-                }
-                SettingRow(
-                    title = "检查更新",
-                    subtitle = when {
-                        checking -> "看看有没有新的…"
-                        checkNote != null -> checkNote
-                        else -> "$genDate 更新 · ${dataset.classes.size} 个班"
-                    },
-                    trailing = {
-                        if (checking) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            RowTrailing()
-                        }
-                    },
-                    onClick = if (checking) {
-                        null
-                    } else {
-                        {
-                            checking = true
-                            checkNote = null
-                            onCheckUpdate { r ->
-                                checking = false
-                                checkNote = r
-                            }
-                        }
-                    },
-                )
-                if (fromUpdate) {
-                    SettingRow(
-                        title = "恢复内置数据",
-                        titleColor = MaterialTheme.colorScheme.error,
-                        trailing = { RowTrailing() },
-                        onClick = { showResetConfirm = true },
-                    )
-                }
             }
 
             // ---------------- 开发者模式入口 ----------------
@@ -671,6 +623,25 @@ fun MoreSheet(
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
                 )
+                // 数据信息行: 点一下 = 手动检查更新 (结果用 toast 反馈), 不再单占一个「数据」区块
+                val genDate = dataset.generatedAt.substringBefore('T').split('-').let { d ->
+                    if (d.size == 3) "${d[1].trim().toInt()}月${d[2].trim().toInt()}日" else ""
+                }
+                Text(
+                    if (checking) "正在检查更新…"
+                    else "课表数据 · ${genDate}更新 · ${dataset.classes.size} 个班 · 点按检查",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp)).clickable(enabled = !checking) {
+                            checking = true
+                            onCheckUpdate { r ->
+                                checking = false
+                                Toast.makeText(ctx, r ?: "课表数据已是最新", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
                 Text(
                     "更新源 ${Uri.parse(url).host ?: "默认地址"}",
                     fontSize = 11.sp,
@@ -698,6 +669,20 @@ fun MoreSheet(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp)).clickable { openUrl(ctx, OPEN_SOURCE_MIRROR_URL) }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
+            }
+
+            // 数据热更后偶发的回退口: 只在发生过在线数据更新时出现
+            if (fromUpdate) {
+                Spacer(Modifier.height(14.dp))
+                SettingCard {
+                    SettingRow(
+                        title = "恢复内置数据",
+                        titleColor = MaterialTheme.colorScheme.error,
+                        subtitle = "回退本次在线课表数据更新",
+                        trailing = { RowTrailing() },
+                        onClick = { showResetConfirm = true },
                     )
                 }
             }
