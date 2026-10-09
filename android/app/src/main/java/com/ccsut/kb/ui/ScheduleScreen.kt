@@ -303,7 +303,8 @@ fun ScheduleScreen(
                     .background(MaterialTheme.colorScheme.background.copy(alpha = if (bgScrim) 0.22f else 0.10f)),
             )
         }
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+        // 状态栏 insets 由各顶栏在玻璃内部消化 (玻璃上探覆盖状态栏, 消除裸照片与玻璃板的割裂感)
+        Column(Modifier.fillMaxSize()) {
         if (compact) {
             // ---------------- 横屏紧凑头: 周次 + 状态一行 ----------------
             CompactBar(
@@ -334,6 +335,8 @@ fun ScheduleScreen(
                     )
                     .glassEdge(TopBarShape, CourseColors.isDark(MaterialTheme.colorScheme)) else Modifier,
                 )
+                // 玻璃上探覆盖状态栏: insets 在玻璃内部消化, 状态栏与顶栏融为一体
+                .statusBarsPadding()
                 .padding(start = 20.dp, end = 8.dp, top = 10.dp, bottom = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -600,7 +603,8 @@ private fun CompactBar(
     onOpenMore: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 2.dp),
+        // 横屏无玻璃, 状态栏 insets 自行消化 (行为与旧版一致)
+        Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -1227,7 +1231,7 @@ private fun WeekGrid(
                         Column(Modifier.padding(horizontal = 3.dp, vertical = 4.dp)) {
                             Text(
                                 gb.course.kc,
-                                fontSize = 9.5.sp, lineHeight = 12.sp,
+                                fontSize = 11.sp, lineHeight = 14.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = onContainer,
                                 maxLines = 6, overflow = TextOverflow.Ellipsis,
@@ -1235,7 +1239,7 @@ private fun WeekGrid(
                             if (gb.course.room.isNotEmpty()) {
                                 Text(
                                     gb.course.room,
-                                    fontSize = 8.sp, lineHeight = 10.sp,
+                                    fontSize = 9.5.sp, lineHeight = 12.sp,
                                     color = onContainer.copy(alpha = 0.85f),
                                     maxLines = 2, overflow = TextOverflow.Ellipsis,
                                 )
@@ -1451,7 +1455,7 @@ private fun DayColumn(
                 Column(Modifier.padding(horizontal = 3.dp, vertical = 4.dp)) {
                     Text(
                         b.course.kc,
-                        fontSize = 9.5.sp, lineHeight = 12.sp,
+                        fontSize = 11.sp, lineHeight = 14.sp,
                         fontWeight = FontWeight.Medium,
                         color = onContainer,
                         maxLines = 6, overflow = TextOverflow.Ellipsis,
@@ -1459,7 +1463,7 @@ private fun DayColumn(
                     if (b.course.room.isNotEmpty()) {
                         Text(
                             b.course.room,
-                            fontSize = 8.sp, lineHeight = 10.sp,
+                            fontSize = 9.5.sp, lineHeight = 12.sp,
                             color = onContainer.copy(alpha = 0.85f),
                             maxLines = 2, overflow = TextOverflow.Ellipsis,
                             textAlign = TextAlign.Start,
