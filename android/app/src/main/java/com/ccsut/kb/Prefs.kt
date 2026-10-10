@@ -110,6 +110,13 @@ object Prefs {
         sp(ctx).edit().putBoolean("early_on", v).apply()
     }
 
+    /** 闹钟模式: 课前提醒改为全屏响铃 (setAlarmClock + 响铃页), 不依赖通知权限 */
+    fun alarmMode(ctx: Context): Boolean = sp(ctx).getBoolean("alarm_mode", false)
+
+    fun setAlarmMode(ctx: Context, v: Boolean) {
+        sp(ctx).edit().putBoolean("alarm_mode", v).apply()
+    }
+
     /** 下次提醒的时间戳(毫秒), 0=未安排 */
     fun nextReminderAt(ctx: Context): Long = sp(ctx).getLong("next_reminder_at", 0L)
 

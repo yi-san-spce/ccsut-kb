@@ -1,7 +1,10 @@
 package com.ccsut.kb
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -29,6 +32,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.ccsut.kb.data.BgStore
 import com.ccsut.kb.data.BuildVersion
@@ -68,6 +73,19 @@ class MainActivity : ComponentActivity() {
         KbClock.init(this)
         setContent { App() }
     }
+}
+
+/**
+ * 13+ 通知权限获取: 启动 / 引导完成 / 拨任一提醒开关时都会调用。
+ * 此前只在「更多面板开课前提醒」一处请求, 权限被拒或被系统自动撤销后,
+ * fire() 静默丢弃通知 —— 用户视角就是「提醒全都不响」的主因。
+ */
+private fun ensureNotifPermission(activity: Activity) {
+    if (Build.VERSION.SDK_INT < 33) return
+    if (ContextCompat.checkSelfPermission(activity, android.Manifest.permission.POST_NOTIFICATIONS) ==
+        PackageManager.PERMISSION_GRANTED
+    ) return
+    activity.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 2001)
 }
 
 @Composable
@@ -124,6 +142,7 @@ fun App() {
     var nextReminderAt by remember { mutableLongStateOf(Prefs.nextReminderAt(ctx)) }
     var afterClassOn by remember { mutableStateOf(Prefs.afterClassOn(ctx)) }
     var earlyOn by remember { mutableStateOf(Prefs.earlyOn(ctx)) }
+    var alarmMode by remember { mutableStateOf(Prefs.alarmMode(ctx)) }
 
     // ---- 开发者模式 ----
     var devMode by remember { mutableStateOf(Prefs.devMode(ctx)) }
@@ -150,7 +169,7 @@ fun App() {
         scope.launch {
             withContext(Dispatchers.IO) {
                 runCatching { ClassCache.save(ctx) }
-                runCatching { if (Prefs.reminderOn(ctx)) ReminderScheduler.reschedule(ctx) }
+                runCatching { ReminderScheduler.reschedule(ctx) }   // reschedule 自查三开关, 全关时内部 cancel
                 runCatching { com.ccsut.kb.widget.WidgetRenderer.updateAll(ctx) }
             }
             nextReminderAt = Prefs.nextReminderAt(ctx)
@@ -206,6 +225,8 @@ fun App() {
             PersonalRepo.load(ctx)
         }
         ready = true
+        // 通知权限在启动时就拿到, 而不是等用户去更多面板开提醒开关 (13+ 无权限时通知全部静默丢弃)
+        (ctx as? Activity)?.let { ensureNotifPermission(it) }
         // 未选班级时默认引导选班; 但仅用个人课表的用户 (个人数据在且正生效) 直接进个人课表,
         // 不再每次冷启动都强制弹选班页
         if (clsId == null && !showWelcome &&
@@ -218,7 +239,7 @@ fun App() {
                 if (r is CheckResult.DataUpdate && Updater.applyDataUpdate(ctx, r.m) != null) {
                     dataTick++
                     ClassCache.save(ctx)
-                    runCatching { if (Prefs.reminderOn(ctx)) ReminderScheduler.reschedule(ctx) }
+                    runCatching { ReminderScheduler.reschedule(ctx) }   // reschedule 自查三开关, 全关时内部 cancel
                     dataUpdatedTo = r.m.version
                 }
                 // 启动自动检查: 有新 APK → 弹更新页 (欢迎页/选班级时不弹, 进主界面后再弹)
@@ -281,11 +302,13 @@ fun App() {
                             clsId = id
                         }
                         showWelcome = false
+                        (ctx as? Activity)?.let { ensureNotifPermission(it) }
                         resync()
                     },
                     onSkip = {
                         Prefs.setOnboardingDone(ctx, true)
                         showWelcome = false
+                        (ctx as? Activity)?.let { ensureNotifPermission(it) }
                         screenChoose = true
                     },
                 )
@@ -490,6 +513,7 @@ fun App() {
                 nextReminderAt = nextReminderAt,
                 afterClassOn = afterClassOn,
                 earlyOn = earlyOn,
+                alarmMode = alarmMode,
                 devMode = devMode,
                 personalActive = usePersonal,
                 personalName = studentName,
@@ -579,6 +603,16 @@ fun App() {
                         nextReminderAt = Prefs.nextReminderAt(ctx)
                     }
                 },
+                onAlarmModeChange = { v ->
+                    Prefs.setAlarmMode(ctx, v)
+                    alarmMode = v
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            runCatching { ReminderScheduler.reschedule(ctx) }
+                        }
+                        nextReminderAt = Prefs.nextReminderAt(ctx)
+                    }
+                },
                 onSelectClass = {
                     showMore = false
                     screenChoose = true
@@ -603,7 +637,7 @@ fun App() {
                             Prefs.setStudentName(ctx, "")
                             Prefs.setLastSyncAt(ctx, 0L)
                             runCatching { ClassCache.save(ctx) }
-                            runCatching { if (Prefs.reminderOn(ctx)) ReminderScheduler.reschedule(ctx) }
+                            runCatching { ReminderScheduler.reschedule(ctx) }   // reschedule 自查三开关, 全关时内部 cancel
                             runCatching { com.ccsut.kb.widget.WidgetRenderer.updateAll(ctx) }
                         }
                         // 退出教务且没有班级可回退时, 直接引导选班
@@ -715,6 +749,10 @@ fun App() {
                 onTestAlarm = {
                     ReminderScheduler.scheduleTestAlarm(ctx)
                     Toast.makeText(ctx, "已排测试闹钟，10 秒后应弹出通知", Toast.LENGTH_SHORT).show()
+                },
+                onTestRing = {
+                    ReminderScheduler.scheduleTestRing(ctx)
+                    Toast.makeText(ctx, "已排测试响铃，10 秒后应全屏响铃（可锁屏验证）", Toast.LENGTH_SHORT).show()
                 },
                 onReloadData = {
                     scope.launch {

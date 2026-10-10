@@ -26,11 +26,13 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import kotlin.concurrent.thread
 
 /**
- * 贴心提醒: 只维护「下一次事件」这一条闹钟, 触发后发对应通知再排下一条;
+ * 贴心提醒: 通知链(放学小结/早八前夜/课前提醒)与闹钟链(闹钟模式的课前响铃)各维护
+ * 「下一次事件」一条闹钟, 触发后发对应通知/响铃再排下一条;
  * 开机/改时间/数据更新后调用 [ReminderScheduler.reschedule] 重算。
  * 事件三类: 课前提醒 / 放学小结 / 早八前夜。
  */
@@ -38,7 +40,15 @@ object ReminderScheduler {
 
     const val ACTION_FIRE = "com.ccsut.kb.ACTION_CLASS_REMINDER"
     const val ACTION_DEV_TEST = "com.ccsut.kb.ACTION_DEV_TEST"
+    const val ACTION_ALARM_RING = "com.ccsut.kb.ACTION_ALARM_RING"
     const val CHANNEL_ID = "class_reminder"
+
+    /** 响铃页的 extras: 直接带上课程信息, 页面不必重新推导 */
+    const val EXTRA_KC = "kc"
+    const val EXTRA_ROOM = "room"
+    const val EXTRA_START = "start"
+    const val EXTRA_LEAD = "lead"
+    const val EXTRA_TEST = "test"
 
     private const val TYPE_CLASS = 0   // 课前提醒
     private const val TYPE_AFTER = 1   // 放学小结
@@ -54,24 +64,54 @@ object ReminderScheduler {
         val classStart: LocalDateTime? = null,
     )
 
+    /** 链路路由: 开闹钟模式时 TYPE_CLASS 走全屏响铃, 否则走通知 (放学/早八恒走通知) */
+    internal fun goesToAlarmChain(type: Int, alarmMode: Boolean): Boolean =
+        type == TYPE_CLASS && alarmMode
+
+    /** 迟到投递容差(分钟): 精确闹钟也可能被推迟几分钟, 降级闹钟 (Doze) 可达 15 分钟以上 */
+    internal fun dueWindowMin(exact: Boolean): Long = if (exact) 30L else 60L
+
     private fun pi(ctx: Context): PendingIntent = PendingIntent.getBroadcast(
         ctx, 0,
         Intent(ctx, ReminderReceiver::class.java).setAction(ACTION_FIRE),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
+    /** 闹钟链: 直启全屏响铃页 (USE_EXACT_ALARM 授予时豁免后台启动限制), extras 随重排更新 */
+    private fun alarmPi(ctx: Context, ev: Ev? = null): PendingIntent {
+        val it = Intent(ctx, AlarmActivity::class.java).setAction(ACTION_ALARM_RING)
+        if (ev != null) {
+            val b = ev.block!!
+            it.putExtra(EXTRA_KC, b.course.kc)
+                .putExtra(EXTRA_ROOM, b.rooms.ifBlank { b.course.room }.trim())
+                .putExtra(EXTRA_START, ev.classStart?.format(DateTimeFormatter.ofPattern("H:mm")) ?: "")
+                .putExtra(EXTRA_LEAD, Prefs.reminderLead(ctx))
+        }
+        return PendingIntent.getActivity(
+            ctx, 2, it,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun cancelAlarmChain(ctx: Context) {
+        val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        am.cancel(alarmPi(ctx))
+    }
+
     fun cancel(ctx: Context) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
         am?.cancel(pi(ctx))
+        cancelAlarmChain(ctx)
         Prefs.setNextReminderAt(ctx, 0L)
     }
 
-    /** 某一天会发生的提醒事件(放学/早八/课前) */
+    /** 某一天会发生的提醒事件; classOn=false 时不算课前事件 (放学/早八照常) */
     private fun dayEvents(
         snap: ClassCache.Snapshot,
         start: LocalDate,
         day: LocalDate,
         lead: Int,
+        classOn: Boolean,
         afterOn: Boolean,
         earlyOn: Boolean,
     ): List<Ev> {
@@ -88,9 +128,11 @@ object ReminderScheduler {
             .filter { mins(pm[it.startJc]!!.start) >= 0 && mins(pm[it.startJc + it.span - 1]!!.end) >= 0 }
         val out = mutableListOf<Ev>()
         if (blocks.isNotEmpty()) {
-            for (b in blocks) {
-                val cs = at(day, mins(pm[b.startJc]!!.start))
-                out += Ev(TYPE_CLASS, cs.minusMinutes(lead.toLong()), b, cs)
+            if (classOn) {
+                for (b in blocks) {
+                    val cs = at(day, mins(pm[b.startJc]!!.start))
+                    out += Ev(TYPE_CLASS, cs.minusMinutes(lead.toLong()), b, cs)
+                }
             }
             if (afterOn) {
                 val lastEnd = blocks.maxOf { mins(pm[it.startJc + it.span - 1]!!.end) }
@@ -112,45 +154,70 @@ object ReminderScheduler {
         return out
     }
 
-    /** 重算下一次事件并设定闹钟; 数据/班级/设置就绪才有值 */
+    /**
+     * 重算下一次事件并设定闹钟。三开关各自独立生效:
+     * 通知链 = 放学小结/早八前夜 + (开提醒且未开闹钟模式时的课前),
+     * 闹钟链 = 开提醒且开闹钟模式时的课前 (setAlarmClock, 全屏响铃)。
+     */
     suspend fun reschedule(ctx: Context) = withContext(Dispatchers.IO) {
-        if (!Prefs.reminderOn(ctx)) {
-            cancel(ctx); return@withContext
-        }
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
             ?: return@withContext
+        val classOn = Prefs.reminderOn(ctx)
+        val afterOn = Prefs.afterClassOn(ctx)
+        val earlyOn = Prefs.earlyOn(ctx)
+        val alarmMode = classOn && Prefs.alarmMode(ctx)
+        if (!classOn && !afterOn && !earlyOn) {
+            cancel(ctx); return@withContext
+        }
         val snap = ClassCache.load(ctx) ?: return@withContext
         if (snap.courses.isEmpty()) return@withContext
         val start = runCatching { LocalDate.parse(snap.startDate) }.getOrNull()
             ?: return@withContext
         val lead = Prefs.reminderLead(ctx)
-        val afterOn = Prefs.afterClassOn(ctx)
-        val earlyOn = Prefs.earlyOn(ctx)
         val now = KbClock.now()
 
         var day = now.toLocalDate()
-        var best: Ev? = null
+        var bestNotify: Ev? = null
+        var bestAlarm: Ev? = null
         var scanned = 0
         val maxScan = snap.weeks * 7 + 14  // 护栏: 设备日期严重回拨时不再无限扫
-        while (best == null && scanned++ < maxScan) {
+        while ((bestNotify == null || bestAlarm == null) && scanned++ < maxScan) {
             val week = (ChronoUnit.DAYS.between(start, day) / 7 + 1).toInt()
             if (week > snap.weeks) break
-            best = dayEvents(snap, start, day, lead, afterOn, earlyOn)
-                .filter { it.at.isAfter(now) }
-                .minByOrNull { it.at }
+            val future = { e: Ev -> e.at.isAfter(now) }
+            if (bestNotify == null) {
+                bestNotify = dayEvents(snap, start, day, lead, classOn && !alarmMode, afterOn, earlyOn)
+                    .filter(future)
+                    .minByOrNull { it.at }
+            }
+            if (bestAlarm == null && alarmMode) {
+                bestAlarm = dayEvents(snap, start, day, lead, classOn, afterOn = false, earlyOn = false)
+                    .filter(future)
+                    .minByOrNull { it.at }
+            }
             day = day.plusDays(1)
         }
 
-        val ev = best ?: run { Prefs.setNextReminderAt(ctx, 0L); am.cancel(pi(ctx)); return@withContext }
-        val millis = ev.at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-        if (am.canScheduleExactAlarms()) {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pi(ctx))
+        val millisNotify = bestNotify?.let { it.at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
+        val millisAlarm = bestAlarm?.let { it.at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
+        if (millisNotify == null) {
+            am.cancel(pi(ctx))
+        } else if (am.canScheduleExactAlarms()) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millisNotify, pi(ctx))
         } else {
             // 未授予「闹钟和提醒」时的降级: 非精确闹钟, 可能晚几分钟
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, pi(ctx))
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millisNotify, pi(ctx))
         }
-        Prefs.setNextReminderAt(ctx, millis)
-        DebugLog.log("remind", "下次事件 ${ev.at} (type=${ev.type}, 课程=${ev.block?.course?.kc ?: "-"})")
+        if (!alarmMode || millisAlarm == null) {
+            cancelAlarmChain(ctx)
+        } else {
+            // setAlarmClock: 系统闹钟语义 (状态栏闹钟图标, 厂商省电策略最尊重), 直启响铃页
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(millisAlarm, pi(ctx)), alarmPi(ctx, bestAlarm))
+        }
+        val next = listOfNotNull(millisNotify, millisAlarm).minOrNull() ?: 0L
+        Prefs.setNextReminderAt(ctx, next)
+        bestNotify?.let { DebugLog.log("remind", "通知链下次 ${it.at} (type=${it.type})") }
+        bestAlarm?.let { DebugLog.log("remind", "闹钟链下次 ${it.at} 课程=${it.block?.course?.kc}") }
     }
 
     /** 开发者模式: 排一条 delayMs 后触发的测试闹钟, 走真实 闹钟→接收器→通知 链路 */
@@ -168,6 +235,28 @@ object ReminderScheduler {
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
         }
         DebugLog.log("remind", "测试闹钟已排: +${delayMs}ms")
+    }
+
+    /** 开发者模式: 10 秒后直启响铃页, 走真实 闹钟→全屏响铃 链路 (不依赖通知权限) */
+    fun scheduleTestRing(ctx: Context, delayMs: Long = 10_000L) {
+        val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val it = Intent(ctx, AlarmActivity::class.java).setAction(ACTION_ALARM_RING)
+            .putExtra(EXTRA_KC, "高等数学（测试）")
+            .putExtra(EXTRA_ROOM, "7-南206")
+            .putExtra(EXTRA_START, "8:20")
+            .putExtra(EXTRA_LEAD, 15)
+            .putExtra(EXTRA_TEST, true)
+        val pi = PendingIntent.getActivity(
+            ctx, 3, it,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val at = System.currentTimeMillis() + delayMs
+        if (am.canScheduleExactAlarms()) {
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+        } else {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+        }
+        DebugLog.log("remind", "测试响铃已排: +${delayMs}ms")
     }
 
     /** 发一条测试通知; 无通知权限时返回 false */
@@ -203,21 +292,27 @@ object ReminderScheduler {
         )
     }
 
-    /** 触发时刻: 找出「恰好到期」的事件并发对应通知 */
+    /** 触发时刻: 找出「恰好到期」的事件并发对应通知 (闹钟模式下的课前事件不在这里, 走响铃页) */
     internal suspend fun fire(ctx: Context) = withContext(Dispatchers.IO) {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) return@withContext
+        ) {
+            // 不再纯静默: 闹钟照排但通知发不出去, 留痕便于开发者面板诊断
+            DebugLog.log("remind", "有到期提醒但缺 POST_NOTIFICATIONS 权限, 通知被丢弃")
+            return@withContext
+        }
         val snap = ClassCache.load(ctx) ?: return@withContext
         val start = runCatching { LocalDate.parse(snap.startDate) }.getOrNull() ?: return@withContext
         val now = KbClock.now()
         val today = now.toLocalDate()
         val lead = Prefs.reminderLead(ctx)
+        val classOn = Prefs.reminderOn(ctx)
+        val alarmMode = classOn && Prefs.alarmMode(ctx)
 
-        // 投递窗口: 精确闹钟 10 分钟容差; 降级模式 (Doze 可延迟 15 分钟以上) 放宽到 35 分钟
+        // 投递窗口: 精确闹钟也可能被系统推迟几分钟, 降级模式 (Doze) 可达 15 分钟以上 —— 从宽不丢件
         val am2 = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
-        val windowMin = if (am2?.canScheduleExactAlarms() == true) 10L else 35L
-        val due = dayEvents(snap, start, today, lead, Prefs.afterClassOn(ctx), Prefs.earlyOn(ctx))
+        val windowMin = dueWindowMin(am2?.canScheduleExactAlarms() == true)
+        val due = dayEvents(snap, start, today, lead, classOn && !alarmMode, Prefs.afterClassOn(ctx), Prefs.earlyOn(ctx))
             .filter { !it.at.isAfter(now) && it.at.isAfter(now.minusMinutes(windowMin)) }
             .filter { it.type != TYPE_CLASS || it.classStart!!.isAfter(now) }
         if (due.isEmpty()) return@withContext
@@ -296,7 +391,8 @@ class ReminderReceiver : BroadcastReceiver() {
                         if (!ok) DebugLog.log("remind", "测试闹钟到点, 但没有通知权限")
                     }
                 }
-                if (Prefs.reminderOn(ctx)) runCatching { kotlinx.coroutines.runBlocking { ReminderScheduler.reschedule(ctx) } }
+                if (Prefs.reminderOn(ctx) || Prefs.afterClassOn(ctx) || Prefs.earlyOn(ctx))
+                    runCatching { kotlinx.coroutines.runBlocking { ReminderScheduler.reschedule(ctx) } }
                 // 上下课边界顺带刷新小组件的「进行中 / 下节课」状态
                 runCatching {
                     val mgr = android.appwidget.AppWidgetManager.getInstance(ctx)

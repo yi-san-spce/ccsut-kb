@@ -72,6 +72,7 @@ fun DevSheet(
     onReschedule: () -> Unit,
     onTestNotification: () -> Unit,
     onTestAlarm: () -> Unit,
+    onTestRing: () -> Unit,
     onReloadData: () -> Unit,
     onMockApkUpdate: () -> Unit,
     onToggleTimetable: () -> Unit,
@@ -225,6 +226,7 @@ fun DevSheet(
                 DevActionRow("重排提醒闹钟", "重算下一次事件，结果见上方速览") { onReschedule(); tick++ }
                 DevActionRow("发送测试通知", "验证渠道 / 图标 / 权限") { onTestNotification(); tick++ }
                 DevActionRow("10 秒后测试闹钟", "验证 闹钟→接收器→通知 全链路") { onTestAlarm(); tick++ }
+                DevActionRow("10 秒测试响铃", "验证 闹钟→全屏响铃页 链路（闹钟模式）") { onTestRing(); tick++ }
                 DevActionRow("重载数据", "重新解析内置 / 已下载的数据集") { onReloadData(); tick++ }
                 DevActionRow("模拟 APK 更新弹窗", "走一遍自更新确认 UI（下载会失败）") { onMockApkUpdate(); tick++ }
             }

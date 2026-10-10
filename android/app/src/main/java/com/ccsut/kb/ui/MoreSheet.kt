@@ -1,8 +1,10 @@
 package com.ccsut.kb.ui
 import android.Manifest
+import android.app.Activity
 import android.app.AlarmManager
 import android.content.Intent
 import androidx.activity.ComponentActivity
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import android.content.pm.PackageManager
@@ -38,6 +40,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Celebration
@@ -114,6 +117,7 @@ fun MoreSheet(
     nextReminderAt: Long,
     afterClassOn: Boolean,
     earlyOn: Boolean,
+    alarmMode: Boolean,
     devMode: Boolean,
     personalActive: Boolean,
     personalName: String,
@@ -128,6 +132,7 @@ fun MoreSheet(
     onLeadChange: (Int) -> Unit,
     onAfterClassChange: (Boolean) -> Unit,
     onEarlyChange: (Boolean) -> Unit,
+    onAlarmModeChange: (Boolean) -> Unit,
     onSelectClass: () -> Unit,
     onOpenPersonalLogin: () -> Unit,
     onSetTimetable: (Boolean) -> Unit,
@@ -173,6 +178,8 @@ fun MoreSheet(
                 PackageManager.PERMISSION_GRANTED,
         )
     }
+    // 「禁止后不再询问」: 再 launch 也静默无弹窗, 红行要改为跳系统应用通知设置
+    var permDeniedForever by remember { mutableStateOf(false) }
     var exactOk by remember { mutableStateOf(false) }
     DisposableEffect(ctx) {
         val am = ctx.getSystemService(AlarmManager::class.java)
@@ -190,6 +197,13 @@ fun MoreSheet(
     }
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         notifGranted = it
+        // 拒绝且系统不再弹窗 = 永久拒绝, 之后只引导去系统设置
+        permDeniedForever = !it && Build.VERSION.SDK_INT >= 33 &&
+            !ActivityCompat.shouldShowRequestPermissionRationale(ctx as Activity, Manifest.permission.POST_NOTIFICATIONS)
+    }
+    fun requestNotifPerm() {
+        if (Build.VERSION.SDK_INT < 33) return
+        permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     if (showBgDialog) {
@@ -473,9 +487,19 @@ fun MoreSheet(
                 data class RemState(val sub: String, val err: Boolean, val click: (() -> Unit)?)
                 val rem = when {
                     !reminderOn -> RemState("每节课开始前按时提醒", false, null)
-                    !notifGranted -> RemState(
+                    !notifGranted -> if (permDeniedForever) RemState(
+                        // 永久拒绝后系统弹窗再也不出现, 只能引导去系统应用通知设置
+                        "通知权限被关了，点这里去系统设置", true,
+                    ) {
+                        runCatching {
+                            ctx.startActivity(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName),
+                            )
+                        }
+                    } else RemState(
                         "先去开通知权限", true,
-                    ) { permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+                    ) { requestNotifPerm() }
                     !exactOk -> RemState(
                         "可能不准时，点这里去设置", true,
                     ) {
@@ -501,9 +525,7 @@ fun MoreSheet(
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                     trailing = {
                         Switch(checked = reminderOn, onCheckedChange = {
-                            if (it && Build.VERSION.SDK_INT >= 33 && !notifGranted) {
-                                permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            }
+                            if (it) requestNotifPerm()
                             onReminderToggle(it)
                         })
                     },
@@ -526,18 +548,35 @@ fun MoreSheet(
                         }
                     }
                     SettingRow(
-                        icon = Icons.Rounded.Celebration,
-                        title = "下课后小结",
-                        subtitle = "最后一节下课后推送今日课程小结",
-                        trailing = { Switch(checked = afterClassOn, onCheckedChange = onAfterClassChange) },
-                    )
-                    SettingRow(
-                        icon = Icons.Rounded.Bedtime,
-                        title = "早八前夜",
-                        subtitle = "前一晚 21:30，明天真有早八才提醒",
-                        trailing = { Switch(checked = earlyOn, onCheckedChange = onEarlyChange) },
+                        icon = Icons.Rounded.Alarm,
+                        title = "闹钟模式",
+                        subtitle = "到点全屏响铃，早八不怕睡过头（不依赖通知权限）",
+                        trailing = { Switch(checked = alarmMode, onCheckedChange = onAlarmModeChange) },
                     )
                 }
+                // 与课前提醒各自独立: 关掉课前提醒不影响这两项
+                SettingRow(
+                    icon = Icons.Rounded.Celebration,
+                    title = "下课后小结",
+                    subtitle = "最后一节下课后推送今日课程小结",
+                    trailing = {
+                        Switch(checked = afterClassOn, onCheckedChange = {
+                            if (it) requestNotifPerm()
+                            onAfterClassChange(it)
+                        })
+                    },
+                )
+                SettingRow(
+                    icon = Icons.Rounded.Bedtime,
+                    title = "早八前夜",
+                    subtitle = "前一晚 21:30，明天真有早八才提醒",
+                    trailing = {
+                        Switch(checked = earlyOn, onCheckedChange = {
+                            if (it) requestNotifPerm()
+                            onEarlyChange(it)
+                        })
+                    },
+                )
                 SettingRow(
                     icon = Icons.Rounded.Widgets,
                     title = "桌面小组件",

@@ -9,6 +9,8 @@
         <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
         <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 提醒渠道开了震动但权限此前缺失, 震动静默失效 -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".KbApp"
@@ -53,6 +55,17 @@
                 <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <!-- 闹钟模式的全屏响铃页: setAlarmClock 直启 (USE_EXACT_ALARM 授予时豁免后台启动限制),
+             锁屏之上显示并点亮屏幕; 不经过通知, 无通知权限也能响 -->
+        <activity
+            android:name=".reminder.AlarmActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:excludeFromRecents="true"
+            android:configChanges="orientation|screenSize|keyboardHidden" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
