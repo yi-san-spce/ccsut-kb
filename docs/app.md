@@ -34,7 +34,9 @@ keystore/release.keystore    # 签名 (口令在 android/local.properties 的 ke
 | 课程颜色自定义 | 点课表任意课程块 → 详情弹层"颜色"色板(12色+自动) | 按课程种子 `kc|fx` 存 SharedPreferences JSON; 自动配色保留为默认 |
 | 课表背景图 | 更多 → 个性化 → 课表背景 (Photo Picker 免权限) | 压缩至 ≤1600px 转存 filesDir/bg.jpg; 透明度可调, 叠 25% 底色保证可读 |
 | 今日课表小组件 | 长按桌面 → 小组件 → 长工课表通 (默认 3×2) | RemoteViews 渲染当天前 6 节; 只读 ClassCache 快照; 30min 周期 + APP 数据变化即刷; **Material You 动态取色** |
-| 课前提醒 | 更多 → 课前提醒 (开关 + 提前 5/10/15/20/30 分钟) | 只排一条「下一次提醒」闹钟, 触发后发通知再排下一条; 依赖 POST_NOTIFICATIONS 与 SCHEDULE_EXACT_ALARM(缺失自动降级非精确并提示) |
+| 课前提醒 | 更多 → 课前提醒 (开关 + 提前 5/10/15/20/30 分钟) | 通知链: 排「下一次事件」闹钟(setExactAndAllowWhileIdle, 精确缺失降级非精确), 触发后发通知再排下一条; 依赖 POST_NOTIFICATIONS(启动/引导/拨开关时主动请求, 永久拒绝引导去系统设置)与 USE_EXACT_ALARM |
+| 闹钟模式 (v1.1.0) | 更多 → 提醒 → 闹钟模式 (与课前提醒共用提前量) | 闹钟链: TYPE_CLASS 走 `setAlarmClock` 直启 AlarmActivity 全屏响铃页(锁屏上点亮, 循环系统闹钟铃声 USAGE_ALARM + 波形震动, 最长 2 分钟自动停, 停止时自理重排+刷小组件); 不依赖通知权限; 通知链与闹钟链双链并存(requestCode 0 广播 / 2 Activity) |
+| 放学小结 / 早八前夜 (v1.1.0 解耦) | 更多 → 提醒, 各自独立开关 (默认开) | 与「课前提醒」开关解耦, 互不连坐; 三开关全关才取消全部闹钟; 迟到投递容差 精确30min/降级60min, 缺通知权限时 fire() 留痕不再纯静默 |
 
 v2.0.1 修复/升级:
 - 背景图「换一张不生效」: produceState 只以文件路径为 key, 路径恒为 bg.jpg 导致换图后不重新解码 → 增加 `bgVersion`(bgTick) 作为第二个 key; 选图失败改为 Toast 明显提示。
@@ -53,7 +55,7 @@ v2.0.2 修复:
 |---|---|
 | 状态速览 | 数据版本/学期/来源、ClassCache 快照(班级/课程数/文件大小)、语义今天(偏移≠0 红字提示)、下次闹钟 + 精确闹钟/通知权限、小组件数量 |
 | 时间旅行 | 日期偏移 -30..+60 天(快捷: 真实/明天/下周一/+7)。`KbClock` 只平移日期不动时刻(周日晚可测周一早八), 课表/小组件/提醒全部跟随, 偏移持久化在 Prefs |
-| 即时操作 | 重建快照 / 强刷小组件 / 重排闹钟 / 发测试通知 / **10 秒测试闹钟**(ACTION_DEV_TEST 走真实 AlarmManager→Receiver→通知链路) / 重载数据 / 模拟 APK 更新弹窗 |
+| 即时操作 | 重建快照 / 强刷小组件 / 重排闹钟 / 发测试通知 / **10 秒测试闹钟**(ACTION_DEV_TEST 走真实 AlarmManager→Receiver→通知链路) / **10 秒测试响铃**(v1.1.0, 直启 AlarmActivity 验证闹钟链) / 重载数据 / 模拟 APK 更新弹窗 |
 | 更新通道 | 拉取并显示 latest.json 原始 JSON |
 | 日志 | `DebugLog` 内存环形缓冲 300 条, 关键路径打点(data/update/remind/widget/dev), 同时镜像 logcat `kb-dev` |
 | 诊断 | 生成现场报告(设备/版本/数据/设置/日志)用系统分享发出, 远程排障用 |
