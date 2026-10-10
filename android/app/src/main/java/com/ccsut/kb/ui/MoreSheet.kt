@@ -46,11 +46,16 @@ import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Celebration
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Forum
+import androidx.compose.material.icons.rounded.Groups
+import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.ManageAccounts
+import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.AlertDialog
@@ -715,6 +720,74 @@ fun MoreSheet(
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                     )
                 }
+                Row {
+                    Text(
+                        "隐私政策",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp)).clickable { openUrl(ctx, PRIVACY_URL) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                    Text(
+                        "更新日志",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp)).clickable { openUrl(ctx, CHANGELOG_URL) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                }
+            }
+
+            // ---------------- 加入社区 ----------------
+            // QQ 群/频道入口由 ui/Links.kt 的常量驱动, 留空即自动隐藏 (群号变动无需发版之外的操作)
+            SectionHeader("加入社区")
+            SettingCard {
+                if (QQ_GROUP_UIN.isNotBlank()) {
+                    SettingRow(
+                        icon = Icons.Rounded.Groups,
+                        title = "QQ 交流群",
+                        subtitle = "$QQ_GROUP_NAME · 群号 $QQ_GROUP_UIN",
+                        trailing = { RowTrailing() },
+                        onClick = {
+                            openQQGroup(ctx, QQ_GROUP_UIN) { uin ->
+                                copyText(ctx, uin)
+                                Toast.makeText(ctx, "群号 $uin 已复制，请在 QQ 中搜索加群", Toast.LENGTH_LONG).show()
+                            }
+                        },
+                    )
+                }
+                if (QQ_CHANNEL_URL.isNotBlank()) {
+                    SettingRow(
+                        icon = Icons.Rounded.Forum,
+                        title = "QQ 频道",
+                        subtitle = "公告 · 长期讨论 · 抢先体验",
+                        trailing = { RowTrailing() },
+                        onClick = { openUrl(ctx, QQ_CHANNEL_URL) },
+                    )
+                }
+                SettingRow(
+                    icon = Icons.Rounded.Star,
+                    title = "给项目点个 Star",
+                    subtitle = "你的 Star 是我们更新的动力",
+                    trailing = { RowTrailing() },
+                    onClick = { openUrl(ctx, OPEN_SOURCE_URL) },
+                )
+                SettingRow(
+                    icon = Icons.Rounded.Groups,
+                    title = "想法与问答 · Discussions",
+                    subtitle = "不成熟的想法也欢迎来聊",
+                    trailing = { RowTrailing() },
+                    onClick = { openUrl(ctx, DISCUSSIONS_URL) },
+                )
+                SettingRow(
+                    icon = Icons.Rounded.BugReport,
+                    title = "反馈问题",
+                    subtitle = "Bug / 功能建议 / 课表数据，分类模板直达",
+                    trailing = { RowTrailing() },
+                    onClick = { openUrl(ctx, ISSUES_URL) },
+                )
             }
 
             // 数据热更后偶发的回退口: 只在发生过在线数据更新时出现
