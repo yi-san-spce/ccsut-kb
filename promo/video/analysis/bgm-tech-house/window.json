@@ -1,0 +1,13 @@
+{
+ "track": "bgm-tech-house",
+ "source_offset_sec": 20.5848,
+ "source_beat_index_k0": 24,
+ "bpm": 123.999,
+ "T": 0.48387,
+ "t0_window": 21.0651,
+ "window_residual_ms": {
+  "max": 10.7,
+  "mean": 3.51
+ },
+ "film_beat_to_source_sec": "src = t0_window + n*T  (n 为片内拍号)"
+}

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>长工课表通 · styleframes</title>
+<style>
+  :root{
+    --ink:#1F1F26; --paper:#FBF8FF; --blue:#3B64D8; --blue-deep:#00174A;
+    --blue-c:#DCE3FF; --mustard:#DAB542; --muted:#595D72; --line:#2A2A2A;
+    --sans:"PingFang SC","HarmonyOS Sans SC","Source Han Sans SC",sans-serif;
+    --hand:"Xingkai SC","Kaiti SC","Marker Felt",cursive;
+    --mono:"SF Mono",ui-monospace,"Menlo",monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#888;font-family:var(--sans)}
+  .frame{width:1920px;height:1080px;position:relative;overflow:hidden;background:var(--paper);margin:0 auto 24px}
+  body:empty::after{content:""}
+  /* 噪点 */
+  .noise::before{content:"";position:absolute;inset:0;opacity:.05;pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E")}
+  /* APP 图标(CSS 重绘) */
+  .appicon{border-radius:26%;background:linear-gradient(180deg,#4A73E8,#3B64D8);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(59,100,216,.35)}
+  .appicon svg{width:58%;height:58%}
+  /* 手机截图卡 */
+  .phone{border-radius:44px;overflow:hidden;box-shadow:0 30px 80px rgba(31,31,38,.22),0 4px 16px rgba(31,31,38,.10);border:10px solid #fff;background:#fff}
+  .phone .scr{width:100%;height:100%;overflow:hidden;position:relative}
+  .phone img{position:absolute;left:0;width:100%;top:-72px}
+  .chip{display:inline-flex;align-items:center;gap:10px;border-radius:999px;padding:10px 22px;font-size:24px}
+
+  /* ===== A 晨光手账 ===== */
+  .A{background:var(--paper)}
+  .A .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
+  .A h1{font-size:76px;font-weight:800;color:var(--ink);letter-spacing:2px}
+  .A .sub{font-size:34px;color:var(--muted);margin-top:28px;letter-spacing:6px}
+  .A .handnote{font-family:var(--hand);color:#8A6D1C;font-size:40px}
+  .A .brandline{position:absolute;bottom:64px;left:0;right:0;display:flex;align-items:center;justify-content:center;gap:18px;color:var(--muted);font-size:26px;letter-spacing:3px}
+  /* ===== B 玻璃晨蓝 ===== */
+  .B{background:linear-gradient(135deg,#FBF8FF 0%,#E3EAFF 45%,#C9D6FF 100%)}
+  .B .glow{position:absolute;border-radius:50%;filter:blur(90px);background:rgba(255,255,255,.85)}
+  .B .glass{background:rgba(255,255,255,.55);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+    border:1.5px solid rgba(255,255,255,.85);box-shadow:0 24px 60px rgba(0,23,74,.14),inset 0 1px 0 rgba(255,255,255,.9);border-radius:36px}
+  .B h1{font-size:64px;font-weight:800;color:var(--blue-deep);letter-spacing:2px}
+  .B .meta{font-family:var(--mono);color:#6B76A8;font-size:22px;letter-spacing:4px}
+  /* ===== C 课表网格 ===== */
+  .C{background:#FFFFFF;color:var(--ink)}
+  .C .grid{position:absolute;inset:0;
+    background-image:repeating-linear-gradient(0deg,rgba(31,31,38,.06) 0 1px,transparent 1px 96px),
+                     repeating-linear-gradient(90deg,rgba(31,31,38,.06) 0 1px,transparent 1px 96px)}
+  .C .meta{font-family:var(--mono);font-size:22px;letter-spacing:3px;color:var(--muted)}
+  .C .block{position:absolute;border-radius:14px;opacity:.92}
+  .C .rule{position:absolute;left:96px;right:96px;bottom:88px;height:2px;background:var(--ink)}
+</style>
+</head>
+<body>
+
+<!-- ============ A1 开场 · 晨光 ============ -->
+<section class="frame A noise" data-frame="a1">
+  <div class="center">
+    <svg width="430" height="430" viewBox="0 0 400 400" fill="none" style="margin-bottom:36px">
+      <g stroke="#2A2A2A" stroke-width="7" stroke-linecap="round">
+        <line x1="200" y1="14" x2="199" y2="52"/><line x1="297" y1="41" x2="277" y2="74"/>
+        <line x1="364" y1="106" x2="333" y2="127"/><line x1="386" y1="200" x2="348" y2="199"/>
+        <line x1="358" y1="297" x2="326" y2="278"/><line x1="300" y1="363" x2="279" y2="332"/>
+        <line x1="201" y1="386" x2="200" y2="349"/><line x1="104" y1="360" x2="124" y2="328"/>
+        <line x1="37" y1="295" x2="69" y2="275"/><line x1="14" y1="199" x2="52" y2="200"/>
+        <line x1="41" y1="103" x2="73" y2="123"/><line x1="102" y1="38" x2="122" y2="69"/>
+      </g>
+      <circle cx="206" cy="206" r="116" fill="#DAB542"/>
+      <circle cx="196" cy="199" r="116" stroke="#2A2A2A" stroke-width="8"/>
+      <path d="M156 178 q14 -22 30 -2" stroke="#2A2A2A" stroke-width="9" stroke-linecap="round"/>
+      <path d="M222 176 q14 -22 30 -2" stroke="#2A2A2A" stroke-width="9" stroke-linecap="round"/>
+      <path d="M143 232 q56 52 114 -4" stroke="#2A2A2A" stroke-width="9" stroke-linecap="round"/>
+    </svg>
+    <h1>新的一天，从看清课表开始。</h1>
+    <div class="sub">打开手机 · 它就在那里</div>
+  </div>
+  <div class="handnote" style="position:absolute;left:110px;top:96px;transform:rotate(-4deg)">a new day ☀</div>
+  <div class="handnote" style="position:absolute;right:130px;bottom:150px;transform:rotate(3deg)">早八人的小太阳</div>
+  <div class="brandline"><span class="appicon" style="width:52px;height:52px"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4.5" width="16" height="15" rx="3" fill="#fff"/><path d="M4 8 A3.5 3.5 0 0 1 7.5 4.5 H16.5 A3.5 3.5 0 0 1 20 8 V9.5 H4 Z" fill="#DCE3FF"/><rect x="7" y="12.5" width="10" height="2" rx="1" fill="#3B64D8"/><rect x="7" y="16" width="6" height="2" rx="1" fill="#B7C4FF"/></svg></span>长工课表通</div>
+</section>
+
+<!-- ============ A2 核心功能 · 手账标注 ============ -->
+<section class="frame A noise" data-frame="a2">
+  <div class="phone" style="position:absolute;left:170px;top:120px;width:520px;height:840px;transform:rotate(-3deg)">
+    <div class="scr"><img src="assets/shot-academia.jpg" style="top:-90px"></div>
+  </div>
+  <div style="position:absolute;left:840px;top:180px;width:940px">
+    <div style="font-family:var(--mono);font-size:24px;color:var(--muted);letter-spacing:6px">WEEKLY · OFFLINE · YOURS</div>
+    <h1 style="font-size:104px;font-weight:800;color:var(--ink);line-height:1.28;margin-top:24px">打开，<br>就是这一周。</h1>
+    <svg width="560" height="26" viewBox="0 0 560 26" style="margin-top:8px">
+      <path d="M6 16 Q 140 4 280 13 T 552 10" stroke="#DAB542" stroke-width="8" fill="none" stroke-linecap="round"/>
+    </svg>
+    <div style="margin-top:64px;display:flex;flex-direction:column;gap:30px">
+      <div class="chip" style="background:#fff;border:2px solid #2A2A22;box-shadow:4px 4px 0 #DAB542;width:fit-content;font-size:30px;color:var(--ink)">课间 2 小时 52 分，喝口水歇歇 (´▽`)</div>
+      <div class="chip" style="background:#fff;border:2px solid #2A2A22;box-shadow:4px 4px 0 #DAB542;width:fit-content;font-size:30px;color:var(--ink)">下一节 14:00 · 人工智能导论 @ 7-南306</div>
+    </div>
+  </div>
+  <div class="handnote" style="position:absolute;right:120px;top:110px;font-size:44px;transform:rotate(2deg)">一眼看完 ↖</div>
+  <div class="brandline" style="justify-content:flex-start;padding-left:170px"><span class="appicon" style="width:52px;height:52px"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4.5" width="16" height="15" rx="3" fill="#fff"/><path d="M4 8 A3.5 3.5 0 0 1 7.5 4.5 H16.5 A3.5 3.5 0 0 1 20 8 V9.5 H4 Z" fill="#DCE3FF"/><rect x="7" y="12.5" width="10" height="2" rx="1" fill="#3B64D8"/><rect x="7" y="16" width="6" height="2" rx="1" fill="#B7C4FF"/></svg></span>长工课表通</div>
+</section>
+
+<!-- ============ A3 收尾 · 太阳签名 ============ -->
+<section class="frame A noise" data-frame="a3">
+  <div class="center">
+    <svg width="360" height="360" viewBox="0 0 400 400" fill="none">
+      <g stroke="#2A2A2A" stroke-width="7" stroke-linecap="round">
+        <line x1="200" y1="14" x2="199" y2="52"/><line x1="297" y1="41" x2="277" y2="74"/>
+        <line x1="364" y1="106" x2="333" y2="127"/><line x1="386" y1="200" x2="348" y2="199"/>
+        <line x1="358" y1="297" x2="326" y2="278"/><line x1="300" y1="363" x2="279" y2="332"/>
+        <line x1="201" y1="386" x2="200" y2="349"/><line x1="104" y1="360" x2="124" y2="328"/>
+        <line x1="37" y1="295" x2="69" y2="275"/><line x1="14" y1="199" x2="52" y2="200"/>
+        <line x1="41" y1="103" x2="73" y2="123"/><line x1="102" y1="38" x2="122" y2="69"/>
+      </g>
+      <circle cx="202" cy="202" r="118" fill="#DAB542"/>
+      <circle cx="196" cy="199" r="116" stroke="#2A2A2A" stroke-width="8"/>
+      <path d="M156 178 q14 -22 30 -2" stroke="#2A2A2A" stroke-width="9" stroke-linecap="round"/>
+      <path d="M222 176 q14 -22 30 -2" stroke="#2A2A2A" stroke-width="9" stroke-linecap="round"/>
+      <path d="M143 232 q56 52 114 -4" stroke="#2A2A2A" stroke-width="9" stroke-linecap="round"/>
+    </svg>
+    <div style="font-size:96px;font-weight:800;color:var(--ink);margin-top:40px">@yisan</div>
+    <div style="font-size:32px;color:var(--muted);letter-spacing:10px;margin-top:18px">全平台同名 · 谢谢你看到这里</div>
+    <div style="display:flex;align-items:center;gap:18px;margin-top:56px;color:var(--muted);font-size:28px">
+      <span class="appicon" style="width:60px;height:60px"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4.5" width="16" height="15" rx="3" fill="#fff"/><path d="M4 8 A3.5 3.5 0 0 1 7.5 4.5 H16.5 A3.5 3.5 0 0 1 20 8 V9.5 H4 Z" fill="#DCE3FF"/><rect x="7" y="12.5" width="10" height="2" rx="1" fill="#3B64D8"/><rect x="7" y="16" width="6" height="2" rx="1" fill="#B7C4FF"/></svg></span>长工课表通 · 让查看课表这件事，不再那么狼狈。
+    </div>
+  </div>
+  <div class="handnote" style="position:absolute;left:130px;bottom:120px;font-size:40px;transform:rotate(-5deg)">see you ✎</div>
+</section>
+
+<!-- ============ B1 开场 · 玻璃 ============ -->
+<section class="frame B" data-frame="b1">
+  <div class="glow" style="width:900px;height:900px;right:-220px;top:-320px"></div>
+  <div class="glow" style="width:700px;height:700px;left:-260px;bottom:-320px;opacity:.7"></div>
+  <div class="meta" style="position:absolute;left:110px;top:88px">CCSUT KB · SCHEDULE</div>
+  <div style="position:absolute;right:110px;top:84px;color:#41528F;font-size:26px;letter-spacing:2px">给每一位长工学子</div>
+  <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">
+    <div class="glass" style="width:860px;height:480px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
+      <span class="appicon" style="width:120px;height:120px"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4.5" width="16" height="15" rx="3" fill="#fff"/><path d="M4 8 A3.5 3.5 0 0 1 7.5 4.5 H16.5 A3.5 3.5 0 0 1 20 8 V9.5 H4 Z" fill="#DCE3FF"/><rect x="7" y="12.5" width="10" height="2" rx="1" fill="#3B64D8"/><rect x="7" y="16" width="6" height="2" rx="1" fill="#B7C4FF"/></svg></span>
+      <h1 style="margin-top:36px">长工课表通</h1>
+      <div style="font-size:30px;color:#41528F;margin-top:22px;letter-spacing:2px">让查看课表这件事，不再那么狼狈。</div>
+      <div style="display:flex;gap:16px;margin-top:40px">
+        <span class="chip" style="background:rgba(255,255,255,.7);color:#3B64D8;font-size:22px">Android 8+</span>
+        <span class="chip" style="background:rgba(255,255,255,.7);color:#3B64D8;font-size:22px">GPL-3.0 开源</span>
+        <span class="chip" style="background:rgba(255,255,255,.7);color:#3B64D8;font-size:22px">离线可用</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B2 核心功能 · 玻璃卡纵深 ============ -->
+<section class="frame B" data-frame="b2">
+  <div class="glow" style="width:1100px;height:800px;left:420px;top:-380px;opacity:.8"></div>
+  <h1 style="position:absolute;left:120px;top:96px">你的课表，清清楚楚。</h1>
+  <div style="position:absolute;right:120px;top:112px;color:#41528F;font-size:26px">周课表 · 今日状态 · 主题风格</div>
+  <div style="position:absolute;left:0;right:0;top:230px;display:flex;align-items:center;justify-content:center;gap:56px">
+    <div class="glass" style="padding:18px;transform:rotate(-6deg) translateY(50px)">
+      <div class="phone" style="width:320px;height:540px;border-radius:32px;border-width:8px;box-shadow:none"><div class="scr"><img src="assets/shot-cyber.jpg" style="top:-56px"></div></div>
+      <div style="text-align:center;color:#3B64D8;font-size:26px;margin-top:18px">主题随你换</div>
+    </div>
+    <div class="glass" style="padding:22px">
+      <div class="phone" style="width:420px;height:690px;border-radius:40px;border-width:10px;box-shadow:none"><div class="scr"><img src="assets/shot-academia.jpg" style="top:-70px"></div></div>
+      <div style="text-align:center;color:#3B64D8;font-size:26px;margin-top:20px">打开即看</div>
+    </div>
+    <div class="glass" style="padding:18px;transform:rotate(6deg) translateY(50px)">
+      <div class="phone" style="width:320px;height:540px;border-radius:32px;border-width:8px;box-shadow:none"><div class="scr"><img src="assets/shot-swiss.jpg" style="top:-56px"></div></div>
+      <div style="text-align:center;color:#3B64D8;font-size:26px;margin-top:18px">今日状态</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B3 收尾 · 玻璃签名 ============ -->
+<section class="frame B" data-frame="b3">
+  <div class="glow" style="width:1000px;height:1000px;left:460px;top:40px;opacity:.9"></div>
+  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+    <div class="glass" style="width:300px;height:300px;border-radius:50%;display:flex;align-items:center;justify-content:center">
+      <svg width="220" height="220" viewBox="0 0 400 400" fill="none">
+        <g stroke="#2A2A2A" stroke-width="9" stroke-linecap="round">
+          <line x1="200" y1="14" x2="199" y2="52"/><line x1="297" y1="41" x2="277" y2="74"/>
+          <line x1="364" y1="106" x2="333" y2="127"/><line x1="386" y1="200" x2="348" y2="199"/>
+          <line x1="358" y1="297" x2="326" y2="278"/><line x1="300" y1="363" x2="279" y2="332"/>
+          <line x1="201" y1="386" x2="200" y2="349"/><line x1="104" y1="360" x2="124" y2="328"/>
+          <line x1="37" y1="295" x2="69" y2="275"/><line x1="14" y1="199" x2="52" y2="200"/>
+          <line x1="41" y1="103" x2="73" y2="123"/><line x1="102" y1="38" x2="122" y2="69"/>
+        </g>
+        <circle cx="202" cy="202" r="118" fill="#DAB542"/>
+        <circle cx="196" cy="199" r="116" stroke="#2A2A2A" stroke-width="9"/>
+        <path d="M156 178 q14 -22 30 -2" stroke="#2A2A2A" stroke-width="10" stroke-linecap="round"/>
+        <path d="M222 176 q14 -22 30 -2" stroke="#2A2A2A" stroke-width="10" stroke-linecap="round"/>
+        <path d="M143 232 q56 52 114 -4" stroke="#2A2A2A" stroke-width="10" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div style="font-size:92px;font-weight:800;color:var(--blue-deep);margin-top:44px">@yisan</div>
+    <div style="font-size:30px;color:#41528F;letter-spacing:8px;margin-top:16px">全平台同名</div>
+    <div style="display:flex;align-items:center;gap:16px;margin-top:52px;color:#41528F;font-size:26px">
+      <span class="appicon" style="width:54px;height:54px"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4.5" width="16" height="15" rx="3" fill="#fff"/><path d="M4 8 A3.5 3.5 0 0 1 7.5 4.5 H16.5 A3.5 3.5 0 0 1 20 8 V9.5 H4 Z" fill="#DCE3FF"/><rect x="7" y="12.5" width="10" height="2" rx="1" fill="#3B64D8"/><rect x="7" y="16" width="6" height="2" rx="1" fill="#B7C4FF"/></svg></span>长工课表通 · GPL-3.0 · 与你共同开发
+    </div>
+  </div>
+</section>
+
+<!-- ============ C1 开场 · 网格大字 ============ -->
+<section class="frame C" data-frame="c1">
+  <div class="grid"></div>
+  <div class="meta" style="position:absolute;left:96px;top:88px">CCSUT KB — v1.1.0 · 长沙工业学院</div>
+  <div class="meta" style="position:absolute;right:96px;top:88px">SCHEDULE, AT A GLANCE</div>
+  <div style="position:absolute;left:96px;top:320px;font-size:196px;font-weight:900;line-height:1.12;letter-spacing:6px">课表，<br>就该一眼看完。</div>
+  <div class="block" style="left:1480px;top:300px;width:150px;height:110px;background:#DAB542"></div>
+  <div class="block" style="left:1666px;top:300px;width:150px;height:190px;background:#C9526B"></div>
+  <div class="block" style="left:1480px;top:452px;width:150px;height:190px;background:#7A9E9F"></div>
+  <div class="block" style="left:1666px;top:532px;width:150px;height:110px;background:#8B6BB8"></div>
+  <div style="position:absolute;left:1480px;top:704px;color:var(--muted);font-size:26px;max-width:420px;line-height:1.7;white-space:nowrap">周课表 · 今日状态 · 提醒 · 主题<br>一个图标点开，全部就位。</div>
+  <div class="rule"></div>
+  <div class="meta" style="position:absolute;left:96px;bottom:56px">01 — OPENING</div>
+  <div class="meta" style="position:absolute;right:96px;bottom:56px">长工课表通</div>
+</section>
+
+<!-- ============ C2 核心功能 · 色板系统 ============ -->
+<section class="frame C" data-frame="c2">
+  <div class="grid"></div>
+  <div style="position:absolute;left:96px;top:140px;width:820px">
+    <div class="meta" style="margin-bottom:28px">COLOR SYSTEM</div>
+    <div style="font-size:120px;font-weight:900;line-height:1.3">一周十二门课，<br>各自有颜色。</div>
+    <div style="display:flex;gap:14px;margin-top:56px">
+      <span style="width:96px;height:40px;border-radius:10px;background:#C9526B"></span>
+      <span style="width:96px;height:40px;border-radius:10px;background:#DAB542"></span>
+      <span style="width:96px;height:40px;border-radius:10px;background:#7A9E9F"></span>
+      <span style="width:96px;height:40px;border-radius:10px;background:#8B6BB8"></span>
+      <span style="width:96px;height:40px;border-radius:10px;background:#E58B6A"></span>
+      <span style="width:96px;height:40px;border-radius:10px;background:#5F9E6E"></span>
+    </div>
+    <div style="color:var(--muted);font-size:28px;margin-top:48px;line-height:1.8">课程块自动配色、手动改色、随主题换色 ——<br>你只需要认颜色，不用读课表。</div>
+  </div>
+  <div class="phone" style="position:absolute;right:200px;top:110px;width:520px;height:860px;transform:rotate(0deg)">
+    <div class="scr"><img src="assets/shot-swiss.jpg" style="top:-92px"></div>
+  </div>
+  <div class="rule"></div>
+  <div class="meta" style="position:absolute;left:96px;bottom:56px">02 — FEATURES</div>
+  <div class="meta" style="position:absolute;right:96px;bottom:56px">长工课表通</div>
+</section>
+
+<!-- ============ C3 收尾 · 网格签名 ============ -->
+<section class="frame C" data-frame="c3">
+  <div class="grid"></div>
+  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+    <span class="appicon" style="width:160px;height:160px;border-radius:36px"><svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4.5" width="16" height="15" rx="3" fill="#fff"/><path d="M4 8 A3.5 3.5 0 0 1 7.5 4.5 H16.5 A3.5 3.5 0 0 1 20 8 V9.5 H4 Z" fill="#DCE3FF"/><rect x="7" y="12.5" width="10" height="2" rx="1" fill="#3B64D8"/><rect x="7" y="16" width="6" height="2" rx="1" fill="#B7C4FF"/></svg></span>
+    <div style="font-size:130px;font-weight:900;letter-spacing:8px;margin-top:48px">长工课表通</div>
+    <div style="display:flex;align-items:center;gap:24px;margin-top:56px">
+      <span style="width:88px;height:88px;border-radius:50%;overflow:hidden;display:inline-block"><img src="../assets/yisan-avatar.png" style="width:100%;height:100%;object-fit:cover"></span>
+      <span style="font-family:var(--mono);font-size:44px">@yisan</span>
+      <span class="meta">全平台同名</span>
+    </div>
+  </div>
+  <div style="position:absolute;left:96px;right:96px;bottom:150px;height:6px;background:#E30613"></div>
+  <div class="rule" style="bottom:88px"></div>
+  <div class="meta" style="position:absolute;left:96px;bottom:56px">GPL-3.0 · 全开源</div>
+  <div class="meta" style="position:absolute;right:96px;bottom:56px">GITEE / GITHUB — CCSUT-KB</div>
+</section>
+
+<script>
+  const f = location.hash.replace("#","");
+  if(f){document.querySelectorAll(".frame").forEach(s=>{if(s.dataset.frame!==f)s.style.display="none"});
+    document.title="frame "+f;
+    document.body.style.background="#fff";}
+</script>
+</body>
+</html>

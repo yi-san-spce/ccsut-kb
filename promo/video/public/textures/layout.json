@@ -1,0 +1,159 @@
+{
+ "cut-status-card": {
+  "tex": "tex-academia",
+  "box": [
+   30,
+   265,
+   1230,
+   510
+  ],
+  "w": 1200,
+  "h": 245
+ },
+ "cut-date-pill": {
+  "tex": "tex-academia",
+  "box": [
+   350,
+   150,
+   640,
+   255
+  ],
+  "w": 290,
+  "h": 105
+ },
+ "cut-sat-chip": {
+  "tex": "tex-academia",
+  "box": [
+   935,
+   515,
+   1100,
+   715
+  ],
+  "w": 165,
+  "h": 200
+ },
+ "cut-course-teal": {
+  "tex": "tex-academia",
+  "box": [
+   775,
+   820,
+   970,
+   1240
+  ],
+  "w": 195,
+  "h": 420
+ },
+ "cut-course-gold": {
+  "tex": "tex-academia",
+  "box": [
+   965,
+   820,
+   1145,
+   1240
+  ],
+  "w": 180,
+  "h": 420
+ },
+ "cut-course-red": {
+  "tex": "tex-academia",
+  "box": [
+   125,
+   1240,
+   280,
+   1630
+  ],
+  "w": 155,
+  "h": 390
+ },
+ "cut-row-reminder": {
+  "tex": "tex-settings",
+  "box": [
+   90,
+   175,
+   1170,
+   370
+  ],
+  "w": 1080,
+  "h": 195
+ },
+ "cut-row-lead": {
+  "tex": "tex-settings",
+  "box": [
+   90,
+   570,
+   1170,
+   740
+  ],
+  "w": 1080,
+  "h": 170
+ },
+ "cut-row-summary": {
+  "tex": "tex-settings",
+  "box": [
+   90,
+   795,
+   1170,
+   950
+  ],
+  "w": 1080,
+  "h": 155
+ },
+ "cut-row-early8": {
+  "tex": "tex-settings",
+  "box": [
+   90,
+   970,
+   1170,
+   1140
+  ],
+  "w": 1080,
+  "h": 170
+ },
+ "cut-row-widget": {
+  "tex": "tex-settings",
+  "box": [
+   90,
+   1185,
+   1170,
+   1330
+  ],
+  "w": 1080,
+  "h": 145
+ },
+ "cut-appicon": {
+  "tex": "tex-settings",
+  "box": [
+   525,
+   2010,
+   740,
+   2230
+  ],
+  "w": 215,
+  "h": 220
+ },
+ "cut-back-now": {
+  "tex": "tex-week",
+  "box": [
+   940,
+   240,
+   1190,
+   515
+  ],
+  "w": 250,
+  "h": 275
+ },
+ "_pages": {
+  "tex-academia": {
+   "w": 1260,
+   "h": 2600
+  },
+  "tex-settings": {
+   "w": 1260,
+   "h": 2600
+  },
+  "tex-week": {
+   "w": 1260,
+   "h": 2600
+  }
+ }
+}

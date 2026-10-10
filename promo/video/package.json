@@ -1,0 +1,25 @@
+{
+  "name": "ccsut-kb-promo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "长工课表通宣传片 · Remotion 工程",
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render src/index.ts CcsutKbPromo out/promo.mp4"
+  },
+  "dependencies": {
+    "@react-three/fiber": "^9.0.0",
+    "@remotion/cli": "^4.0.0",
+    "@remotion/motion-blur": "^4.0.0",
+    "@remotion/three": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.0",
+    "three": "^0.175.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/three": "^0.186.0",
+    "typescript": "^5.6.0"
+  }
+}
