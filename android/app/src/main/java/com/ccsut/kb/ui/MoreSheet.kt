@@ -156,6 +156,8 @@ fun MoreSheet(
     var showBgDialog by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(false) }
     var showResetConfirm by remember { mutableStateOf(false) }
+    // 双平台选择: (标题, giteeUrl, githubUrl) —— 国内用户默认 Gitee 直连, GitHub 功能更全
+    var platformPick by remember { mutableStateOf<Triple<String, String, String>?>(null) }
     var checking by remember { mutableStateOf(false) }
     var checkNote by remember { mutableStateOf<String?>(null) }
     val cs = MaterialTheme.colorScheme
@@ -273,6 +275,19 @@ fun MoreSheet(
             },
             dismissButton = {
                 TextButton(onClick = { showResetConfirm = false }) { Text("先不用") }
+            },
+        )
+    }
+    platformPick?.let { (pickTitle, giteeUrl, githubUrl) ->
+        AlertDialog(
+            onDismissRequest = { platformPick = null },
+            title = { Text(pickTitle) },
+            text = { Text("Gitee 国内直连更快；GitHub 功能更全（分类反馈模板 / Discussions）。两边内容一致，任选即可。") },
+            confirmButton = {
+                TextButton(onClick = { platformPick = null; openUrl(ctx, giteeUrl) }) { Text("Gitee · 国内直连") }
+            },
+            dismissButton = {
+                TextButton(onClick = { platformPick = null; openUrl(ctx, githubUrl) }) { Text("GitHub") }
             },
         )
     }
@@ -762,7 +777,7 @@ fun MoreSheet(
                     SettingRow(
                         icon = Icons.Rounded.Forum,
                         title = "QQ 频道",
-                        subtitle = "公告 · 长期讨论 · 抢先体验",
+                        subtitle = "$QQ_CHANNEL_NAME · 公告与讨论",
                         trailing = { RowTrailing() },
                         onClick = { openUrl(ctx, QQ_CHANNEL_URL) },
                     )
@@ -770,23 +785,35 @@ fun MoreSheet(
                 SettingRow(
                     icon = Icons.Rounded.Star,
                     title = "给项目点个 Star",
-                    subtitle = "你的 Star 是我们更新的动力",
+                    subtitle = "Gitee / GitHub，你的 Star 是更新的动力",
                     trailing = { RowTrailing() },
-                    onClick = { openUrl(ctx, OPEN_SOURCE_URL) },
+                    onClick = {
+                        platformPick = Triple(
+                            "去哪个平台点亮 Star？",
+                            OPEN_SOURCE_MIRROR_URL,
+                            OPEN_SOURCE_URL,
+                        )
+                    },
                 )
                 SettingRow(
                     icon = Icons.Rounded.Groups,
                     title = "想法与问答 · Discussions",
-                    subtitle = "不成熟的想法也欢迎来聊",
+                    subtitle = "GitHub 上沉淀想法与问答，也欢迎先来 QQ 群聊",
                     trailing = { RowTrailing() },
                     onClick = { openUrl(ctx, DISCUSSIONS_URL) },
                 )
                 SettingRow(
                     icon = Icons.Rounded.BugReport,
                     title = "反馈问题",
-                    subtitle = "Bug / 功能建议 / 课表数据，分类模板直达",
+                    subtitle = "Bug / 功能建议 / 课表数据",
                     trailing = { RowTrailing() },
-                    onClick = { openUrl(ctx, ISSUES_URL) },
+                    onClick = {
+                        platformPick = Triple(
+                            "在哪个平台反馈？",
+                            ISSUES_GITEE_URL,
+                            ISSUES_URL,
+                        )
+                    },
                 )
             }
 

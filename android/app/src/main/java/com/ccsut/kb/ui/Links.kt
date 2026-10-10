@@ -15,19 +15,25 @@ const val OPEN_SOURCE_MIRROR_URL = "https://gitee.com/yisanspce/ccsut-kb"
 // ---------------- 社区 (关于页「加入社区」卡片) ----------------
 
 /** QQ 群号 (纯数字)。留空 = 关于页不显示 QQ 群入口。 */
-const val QQ_GROUP_UIN = ""
+const val QQ_GROUP_UIN = "1129626080"
 
 /** QQ 群名 (入口副标题展示) */
-const val QQ_GROUP_NAME = "长工课表通 · 交流群"
+const val QQ_GROUP_NAME = "长工课程通社区"
 
-/** QQ 频道邀请链接 (https://pd.qq.com/s/…)。留空 = 不显示 QQ 频道入口。 */
-const val QQ_CHANNEL_URL = ""
+/** QQ 频道邀请链接。留空 = 不显示 QQ 频道入口。 */
+const val QQ_CHANNEL_URL = "https://pd.qq.com/s/9pnez0un5?b=9"
 
-/** GitHub Discussions: 想法与问答 */
+/** QQ 频道名 (入口副标题展示) */
+const val QQ_CHANNEL_NAME = "长沙工业学院校园论坛"
+
+/** GitHub Discussions: 想法与问答 (Gitee 无对应物) */
 const val DISCUSSIONS_URL = "$OPEN_SOURCE_URL/discussions"
 
-/** Issue 分类选择页 (bug / 功能建议 / 课表数据 三套模板直达) */
+/** GitHub Issue 分类选择页 (bug / 功能建议 / 课表数据 三套模板直达) */
 const val ISSUES_URL = "$OPEN_SOURCE_URL/issues/new/choose"
+
+/** Gitee Issue 页 (国内直连; 无分类模板) */
+const val ISSUES_GITEE_URL = "$OPEN_SOURCE_MIRROR_URL/issues"
 
 /** 隐私政策 */
 const val PRIVACY_URL = "$OPEN_SOURCE_URL/blob/master/PRIVACY.md"
