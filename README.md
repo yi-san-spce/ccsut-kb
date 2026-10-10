@@ -77,7 +77,12 @@ cd ccsut-kb/android
 
 ## 社区与贡献
 
-发现问题、有想法，欢迎参与——**Issue 已按场景分好类，点对应的入口即可，不用自己纠结怎么写**：
+**加入我们**（反馈与交流的首选）：
+
+- 💬 **QQ 交流群**：`1129626080`（长工课程通社区）
+- 📺 **QQ 频道**：[长沙工业学院校园论坛](https://pd.qq.com/s/9pnez0un5?b=9)（公告 / 讨论 / 抢先体验）
+
+发现问题、有想法，也欢迎走 Issue——**已按场景分好类，点对应的入口即可，不用自己纠结怎么写**：
 
 - 🐛 [报告 Bug](https://github.com/yi-san-spce/ccsut-kb/issues/new?template=bug_report.yml)
 - 💡 [功能建议](https://github.com/yi-san-spce/ccsut-kb/issues/new?template=feature_request.yml)
