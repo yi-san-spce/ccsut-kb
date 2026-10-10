@@ -42,6 +42,8 @@ object ReminderScheduler {
     const val ACTION_DEV_TEST = "com.ccsut.kb.ACTION_DEV_TEST"
     const val ACTION_ALARM_RING = "com.ccsut.kb.ACTION_ALARM_RING"
     const val CHANNEL_ID = "class_reminder"
+    const val CHANNEL_ALARM = "alarm_ring"
+    const val NOTIF_ALARM_RING = 2002
 
     /** 响铃页的 extras: 直接带上课程信息, 页面不必重新推导 */
     const val EXTRA_KC = "kc"
@@ -77,25 +79,116 @@ object ReminderScheduler {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
     )
 
-    /** 闹钟链: 直启全屏响铃页 (USE_EXACT_ALARM 授予时豁免后台启动限制), extras 随重排更新 */
-    private fun alarmPi(ctx: Context, ev: Ev? = null): PendingIntent {
+    /**
+     * API 34+ 起, 经 PendingIntent 的后台 Activity 启动必须由创建方显式授权
+     * (targetSdk 35+/新平台强制 opt-in, 否则 BAL 拦截 —— 响铃页弹不出, 模拟器实测)。
+     * 只能设置 creator 侧模式 (sender 侧模式由创建方设置会被系统重置并抛异常, 实测);
+     * 用 ALLOW_ALWAYS: 响铃发生时 App 几乎必然不在前台(锁屏/被杀), 闹钟语义本就始终放行。
+     */
+    private fun balOpts(): android.os.Bundle? {
+        if (android.os.Build.VERSION.SDK_INT < 34) return null
+        val ao = android.app.ActivityOptions.makeBasic()
+            .setPendingIntentCreatorBackgroundActivityStartMode(
+                android.app.ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOW_ALWAYS,
+            )
+        return ao.toBundle()
+    }
+
+    /** 响铃页 PI: 全屏意图通知与尽力直启共用 (extras 随重排更新) */
+    private fun alarmActivityPi(ctx: Context, ev: Ev? = null): PendingIntent {
         val it = Intent(ctx, AlarmActivity::class.java).setAction(ACTION_ALARM_RING)
         if (ev != null) {
-            val b = ev.block!!
-            it.putExtra(EXTRA_KC, b.course.kc)
-                .putExtra(EXTRA_ROOM, b.rooms.ifBlank { b.course.room }.trim())
+            it.putExtra(EXTRA_KC, ev.block!!.course.kc)
+                .putExtra(EXTRA_ROOM, ev.block!!.rooms.ifBlank { ev.block!!.course.room }.trim())
                 .putExtra(EXTRA_START, ev.classStart?.format(DateTimeFormatter.ofPattern("H:mm")) ?: "")
                 .putExtra(EXTRA_LEAD, Prefs.reminderLead(ctx))
         }
         return PendingIntent.getActivity(
             ctx, 2, it,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            balOpts(),
+        )
+    }
+
+    /** 闹钟链操作 = 广播 (接收器无 BAL 限制, 由它再拉起全屏意图通知/直启) */
+    private fun alarmBroadcastPi(ctx: Context, ev: Ev?): PendingIntent {
+        val it = Intent(ctx, ReminderReceiver::class.java).setAction(ACTION_ALARM_RING)
+        if (ev != null) {
+            it.putExtra(EXTRA_KC, ev.block!!.course.kc)
+                .putExtra(EXTRA_ROOM, ev.block!!.rooms.ifBlank { ev.block!!.course.room }.trim())
+                .putExtra(EXTRA_START, ev.classStart?.format(DateTimeFormatter.ofPattern("H:mm")) ?: "")
+                .putExtra(EXTRA_LEAD, Prefs.reminderLead(ctx))
+        }
+        return PendingIntent.getBroadcast(
+            ctx, 4, it,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
     }
 
     private fun cancelAlarmChain(ctx: Context) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        am.cancel(alarmPi(ctx))
+        am.cancel(alarmBroadcastPi(ctx, null))
+    }
+
+    /** 系统闹钟图标点击后打开的界面 (AlarmClockInfo.showIntent 必须是 Activity) */
+    private fun showPi(ctx: Context): PendingIntent = PendingIntent.getActivity(
+        ctx, 5, Intent(ctx, MainActivity::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    /**
+     * 闹钟到点 (由 ReminderReceiver 调起): 双通道拉起响铃页
+     * ① 全屏意图通知 —— 平台保障路径, 锁屏/后台直接全屏 (USE_FULL_SCREEN_INTENT, 闹钟类应用默认授予)
+     * ② 尽力直启 —— BAL opt-in 生效的平台立即全屏, 不依赖通知权限
+     */
+    fun fireAlarmRing(ctx: Context, kc: String?, room: String?, start: String?, lead: Int?) {
+        runCatching {
+            ensureAlarmChannel(ctx)
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return
+            val title = if (lead != null && lead > 0) "还有 $lead 分钟上课" else "快上课啦"
+            val fullText = buildString {
+                if (!start.isNullOrBlank()) append("$start · ")
+                append(kc?.takeIf { it.isNotBlank() } ?: "该去上课啦")
+                if (!room.isNullOrBlank()) append(" · $room")
+            }
+            val notif = NotificationCompat.Builder(ctx, CHANNEL_ALARM)
+                .setSmallIcon(R.drawable.ic_stat_bell)
+                .setContentTitle(title)
+                .setContentText(fullText)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(fullText))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setOngoing(true)
+                .setAutoCancel(true)
+                .setFullScreenIntent(alarmActivityPi(ctx, null), true)
+                .build()
+            nm.notify(NOTIF_ALARM_RING, notif)
+            // 尽力直启: BAL opt-in 生效的平台立即弹全屏 (FSI 也可能被系统转成 heads-up, 双保险)
+            val intent = Intent(ctx, AlarmActivity::class.java).setAction(ACTION_ALARM_RING)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            if (kc != null) intent.putExtra(EXTRA_KC, kc)
+            if (room != null) intent.putExtra(EXTRA_ROOM, room)
+            if (start != null) intent.putExtra(EXTRA_START, start)
+            if (lead != null) intent.putExtra(EXTRA_LEAD, lead)
+            ctx.startActivity(intent, balOpts())
+            DebugLog.log("remind", "响铃通知已发 + 响铃页已尝试直启")
+        }.onFailure {
+            DebugLog.log("remind", "闹钟响铃链路失败: ${it.javaClass.simpleName}: ${it.message}")
+        }
+    }
+
+    fun ensureAlarmChannel(ctx: Context) {
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (nm.getNotificationChannel(CHANNEL_ALARM) != null) return
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ALARM, "闹钟响铃", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "闹钟模式的课前响铃"
+                enableVibration(true)
+                setBypassDnd(true)
+            },
+        )
     }
 
     fun cancel(ctx: Context) {
@@ -211,8 +304,9 @@ object ReminderScheduler {
         if (!alarmMode || millisAlarm == null) {
             cancelAlarmChain(ctx)
         } else {
-            // setAlarmClock: 系统闹钟语义 (状态栏闹钟图标, 厂商省电策略最尊重), 直启响铃页
-            am.setAlarmClock(AlarmManager.AlarmClockInfo(millisAlarm, pi(ctx)), alarmPi(ctx, bestAlarm))
+            // setAlarmClock: 系统闹钟语义 (状态栏闹钟图标, 厂商省电策略最尊重)
+            // 操作=广播 (无 BAL 限制), 由 ReminderReceiver 再拉起全屏意图通知/直启响铃页
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(millisAlarm, showPi(ctx)), alarmBroadcastPi(ctx, bestAlarm))
         }
         val next = listOfNotNull(millisNotify, millisAlarm).minOrNull() ?: 0L
         Prefs.setNextReminderAt(ctx, next)
@@ -237,26 +331,26 @@ object ReminderScheduler {
         DebugLog.log("remind", "测试闹钟已排: +${delayMs}ms")
     }
 
-    /** 开发者模式: 10 秒后直启响铃页, 走真实 闹钟→全屏响铃 链路 (不依赖通知权限) */
+    /** 开发者模式: 10 秒后全链路试响 (setAlarmClock→广播→全屏意图通知/直启, 与生产路径一致) */
     fun scheduleTestRing(ctx: Context, delayMs: Long = 10_000L) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        val it = Intent(ctx, AlarmActivity::class.java).setAction(ACTION_ALARM_RING)
+        val it = Intent(ctx, ReminderReceiver::class.java).setAction(ACTION_ALARM_RING)
             .putExtra(EXTRA_KC, "高等数学（测试）")
             .putExtra(EXTRA_ROOM, "7-南206")
             .putExtra(EXTRA_START, "8:20")
             .putExtra(EXTRA_LEAD, 15)
             .putExtra(EXTRA_TEST, true)
-        val pi = PendingIntent.getActivity(
+        val pi = PendingIntent.getBroadcast(
             ctx, 3, it,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val at = System.currentTimeMillis() + delayMs
         if (am.canScheduleExactAlarms()) {
-            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(at, showPi(ctx)), pi)
         } else {
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
         }
-        DebugLog.log("remind", "测试响铃已排: +${delayMs}ms")
+        DebugLog.log("remind", "测试响铃已排: +${delayMs}ms (setAlarmClock)")
     }
 
     /** 发一条测试通知; 无通知权限时返回 false */
@@ -380,6 +474,7 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         val fire = intent.action == ReminderScheduler.ACTION_FIRE
         val devTest = intent.action == ReminderScheduler.ACTION_DEV_TEST
+        val alarmRing = intent.action == ReminderScheduler.ACTION_ALARM_RING
         val result = goAsync()
         thread(name = "kb-reminder") {
             try {
@@ -391,6 +486,15 @@ class ReminderReceiver : BroadcastReceiver() {
                         if (!ok) DebugLog.log("remind", "测试闹钟到点, 但没有通知权限")
                     }
                 }
+                if (alarmRing) runCatching {
+                    ReminderScheduler.fireAlarmRing(
+                        ctx,
+                        intent.getStringExtra(ReminderScheduler.EXTRA_KC),
+                        intent.getStringExtra(ReminderScheduler.EXTRA_ROOM),
+                        intent.getStringExtra(ReminderScheduler.EXTRA_START),
+                        intent.getIntExtra(ReminderScheduler.EXTRA_LEAD, -1).takeIf { it > 0 },
+                    )
+                }.onFailure { DebugLog.log("remind", "ACTION_ALARM_RING 处理失败: ${it.message}") }
                 if (Prefs.reminderOn(ctx) || Prefs.afterClassOn(ctx) || Prefs.earlyOn(ctx))
                     runCatching { kotlinx.coroutines.runBlocking { ReminderScheduler.reschedule(ctx) } }
                 // 上下课边界顺带刷新小组件的「进行中 / 下节课」状态

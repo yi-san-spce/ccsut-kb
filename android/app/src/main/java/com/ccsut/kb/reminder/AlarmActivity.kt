@@ -60,6 +60,11 @@ class AlarmActivity : ComponentActivity() {
         // 锁屏之上点亮屏幕 (Activity 级 API, 替代已废弃的 WindowManager flag)
         setShowWhenLocked(true)
         setTurnScreenOn(true)
+        // 响铃页已上来, 托盘里的全屏意图通知就冗余了
+        runCatching {
+            getSystemService(android.app.NotificationManager::class.java)
+                ?.cancel(ReminderScheduler.NOTIF_ALARM_RING)
+        }
         startRinging()
         val lead = intent.getIntExtra(ReminderScheduler.EXTRA_LEAD, -1)
         setContent {

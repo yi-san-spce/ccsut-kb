@@ -11,6 +11,8 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- 提醒渠道开了震动但权限此前缺失, 震动静默失效 -->
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- 闹钟模式: 全屏意图通知, 闹钟类应用默认授予 (Android 14+ 按应用类别自动判) -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <application
         android:name=".KbApp"
