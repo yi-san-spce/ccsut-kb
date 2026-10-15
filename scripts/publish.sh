@@ -169,7 +169,8 @@ PYEOF
   BODY=$(mktemp)
   NOTES_MD="docs/release-notes/v$VNAME.md"
   if [ -f "$NOTES_MD" ]; then
-    sed -E 's|\]\((\.\./)+|](https://github.com/'"$GH_SLUG"'/blob/master/|g' "$NOTES_MD" > "$BODY"
+    # 剥离「长工课表通」大标题: --title 已是页面标题, 正文再带一级标题会重复展示 (与应用内提取的跳过规则一致)
+    sed -E '/^#{1,6} 长工课表通/d; s|\]\((\.\./)+|](https://github.com/'"$GH_SLUG"'/blob/master/|g' "$NOTES_MD" > "$BODY"
   else
     echo "长工课表通 $TAG" > "$BODY"
   fi
@@ -411,8 +412,8 @@ if [ -n "$APK_NAME" ] && [ -n "$VNAME" ]; then
     BODY=$(mktemp)
     NOTES="docs/release-notes/v$VNAME.md"
     if [ -f "$NOTES" ]; then
-      # 相对链接在 Release 页面会失效, 转为仓库绝对链接
-      sed -E 's|\]\((\.\./)+|](https://github.com/'"$GH_SLUG"'/blob/master/|g' "$NOTES" > "$BODY"
+      # 相对链接在 Release 页面会失效, 转为仓库绝对链接; 剥离「长工课表通」大标题, 避免与 Release 页标题重复
+      sed -E '/^#{1,6} 长工课表通/d; s|\]\((\.\./)+|](https://github.com/'"$GH_SLUG"'/blob/master/|g' "$NOTES" > "$BODY"
     else
       echo "长工课表通 $TAG" > "$BODY"
     fi
