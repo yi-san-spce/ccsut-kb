@@ -68,9 +68,16 @@ import kotlinx.coroutines.withContext
 /** 中国大陆手机号: 1 开头, 第二位 3-9, 共 11 位数字 */
 private val PHONE_REGEX = Regex("^1[3-9]\\d{9}$")
 
-/** 明显是想输手机号但格式不对: 纯数字、不少于 11 位且不符合手机号格式 (学号等短号或含字母输入不判定) */
-private fun looksLikeBadPhone(s: String): Boolean =
-    s.isNotEmpty() && s.length >= 11 && s.all(Char::isDigit) && !PHONE_REGEX.matches(s)
+/** 学号: 12 位纯数字 (入学年份开头, 如 202504030436) */
+private val STUDENT_ID_REGEX = Regex("^\\d{12}$")
+
+/** 账号校验通过: 手机号或学号任一格式匹配 */
+private fun isValidAccount(s: String): Boolean =
+    PHONE_REGEX.matches(s) || STUDENT_ID_REGEX.matches(s)
+
+/** 明显输错的账号: 输够位数 (手机号 11 位 / 学号 12 位) 但格式不匹配 */
+private fun looksLikeBadAccount(s: String): Boolean =
+    s.isNotEmpty() && s.length >= 11 && !isValidAccount(s)
 @Composable
 fun LoginScreen(
     initialAccount: String,
@@ -189,17 +196,17 @@ fun LoginScreen(
                 enabled = busy == null,
                 shape = RoundedCornerShape(14.dp),
                 trailingIcon = {
-                    // 即时校验: 绿勾 = 手机号格式正确; 红叉 = 明显输错的手机号 (学号等输入不判定)
+                    // 即时校验: 绿勾 = 账号 (手机号/学号) 格式通过; 红叉 = 输够位数仍不匹配
                     when {
-                        PHONE_REGEX.matches(account) -> Icon(
+                        isValidAccount(account) -> Icon(
                             Icons.Filled.CheckCircle,
-                            contentDescription = "手机号格式正确",
+                            contentDescription = "账号格式正确",
                             tint = Color(0xFF4CAF50),
                             modifier = Modifier.size(20.dp),
                         )
-                        looksLikeBadPhone(account) -> Icon(
+                        looksLikeBadAccount(account) -> Icon(
                             Icons.Filled.Cancel,
-                            contentDescription = "手机号格式不正确",
+                            contentDescription = "账号格式不正确",
                             tint = cs.error,
                             modifier = Modifier.size(20.dp),
                         )
@@ -262,7 +269,7 @@ fun LoginScreen(
                             }
                         }
                     },
-                    enabled = busy == null && countdown == 0 && !looksLikeBadPhone(account),
+                    enabled = busy == null && countdown == 0 && isValidAccount(account),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = cs.primary),
                     modifier = Modifier.height(56.dp),
@@ -285,8 +292,8 @@ fun LoginScreen(
                 onClick = {
                     val acct = account.trim()
                     val cd = code.trim()
-                    if (looksLikeBadPhone(acct)) {
-                        error = "手机号格式不正确，请检查后重试"
+                    if (!isValidAccount(acct)) {
+                        error = "账号格式不正确：手机号 11 位，学号 12 位数字"
                         return@Button
                     }
                     if (cd.length != 6) {
