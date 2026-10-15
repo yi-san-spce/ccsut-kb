@@ -48,6 +48,7 @@ import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Celebration
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Info
@@ -132,6 +133,7 @@ fun MoreSheet(
     onEarlyChange: (Boolean) -> Unit,
     onAlarmModeChange: (Boolean) -> Unit,
     onSelectClass: () -> Unit,
+    onResetClassEdits: () -> Unit,
     onOpenPersonalLogin: () -> Unit,
     onSetTimetable: (Boolean) -> Unit,
     onRefreshPersonal: () -> Unit,
@@ -223,6 +225,7 @@ fun MoreSheet(
         ) {
             // 登录态 = 教务姓名非空; 当前课表卡与账号卡两处共用同一判定
             val personalLoggedIn = personalName.isNotBlank()
+            var showResetConfirm by remember { mutableStateOf(false) }
 
             // ---- 当前课表 ----
             SectionHeader("当前课表")
@@ -253,6 +256,13 @@ fun MoreSheet(
                         trailing = { RowTrailing("换班") },
                         onClick = onSelectClass,
                     )
+                    SettingRow(
+                        icon = Icons.Rounded.RestartAlt,
+                        title = "重置课表修改",
+                        subtitle = "清除你在这份班级课表上的全部本地修改，恢复学校原课表",
+                        trailing = { RowTrailing("重置") },
+                        onClick = { showResetConfirm = true },
+                    )
                 } else {
                     SettingRow(
                         icon = Icons.Rounded.Person,
@@ -262,6 +272,24 @@ fun MoreSheet(
                         onClick = onRefreshPersonal,
                     )
                 }
+            }
+
+            // ---- 重置班级课表修改: 二次确认, 不可撤销 ----
+            if (showResetConfirm) {
+                AlertDialog(
+                    onDismissRequest = { showResetConfirm = false },
+                    title = { Text("重置课表修改") },
+                    text = { Text("将清除你在这份班级课表上的全部本地修改（移动、加课、删课、改色），恢复为学校原课表。此操作不可撤销，确定继续吗？") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showResetConfirm = false
+                            onResetClassEdits()
+                        }) { Text("重置", color = MaterialTheme.colorScheme.error) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showResetConfirm = false }) { Text("取消") }
+                    },
+                )
             }
 
             // ---- 个人课表: 账号生命周期 ----

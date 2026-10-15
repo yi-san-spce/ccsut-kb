@@ -356,6 +356,16 @@ object UserEdits {
         }
     }
 
+    /** 重置单个班级的全部本地修改 (其余班级与个人课表的记录不动) */
+    fun clearClass(ctx: Context, bjid: String) {
+        ensureLoaded(ctx)
+        synchronized(lock) {
+            if (edits.removeAll { it.bjid == bjid }) gen++
+        }
+        persist(ctx)
+        DebugLog.log("edit", "已重置班级 $bjid 的本地修改")
+    }
+
     /** 两组周次区间是否有交集 (整数区间首尾比较, O(1); 供拖拽/加课的落点占用判定共用) */
     fun rangesOverlap(a: List<IntRange>, b: List<IntRange>): Boolean =
         a.any { ra -> b.any { rb -> ra.first <= rb.last && rb.first <= ra.last } }

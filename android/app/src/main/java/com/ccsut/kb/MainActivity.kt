@@ -786,6 +786,13 @@ fun App() {
                     showMore = false
                     screenChoose = true
                 },
+                onResetClassEdits = {
+                    showMore = false
+                    clsId?.let { id ->
+                        applyEdit { UserEdits.clearClass(ctx, id) }
+                        Toast.makeText(ctx, "班级课表修改已重置，已恢复学校原课表", Toast.LENGTH_SHORT).show()
+                    }
+                },
                 onOpenPersonalLogin = {
                     showMore = false
                     showLogin = true
