@@ -102,39 +102,6 @@ class MergerTest {
         assertEquals(1, blocks.size)
         assertEquals("e1", blocks[0].course.editId)
         assertEquals(2, blocks[0].span)
-        assertEquals(1, blocks[0].editSpan)
-    }
-
-    @Test
-    fun `editSpan只数同id的行`() {
-        val blocks = Merger.blocksOf(
-            listOf(
-                course(jc = 1, editId = null),
-                course(jc = 2, editId = "e1"),
-                course(jc = 3, editId = "e1"),
-            ),
-            week = 3,
-        )
-        assertEquals(1, blocks.size)
-        assertEquals(3, blocks[0].span)
-        assertEquals(2, blocks[0].editSpan)
-    }
-
-    @Test
-    fun `块里混入其它修改记录时editSpan小于span`() {
-        // 块头是 e1 (首个 edited 行), e2 的行不计入 editSpan —— 还原只作用于 e1 那一段
-        val blocks = Merger.blocksOf(
-            listOf(
-                course(jc = 1, editId = null),
-                course(jc = 2, editId = "e1"),
-                course(jc = 3, editId = "e2"),
-            ),
-            week = 3,
-        )
-        assertEquals(1, blocks.size)
-        assertEquals("e1", blocks[0].course.editId)
-        assertEquals(3, blocks[0].span)
-        assertEquals(1, blocks[0].editSpan)
     }
 
     @Test

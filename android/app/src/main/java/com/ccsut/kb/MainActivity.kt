@@ -521,10 +521,6 @@ fun App() {
                         onOpenMore = { showMore = true },
                         onCourseClick = { detailCourse = it },
                         onAddAt = { d, j, w -> addAt = Triple(d, j, w) },
-                        onMoveBlock = { b, d, j, w ->
-                            val id = editTarget
-                            if (id != null) applyEdit { UserEdits.moveBlock(ctx, id, b, d, j, w) }
-                        },
                     )
                 }
             }
@@ -563,12 +559,19 @@ fun App() {
             )
         }
 
-        // 时段占用判定: 同天 + 节次重叠 + 周次有交集 → 拒绝 (单双周同槽合法放行); selfEditId 排除自身
-        val slotConflict: (UserEdits.Form, String?) -> Boolean = { f, selfEditId ->
+        // 时段占用判定: 同天 + 节次重叠 + 周次有交集 → 拒绝 (单双周同槽合法放行)。
+        // self 块自己的行不算冲突: 保存会把它们整体替换, 不排除的话对学校原始卡
+        // 的任何编辑(改节数/改名/改时间)都会被自己的行误判成「该时段已有课程」拦下;
+        // 新建(add)没有自身行, 传 null。
+        // 生效视图全部是逐节行(学校数据每节一行、自建课展开后 djs=1), 单行占用宽度恒为 1 节 ——
+        // 不能用 c.djs: 学校数据里它是大节序号(jc5→3, jc7→4), 当连堂节数用会把占用范围虚胖一大截
+        val slotConflict: (UserEdits.Form, Block?) -> Boolean = { f, self ->
             cls?.courses.orEmpty().any { c ->
-                (c.editId != null && c.editId == selfEditId) ||
-                    c.day == f.day &&
-                    c.jc < f.startJc + f.span && f.startJc < c.jc + c.djs &&
+                val ownRow = self != null &&
+                    c.kc == self.course.kc && c.fx == self.course.fx && c.zc == self.course.zc &&
+                    c.day == self.course.day && c.jc in self.startJc..(self.startJc + self.span - 1)
+                !ownRow && c.day == f.day &&
+                    c.jc < f.startJc + f.span && f.startJc < c.jc + 1 &&
                     UserEdits.rangesOverlap(f.ranges, c.ranges)
             }
         }
@@ -615,7 +618,7 @@ fun App() {
                 ),
                 showDelete = true,
                 onSave = { f ->
-                    if (slotConflict(f, b.course.editId)) {
+                    if (slotConflict(f, b)) {
                         Toast.makeText(ctx, "该时段已有课程（周次有重叠），换天/节次或周次试试", Toast.LENGTH_SHORT).show()
                         return@CourseFormSheet
                     }

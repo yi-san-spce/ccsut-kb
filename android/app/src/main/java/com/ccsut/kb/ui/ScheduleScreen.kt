@@ -15,8 +15,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -52,7 +50,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
@@ -68,8 +65,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -80,22 +75,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -133,18 +124,10 @@ import java.io.File
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
-import kotlin.math.roundToInt
 
 private val BREAK_H = 22.dp      // 大课间(午休/晚饭)分隔带高度
 private val EVE_H = 88.dp        // 晚上大节槽位高度 (整周无晚课时收窄为细条, 见 WeekGrid.eveH)
 private val LEFT_W = 42.dp       // 左侧时间轴: 10sp 刻度可读的最小宽度
-
-/** 拖拽药片的抬升缩放: graphicsLayer 在 pointerInput 外层, positionChange 是缩放空间值,
- *  累计位移必须按它还原成屏幕位移, 否则药片永远比手指慢 4.8% */
-private const val PILL_SCALE = 1.05f
-
-/** 拖拽块的生效节数: 本地编辑会话可能只占融合连堂的一部分(Weeks.editSpan), 未指定(0/越界)按原始 span 处理 */
-private fun Block.effSpan(): Int = if (editSpan in 1..span) editSpan else span
 
 /** 课名断行增强: 括号前/后给断行机会 (ZWSP), 括号组内部用 WORD JOINER 禁断, 连字符后允许断行;
  *  「创业基础（创新思维）」稳定断成 创业基础 / （创新思维） 不出碎行 */
@@ -172,7 +155,7 @@ private fun courseDisplayName(kc: String): String {
     return sb.toString().replace("-", "-\u200B")
 }
 
-/** 课程块文字: 块本体与拖拽幽灵共用同一份排版, 内边距 6dp 给小字留出呼吸空间 */
+/** 课程块文字: 块本体与详情预览共用同一份排版, 内边距 6dp 给小字留出呼吸空间 */
 @Composable
 private fun BlockContent(name: String, room: String, onColor: Color, modifier: Modifier = Modifier) {
     Column(modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
@@ -192,43 +175,6 @@ private fun BlockContent(name: String, room: String, onColor: Color, modifier: M
             )
         }
     }
-}
-
-/**
- * 长按拖拽换位的会话状态 (ScheduleScreen 级, 全周页共享)。raw: 拖拽累计位移, anchorDay: 锚定列 (初始 = 课程原 day);
- * settleStart/targetOffset: 松手帧药片的最终视觉偏移, 两者相等 → settle 协程 snapTo 后 animateTo 瞬时完成;
- * pendingMove: settle 结束后才提交 onMoveBlock, 提交瞬间数据位置变化与视觉归零同帧重合, 消除松手帧跳。
- */
-/** 一次待提交的拖拽移动: week=拖拽起始周, 数据层只移动该周的这节课 */
-private data class PendingMove(val block: Block, val day: Int, val jc: Int, val week: Int)
-
-private class DragHost {
-    var block by mutableStateOf<Block?>(null)
-    var dragWeek by mutableIntStateOf(0)
-    var raw by mutableStateOf(Offset.Zero)
-    var anchorDay by mutableIntStateOf(0)
-    var targetDay by mutableIntStateOf(0)
-    var targetJc by mutableIntStateOf(0)
-    var settling by mutableStateOf(false)
-    var targetOffset by mutableStateOf(Offset.Zero)
-    var pendingMove by mutableStateOf<PendingMove?>(null)
-    // 松手首帧: dragEnd 在手势线程同步算好最终视觉偏移, 协程 snapTo 前的重组帧不会闪回原位
-    var settleStart by mutableStateOf(Offset.Zero)
-    var settleStarted by mutableStateOf(false)
-    // 提交钉住: 回弹动画结束后数据还没落地(异步 IO), 视觉钉在新槽位等 dataTick 同帧换块,
-    // 消除「旧块闪回原位一帧再跳到新位」的抽搐
-    var pinning by mutableStateOf(false)
-    var pinnedOffset by mutableStateOf(Offset.Zero)
-    // 最近一次手势活动时间 (System.nanoTime), 供看门狗判断手势协程是否已被翻页连带杀死
-    var lastActiveAt: Long = 0L
-    // 会话拆分拖拽 (混合融合块): 按抓握位置选中某段 session 拎起, 其余段原地留置
-    var splitSource by mutableStateOf<Block?>(null)   // 非 null = 拆分拖拽中, 值 = 被拆的原融合卡
-    var sessionBlock by mutableStateOf<Block?>(null)  // 被拎起的 session 合成块 (提交移动用它)
-    // 本次拖拽的起始周: 拖拽锁定在当前周页内, 落点只可能是本周的格子 (跨周页不进入拖拽会话)
-    var originWeek by mutableIntStateOf(0)
-    // 每次提交移动(onMoveBlock)自增: 钉住解锁的兜底信号 —— 同内容提交(如拖回原状)时
-    // cls.courses 内容不变, 数据帧永远不来, 靠它 + 短延时兜底解锁翻页
-    var commitGen by mutableIntStateOf(0)
 }
 
 /** 大节模型: 槽位 k 覆盖 jc (2k+1, 2k+2) */
@@ -272,10 +218,7 @@ fun ScheduleScreen(
     onOpenMore: () -> Unit,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int, Int) -> Unit,   // (day, jc, week) —— week 供加课表单默认勾选当前周
-    onMoveBlock: (Block, Int, Int, Int) -> Unit,
 ) {
-    // 长按拖拽会话: 期间禁用周翻页, 避免父级抢手势
-    val drag = remember { DragHost() }
     // 时间旅行: dbgOffset 变化时重取语义今天 (KbClock, 只平移日期);
     // 之后由下方 30 秒 ticker 自动跟进真实日期, 跨零点/跨周后顶栏日期、今日列高亮、今日横条不会停在昨天
     var today by remember(dbgOffset) { mutableStateOf(KbClock.today()) }
@@ -505,9 +448,6 @@ fun ScheduleScreen(
             state = pagerState,
             modifier = Modifier.weight(1f),
             pageSpacing = 8.dp,
-            userScrollEnabled = drag.block == null,
-            // 拖拽期间锁定当前周页: 手势协程住在当前页的课程块里,
-            // 页面被销毁 = 手势死亡 = 拖拽失焦卡死 (看门狗只是兜底)
             beyondViewportPageCount = 1,
         ) { page ->
             WeekGrid(
@@ -519,11 +459,9 @@ fun ScheduleScreen(
                 nowMin = nowMin,
                 today = today,
                 colorMap = colorMap,
-                drag = drag,
                 pagerState = pagerState,
                 onCourseClick = onCourseClick,
                 onAddAt = { d, j -> onAddAt(d, j, page + 1) },
-                onMoveBlock = onMoveBlock,
             )
         }
         }
@@ -758,15 +696,12 @@ private fun WeekGrid(
     hasBg: Boolean,   // 自定义背景生效中: 课程块 0.97 微透呼应壁纸
     today: LocalDate,
     colorMap: Map<String, Int>,
-    drag: DragHost,
     pagerState: PagerState,   // 组合期不读: 落场判定由 DayColumn 在协程里读 settledPage
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int) -> Unit,
-    onMoveBlock: (Block, Int, Int, Int) -> Unit,   // (block, day, jc, week) —— week=拖拽起始周
 ) {
     val todayDay = today.dayOfWeek.value
     val isCurrentWeek = week == initialWeek
-    val ctx = LocalContext.current
     val model = remember(dataset.periods) { SlotModel(dataset.periods) }
     val blocksByDay = remember(cls.courses, week) {
         // 色板按全学期课程排序分配, 不同课程必不同色 (小组件绑同一份 ClassCache 排序)
@@ -846,230 +781,8 @@ private fun WeekGrid(
             }
         }
 
-        // ---- 长按拖拽换位: 锚定列吸附 + 松手即落位、settle 结束才提交移动 (无帧跳) ----
-        val density = LocalDensity.current
-        val haptic = LocalHapticFeedback.current
-        val settleAnim = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
-        // 单列宽度(px): 跨列位移换算与吸附计算共用
-        val colW = with(density) { ((maxWidth - LEFT_W) / 7).toPx() }
-        // 单列宽(Dp): 跨周幽灵药片的宽度用 (与 DayColumn 列内块等宽, 减左右各 1dp)
-        val colWidthDp = (maxWidth - LEFT_W) / 7 - 2.dp
-        // 松手即落位: settleStart 由 dragEnd 同步定为最终视觉位置(落位偏移或零),
-        // 协程 snapTo 后 animateTo(同值) 瞬时完成, 药片直接出现在最终位置。
-        // 只在拖拽周所在页执行, 其余页的组合里直接返回, 避免重复动画/重复提交。
-        LaunchedEffect(drag.settling) {
-            if (!drag.settling || week != drag.dragWeek) return@LaunchedEffect
-            settleAnim.snapTo(drag.settleStart)
-            drag.settleStarted = true
-            settleAnim.animateTo(
-                drag.targetOffset,
-                spring(
-                    dampingRatio = 1f,   // 临界阻尼: 平滑滑入无过冲 (欠阻尼会冲过头再晃回来 = 抽搐)
-                    stiffness = Spring.StiffnessMediumLow,
-                    visibilityThreshold = Offset(1f, 1f),
-                ),
-            )
-            drag.settleStarted = false
-            val pm = drag.pendingMove
-            drag.settling = false
-            if (pm == null) {
-                drag.block = null
-                drag.raw = Offset.Zero
-                drag.splitSource = null
-                drag.sessionBlock = null
-                drag.originWeek = 0
-                drag.pendingMove = null
-            } else {
-                // 钉住视觉在新槽位, 先提交移动; 新数据(cls.courses)落地那一帧,
-                // 旧 Block 实例被新课表替换, 视觉无缝交接
-                drag.pinning = true
-                drag.pinnedOffset = drag.targetOffset
-                onMoveBlock(pm.block, pm.day, pm.jc, pm.week)
-                // 兜底解锁信号: 同内容提交(拖回原状/还原)时数据帧不来, 见下方 commitGen effect
-                drag.commitGen++
-            }
-        }
-        // 钉住解除(主路径): 新数据落地(任一课表数据变化)即清拖拽会话, 解锁翻页
-        LaunchedEffect(cls.courses) {
-            if (drag.pinning) {
-                drag.pinning = false
-                drag.block = null
-                drag.raw = Offset.Zero
-                drag.splitSource = null
-                drag.sessionBlock = null
-                drag.originWeek = 0
-                drag.pendingMove = null
-            }
-        }
-        // 钉住解除(兜底): 移动被提交但数据内容不变(cls.courses 不触发重组)时,
-        // 数据帧永远等不来, 翻页会锁死到看门狗 6 秒强拆 —— commitGen + 短延时兜底。
-        // 仅在「数据不变」场景走到延时, 此时钉住的视觉位置就是数据位置, 释放无可见跳变。
-        LaunchedEffect(drag.commitGen) {
-            if (drag.commitGen == 0) return@LaunchedEffect
-            delay(200)
-            if (drag.pinning) {
-                drag.pinning = false
-                drag.block = null
-                drag.raw = Offset.Zero
-                drag.splitSource = null
-                drag.sessionBlock = null
-                drag.originWeek = 0
-                drag.pendingMove = null
-            }
-        }
-        // 兜底看门狗: 若手势协程被意外取消, onDragEnd/onDragCancel 都不会再回调,
-        // 拖拽会话会卡死 (pager 一直禁翻页)。长时间无手势进展时强制复位。
-        LaunchedEffect(drag.block, drag.dragWeek) {
-            if (drag.block == null || week != drag.dragWeek) return@LaunchedEffect
-            while (true) {
-                delay(2000)
-                if (drag.block == null || drag.settling) break
-                if (System.nanoTime() - drag.lastActiveAt > 6_000_000_000L) {
-                    drag.pinning = false
-                    drag.splitSource = null
-                    drag.sessionBlock = null
-                    drag.targetOffset = Offset.Zero
-                    drag.pendingMove = null
-                    drag.settling = true   // 走回弹动画归位, 数据不动
-                    break
-                }
-            }
-        }
-        // 药片拖拽/回弹期间叠加的位移 (布局期读取, 不触发重组):
-        // 视觉 = raw + (anchorDay - 课程原day) × 列宽 (拖拽锁定在本周页内)
-        val visualOf: (Block) -> Offset = { b ->
-            val d = drag.block
-            if (d == null || b != d || week != drag.dragWeek) Offset.Zero
-            else if (drag.pinning) drag.pinnedOffset
-            else if (drag.settling) if (drag.settleStarted) settleAnim.value else drag.settleStart
-            else Offset(
-                drag.raw.x + (drag.anchorDay - b.course.day) * colW,
-                drag.raw.y,
-            )
-        }
-        // 抬升程度 0..1: 拖拽中 1, 松手即落位/钉住等待提交均视为已落地 → 0
-        val liftOf: (Block) -> Float = { b ->
-            val d = drag.block
-            if (d != null && b == d && week == drag.dragWeek) {
-                if (drag.pinning || drag.settling) 0f else 1f
-            } else 0f
-        }
-        val dragStart: (Block, Offset) -> Unit = dragStart@{ b, grab ->
-            // 已有拖拽进行中(如第二根手指误触)不接受新会话
-            if (drag.block == null) {
-                drag.anchorDay = b.course.day
-                drag.raw = Offset.Zero
-                drag.settling = false
-                drag.pinning = false
-                drag.pendingMove = null
-                drag.targetDay = b.course.day
-                drag.targetJc = b.startJc
-                drag.dragWeek = week
-                drag.originWeek = week   // 拖拽锁定本周, 起始周即当前周页
-                // 会话拆分: 混合融合块 (自建课与学校课贴在一起) 按抓握位置选中一段 session 拎起,
-                // 其余段原地留置 —— 按上段动上段, 按下段动下段; 单 session 块整卡一起动
-                if (b.sessions.size > 1) {
-                    val picked = with(density) {
-                        val grabPx = grab.y
-                        b.sessions.firstOrNull { r ->
-                            grabPx >= yOfJc(r.startJc).toPx() && grabPx < yBottomJc(r.startJc + r.span - 1).toPx()
-                        } ?: b.sessions.last()
-                    }
-                    if (picked.span < b.span) {
-                        drag.splitSource = b
-                        drag.sessionBlock = Block(picked.course, picked.startJc, picked.span, editSpan = picked.span)
-                        drag.targetJc = picked.startJc
-                    }
-                }
-                drag.block = b
-                drag.lastActiveAt = System.nanoTime()
-                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            }
-        }
-        val dragMove: (Block, Offset) -> Unit = dragMove@{ b, amt ->
-            // 会话互斥: 非本会话块的手指事件 (第二根手指长按到另一门课) 一律忽略
-            if (drag.block == null || b != drag.block) return@dragMove
-            // amt 在 1.05 缩放空间里, 换算回屏幕位移再累计 (见 PILL_SCALE 注释)
-            drag.raw += amt * PILL_SCALE
-            // 拖拽节数: 会话拆分时用被拎起段的节数, 否则用生效节数(编辑会话可能只占连堂一部分)
-            val span = drag.sessionBlock?.span ?: drag.block?.effSpan() ?: b.span
-            // 列吸附: 锚定列 + 累计位移换算成 0-based 连续列, 四舍五入得目标天
-            val col = (drag.anchorDay - 1) + drag.raw.x / colW
-            drag.targetDay = (col.roundToInt() + 1).coerceIn(1, 7)
-            with(density) {
-                val fingerY = yOfJc(b.startJc) + drag.raw.y.toDp()
-                var k = 0
-                for (i in 0 until model.slots) if (yTop[i] <= fingerY) k = i
-                // 骑缝杜绝: 多节卡必须对齐大节起点, 不再出现骑在两节课之间或午休中轴线上的落点;
-                // 单节卡不存在骑缝, 保留大节上下半格的自由
-                drag.targetJc = if (span <= 1) {
-                    val half = ((fingerY - yTop[k]) / (slotH(k) / 2)).toInt().coerceIn(0, 1)
-                    (2 * k + 1 + half).coerceIn(1, dataset.periods.size - span + 1)
-                } else {
-                    model.jcRange[k].first.coerceIn(1, dataset.periods.size - span + 1)
-                }
-            }
-            // 拖拽锁定在当前周页内: 不做边缘翻周, 松手落点只可能是本周的格子
-            drag.lastActiveAt = System.nanoTime()
-        }
-        val dragEnd: (Block) -> Unit = dragEnd@{ b ->
-            // 会话互斥: 非本会话块的抬手一律忽略
-            if (drag.block == null || b != drag.block) return@dragEnd
-            // 防御: 落点必须在起始周页内 (拖拽已锁定本周, 此处恒为 false)
-            val navigating = drag.dragWeek != drag.originWeek
-            // 会话拆分: 拎起的是混合融合块里的某一段, 移动判定/占用检测/提交都以该段为准
-            val sb = drag.sessionBlock
-            var moved = !navigating && if (sb != null) {
-                drag.targetDay != sb.course.day || drag.targetJc != sb.startJc
-            } else {
-                drag.targetDay != b.course.day || drag.targetJc != b.startJc
-            }
-            // 落点占用检测: 当前周视图里节次区间重叠即绝对冲突 (两块卡片绝对定位完全重叠,
-            // 下层不可见不可点)。拆分拖拽时, 同卡里被留下的 session 段也算占用
-            if (moved) {
-                val mSpan = sb?.span ?: b.span
-                val occupied = blocksByDay[drag.targetDay].orEmpty().any { o ->
-                    o != b && o.startJc < drag.targetJc + mSpan && drag.targetJc < o.startJc + o.span
-                } || (sb != null && drag.targetDay == b.course.day &&
-                    b.sessions.filter { it.startJc != sb.startJc }.any { r ->
-                        r.startJc < drag.targetJc + mSpan && drag.targetJc < r.startJc + r.span
-                    })
-                if (occupied) {
-                    android.widget.Toast.makeText(
-                        ctx, "该时段已有课程，换个位置试试", android.widget.Toast.LENGTH_SHORT,
-                    ).show()
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    moved = false
-                }
-            }
-            // 松手帧的最终视觉偏移 (= settleStart = targetOffset): 落位取目标槽位偏移,
-            // 否则取零 —— 协程 snapTo 后 animateTo 同值瞬时完成, 药片直接出现在最终位置不滑行。
-            // 拆分拖拽的药片锚在被拎起段的起点 (渲染层同锚), 归位/落位都相对它计算
-            val anchorTop = (sb ?: b).startJc
-            val target = with(density) {
-                Offset(
-                    (drag.targetDay - b.course.day) * colW,
-                    (yOfJc(drag.targetJc) - yOfJc(anchorTop)).toPx(),
-                )
-            }
-            drag.settleStart = if (moved) target else Offset.Zero
-            drag.targetOffset = drag.settleStart
-            drag.pendingMove = if (moved) PendingMove(sb ?: b, drag.targetDay, drag.targetJc, drag.originWeek) else null
-            drag.settling = true
-            if (moved) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        }
-        val dragCancel: () -> Unit = {
-            val d = drag.block
-            drag.settleStart = if (d != null) {
-                Offset(drag.raw.x + (drag.anchorDay - d.course.day) * colW, drag.raw.y)
-            } else Offset.Zero
-            drag.targetOffset = Offset.Zero
-            drag.pendingMove = null
-            drag.settling = true
-        }
-
         val weekHasCourse = remember(blocksByDay) { blocksByDay.values.any { it.isNotEmpty() } }
-        Box(Modifier.fillMaxSize().verticalScroll(vScroll, enabled = drag.block == null)) {
+        Box(Modifier.fillMaxSize().verticalScroll(vScroll)) {
             Box(Modifier.fillMaxWidth().height(totalH)) {
                 // 空周表态: 假期/调休周整周无课时给明确文案
                 if (!weekHasCourse) {
@@ -1167,7 +880,6 @@ private fun WeekGrid(
                             DayColumn(
                                 day = day,
                                 isToday = day == todayDay && isCurrentWeek,
-                                showTarget = week == drag.originWeek,
                                 model = model,
                                 yTop = yTop,
                                 slotH = slotH,
@@ -1175,13 +887,6 @@ private fun WeekGrid(
                                 yBottomJc = yBottomJc,
                                 blocks = blocksByDay[day].orEmpty(),
                                 colorMap = colorMap,
-                                drag = drag,
-                                visualOf = visualOf,
-                                liftOf = liftOf,
-                                onDragStart = dragStart,
-                                onDragMove = dragMove,
-                                onDragEnd = dragEnd,
-                                onDragCancel = dragCancel,
                                 onCourseClick = onCourseClick,
                                 onAddAt = onAddAt,
                                 blockAlpha = if (hasBg) 0.97f else 1f,
@@ -1255,70 +960,6 @@ private fun WeekGrid(
                         }
                     }
                 }
-                // 跨周药片(幽灵): 翻周后块本体仍画在另一周页面, 本页按同一套视觉公式渲染幽灵
-                // (跟随 raw/回弹/钉住), 与块本体互斥, 翻回原周自动切回;
-                // landed 门控: 钉住期间新块可能已异步落地本页, 再画幽灵就是一帧双影, 检测到落位新块即停画。
-                val dragBlock = drag.block
-                // span 用 effSpan 比对: 混合融合块(kind=0 自建+学校同 key)提交只搬自建 session,
-                // 落地块的 span == effSpan 而不是整块 span, 按整块比会漏判 → 落地帧双影
-                val landed = dragBlock != null && drag.pinning &&
-                    (blocksByDay[drag.targetDay]?.any {
-                        it.course.kc == dragBlock.course.kc && it.course.day == drag.targetDay &&
-                            it.startJc == drag.targetJc && it.span == dragBlock.effSpan()
-                    } == true)
-                val ghostBlock = dragBlock?.takeIf {
-                    week == drag.dragWeek && !landed &&
-                        blocksByDay.values.none { list -> list.any { b -> b === dragBlock } }
-                }
-                ghostBlock?.let { gb ->
-                    val gcs = MaterialTheme.colorScheme
-                    val gDark = CourseColors.isDark(gcs)
-                    val seed = CourseColors.seedOf(gb.course.kc, gb.course.fx)
-                    val (container, onContainer) = CourseColors.pair(gcs, seed, colorMap[seed])
-                    val gShape = RoundedCornerShape(12.dp)
-                    val gh = yBottomJc(gb.startJc + gb.span - 1) - yOfJc(gb.startJc) - 4.dp
-                    Box(
-                        Modifier
-                            .graphicsLayer {
-                                scaleX = PILL_SCALE
-                                scaleY = PILL_SCALE
-                                shadowElevation = 6f
-                            }
-                            .offset {
-                                val v = visualOf(gb)
-                                IntOffset(
-                                    ((gb.course.day - 1) * colW + v.x).roundToInt(),
-                                    ((yOfJc(gb.startJc) + 2.dp).toPx() + v.y).roundToInt(),
-                                )
-                            }
-                            .width(colWidthDp)
-                            .height(gh)
-                            .shadow(if (gDark) 3.dp else 4.dp, gShape)
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        lerp(container, Color.White, if (gDark) 0.08f else 0.12f)
-                                            .copy(alpha = if (hasBg) 0.97f else 1f),
-                                        container.copy(alpha = if (hasBg) 0.97f else 1f),
-                                    ),
-                                ),
-                                gShape,
-                            )
-                            // 玻璃贴片高光: 色块从壁纸「立」起来的关键一笔
-                            .border(
-                                0.8.dp,
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color.White.copy(alpha = if (gDark) 0.16f else 0.34f),
-                                        Color.White.copy(alpha = if (gDark) 0.04f else 0.08f),
-                                    ),
-                                ),
-                                gShape,
-                            ),
-                    ) {
-                        BlockContent(gb.course.kc, gb.course.room, onContainer)
-                    }
-                }
             }
         }
     }
@@ -1369,7 +1010,6 @@ private fun DayHeader(day: Int, date: String, isToday: Boolean, modifier: Modifi
 private fun DayColumn(
     day: Int,
     isToday: Boolean,
-    showTarget: Boolean,   // 是否渲染拖拽吸附高亮: 只在起始周页(跨周只看不放, 其它周不画落点)
     model: SlotModel,
     yTop: List<Dp>,
     slotH: (Int) -> Dp,
@@ -1377,13 +1017,6 @@ private fun DayColumn(
     yBottomJc: (Int) -> Dp,
     blocks: List<Block>,
     colorMap: Map<String, Int>,
-    drag: DragHost,
-    visualOf: (Block) -> Offset,
-    liftOf: (Block) -> Float,
-    onDragStart: (Block, Offset) -> Unit,  // Offset = 抓握点在块内的位置, 会话拆分按纵坐标选段
-    onDragMove: (Block, Offset) -> Unit,
-    onDragEnd: (Block) -> Unit,
-    onDragCancel: () -> Unit,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int) -> Unit,
     blockAlpha: Float = 1f,   // 有自定义背景时 0.97 微透, 色块透出一点壁纸呼吸感
@@ -1394,29 +1027,28 @@ private fun DayColumn(
     val cs = MaterialTheme.colorScheme
     val dark = CourseColors.isDark(cs)
     // 落场: 本页以「当前已落定页」身份首次组合时逐列淡入 (App 打开首屏, 周一先到,
-    // 每列错 25ms, 200ms 完成; 拖拽中不播放)。
+    // 每列错 25ms, 200ms 完成)。
     // 翻周滑入的页在滑动全程已可见, 落定后再整页从 0 重放淡入只会像闪一下;
     // 旧实现把 settledPage+1 当组合期键传进每一页, 每次落定把 3 个已组合页全部拉进重组 —— 翻周卡顿主源之一
     val staggerAlpha = remember { Animatable(1f) }
     LaunchedEffect(Unit) {
-        if (pagerState.settledPage + 1 != week || drag.block != null) return@LaunchedEffect
+        if (pagerState.settledPage + 1 != week) return@LaunchedEffect
         staggerAlpha.snapTo(0f)
         delay((day - 1) * 25L)
         staggerAlpha.animateTo(1f, tween(200))
     }
     Box(modifier.padding(horizontal = 1.dp)) {
-        // 今天列高亮: 平色半透明条, 止于最后一节有课处;
-        // 无课日不画条, 只靠表头胶囊标记
+        // 今天列高亮: 半透明蓝色面板铺满整列, 标识「今天这一列」。
+        // 必须铺满全列高度 —— 旧实现只铺到最后一节课底部, 晚上部分露底,
+        // 看起来像面板没盖完/被裁掉
         if (isToday) {
-            blocks.maxOfOrNull { yBottomJc(it.startJc + it.span - 1) }?.let { lastBottom ->
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(lastBottom + 6.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(cs.primary.copy(alpha = 0.10f)),
-                )
-            }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(cs.primary.copy(alpha = 0.10f)),
+            )
         }
         // 大节空槽框线 (点击空白格 = 在此添加课程)
         for (k in 0 until model.slots) {
@@ -1448,29 +1080,6 @@ private fun DayColumn(
                     .semantics {
                         contentDescription = "${Weeks.cnDay(day)}第${model.jcRange[k].first}节，双击添加课程"
                     },
-            )
-        }
-        // 拖拽落点吸附预览: 目标位置实时高亮 —— 从拖拽开始一直亮到数据落地随块一起消失,
-        // 期间 (落位/钉住) 绝不能隐藏, 否则放置瞬间高亮"灭→亮→灭"两连闪 = 用户看到的闪烁抽搐。
-        // 只在起始周页渲染 (showTarget), 高亮节数用生效节数(编辑会话可能只占连堂一部分)
-        val dSpan = drag.sessionBlock?.span ?: drag.block?.effSpan()
-        if (dSpan != null && showTarget && drag.targetDay == day) {
-            val ty = yOfJc(drag.targetJc)
-            val th = yBottomJc(drag.targetJc + dSpan - 1) - ty - 4.dp
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .offset(y = ty + 2.dp)
-                    .height(th)
-                    .background(
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
-                        RoundedCornerShape(12.dp),
-                    )
-                    .border(
-                        2.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                        RoundedCornerShape(12.dp),
-                    ),
             )
         }
         // 课程块(按真实小节定位): 渐变 + 柔影, 顶部微微提亮出光泽;
@@ -1505,55 +1114,14 @@ private fun DayColumn(
                     ),
                     shape,
                 )
-            // 会话拆分: 混合融合块被长按且按握位置选中了某一段 session
-            val split = drag.splitSource == b && drag.sessionBlock != null
-            // 按压缩放 + 轻震: 点按有「捏了一下」的实感; 拖拽由 liftOf 接管缩放, 松开回弹
-            val blockHaptic = LocalHapticFeedback.current
-            val pressIsrc = remember { MutableInteractionSource() }
-            val pressed by pressIsrc.collectIsPressedAsState()
-            LaunchedEffect(pressed) {
-                if (pressed) blockHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            }
-            val pressScale by animateFloatAsState(
-                targetValue = if (pressed) 0.97f else 1f,
-                animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f),
-                label = "blockPress",
-            )
-            // 外壳恒挂 pointerInput: 手势协程必须随原卡存活 (拆分渲染的碎片画在这层里面)
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .graphicsLayer {
-                        if (!split) {
-                            val p = liftOf(b)
-                            if (p > 0.01f) {
-                                val sc = 1f + (PILL_SCALE - 1f) * p
-                                scaleX = sc * pressScale
-                                scaleY = sc * pressScale
-                                shadowElevation = 6f * p
-                            } else {
-                                scaleX = pressScale
-                                scaleY = pressScale
-                            }
-                        }
-                    }
-                    .offset {
-                        if (!split) {
-                            val v = visualOf(b)
-                            IntOffset(
-                                v.x.roundToInt(),
-                                (top + 2.dp).roundToPx() + v.y.roundToInt(),
-                            )
-                        } else {
-                            IntOffset(0, (top + 2.dp).roundToPx())
-                        }
-                    }
+                    .offset { IntOffset(0, (top + 2.dp).roundToPx()) }
                     .height(h)
                     .then(
-                        if (!split) cardBg
+                        cardBg
                             .clip(shape).clickable(
-                                interactionSource = pressIsrc,
-                                indication = ripple(),
                                 onClickLabel = "查看课程详情",
                                 onClick = { onCourseClick(b) },
                             )  // 高亮裁到课程块形状
@@ -1561,92 +1129,19 @@ private fun DayColumn(
                                 val roomPart = if (b.course.room.isNotEmpty()) "，${b.course.room}" else ""
                                 contentDescription =
                                     "${b.course.kc}，${Weeks.cnDay(b.course.day)}第${b.startJc}-${b.startJc + b.span - 1}节$roomPart"
-                            }
-                        else Modifier,
-                    )
-                    .pointerInput(b) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { pos -> onDragStart(b, pos) },
-                            onDrag = { change, amt ->
-                                change.consume()
-                                onDragMove(b, amt)
                             },
-                            onDragEnd = { onDragEnd(b) },
-                            onDragCancel = { onDragCancel() },
-                        )
-                    },
+                    ),
             ) {
-                if (split) {
-                    val sb = drag.sessionBlock!!
-                    // 其余 session 段: 原地留置并压暗, 与拎起的药片之间出现清晰断口
-                    b.sessions.filter { it.startJc != sb.startJc }.forEach { r ->
-                        val rTop = yOfJc(r.startJc) - top
-                        val rH = yBottomJc(r.startJc + r.span - 1) - yOfJc(r.startJc) - 4.dp
-                        Box(
-                            Modifier
-                                .fillMaxWidth()
-                                .offset(y = rTop + 2.dp)
-                                .height(rH)
-                                .graphicsLayer { alpha = 0.55f }
-                                .then(cardBg)
-                                .clip(shape),
-                        ) {
-                            BlockContent(b.course.kc, b.course.room, onContainer)
-                        }
-                    }
-                    // 被拎起的 session 段: 抬升放大 + 重阴影跟手走, 视觉偏移锚在段起点
-                    val sTop = yOfJc(sb.startJc) - top
-                    val sH = yBottomJc(sb.startJc + sb.span - 1) - yOfJc(sb.startJc) - 4.dp
+                BlockContent(b.course.kc, b.course.room, onContainer)
+                // 用户改过/自建的课: 右上角小圆点标识
+                if (b.course.editId != null) {
                     Box(
                         Modifier
-                            .zIndex(1f)
-                            .graphicsLayer {
-                                scaleX = PILL_SCALE
-                                scaleY = PILL_SCALE
-                                shadowElevation = if (dark) 10f else 12f
-                            }
-                            .offset {
-                                val v = visualOf(b)
-                                IntOffset(v.x.roundToInt(), (sTop + 2.dp).roundToPx() + v.y.roundToInt())
-                            }
-                            .height(sH)
-                            .shadow(if (dark) 8.dp else 10.dp, shape)
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        lerp(container, Color.White, if (dark) 0.10f else 0.16f)
-                                            .copy(alpha = blockAlpha),
-                                        container.copy(alpha = blockAlpha),
-                                    ),
-                                ),
-                                shape,
-                            )
-                            .border(
-                                1.dp,
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color.White.copy(alpha = if (dark) 0.22f else 0.45f),
-                                        Color.White.copy(alpha = if (dark) 0.06f else 0.12f),
-                                    ),
-                                ),
-                                shape,
-                            )
-                            .clip(shape),
-                    ) {
-                        BlockContent(sb.course.kc, sb.course.room, onContainer)
-                    }
-                } else {
-                    BlockContent(b.course.kc, b.course.room, onContainer)
-                    // 用户改过/自建的课: 右上角小圆点标识
-                    if (b.course.editId != null) {
-                        Box(
-                            Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(3.dp)
-                                .size(4.dp)
-                                .background(onContainer.copy(alpha = 0.85f), CircleShape),
-                        )
-                    }
+                            .align(Alignment.TopEnd)
+                            .padding(3.dp)
+                            .size(4.dp)
+                            .background(onContainer.copy(alpha = 0.85f), CircleShape),
+                    )
                 }
             }
         }

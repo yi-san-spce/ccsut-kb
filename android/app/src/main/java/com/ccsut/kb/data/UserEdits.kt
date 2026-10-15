@@ -114,39 +114,89 @@ object UserEdits {
             lastApplied = 0; lastDropped = 0
             return pristine
         }
+        return applyEdits(pristine, mine)
+    }
+
+    /**
+     * [effective] 的纯函数主体 (供单测直接构造编辑序列验证)。
+     * 行级编辑(kind 1/2)按锚点分组共享原始行, 自建课(kind 0)按 djs 展开成逐节行。
+     */
+    internal fun applyEdits(pristine: List<Course>, mine: List<Edit>): List<Course> {
         val rowEdits = mine.filter { it.kind != 0 }
-        val used = LinkedHashMap<String, MutableList<Course>>()
+        // 同锚点分组: 拖拽每次只动一周, 同一门课多次单周拖拽会产生多条 week 不同的编辑,
+        // 它们共享同一 match —— 行认领必须按锚点共享, 否则先到者独占原始行, 后续单周编辑
+        // 拿不到模板行被静默丢弃(那周的拖拽白做)
+        val groups = LinkedHashMap<Match, MutableList<Edit>>()
+        val order = ArrayList<Match>()
+        for (e in rowEdits) {
+            val m = e.match ?: continue
+            val list = groups[m]
+            if (list == null) {
+                groups[m] = mutableListOf(e)
+                order += m
+            } else {
+                list += e
+            }
+        }
+        val used = LinkedHashMap<Match, MutableList<Course>>()
         val out = ArrayList<Course>(pristine.size + 16)
         for (c in pristine) {
-            val e = rowEdits.firstOrNull { x ->
-                val m = x.match
-                m != null && c.kc == m.kc && c.fx == m.fx && c.zc == m.zc &&
-                    c.day == m.day && c.jc in m.startJc..m.endJc
+            val m = order.firstOrNull { x ->
+                c.kc == x.kc && c.fx == x.fx && c.zc == x.zc &&
+                    c.day == x.day && c.jc in x.startJc..x.endJc
             }
-            if (e == null) out += c else used.getOrPut(e.id) { mutableListOf() } += c
+            if (m == null) out += c else used.getOrPut(m) { mutableListOf() } += c
         }
         var applied = 0
         var dropped = 0
-        for (e in rowEdits) {
-            val m = e.match ?: continue
-            val d = e.delta
-            val rows = used[e.id]
+        for (m in order) {
+            val group = groups.getValue(m)
+            val rows = used[m]
             if (rows.isNullOrEmpty()) {
-                dropped++
+                dropped += group.size
                 continue
             }
-            applied++
-            if (e.kind == 2) continue
-            val span = (d?.span ?: (m.endJc - m.startJc + 1)).coerceAtLeast(1)
-            val base = d?.startJc ?: m.startJc
-            if (e.week != null) {
-                // 单周修改(拖拽产生): 原始行扣除该周原样保留(其余周不动), 该周输出移动后的副本。
-                // 两部分都沿用原始 zc 文本保持锚点/身份稳定, 详情页的周次以 ranges 渲染为准。
-                val w = e.week
+            val weekEdits = group.filter { it.week != null }
+            val claimed = weekEdits.mapNotNull { it.week }.toSet()
+            // 基础行: 组内有全周修改则按其增量输出(输出范围再扣除被单周编辑认领的周),
+            // 否则原始行扣除各单周编辑认领的周后原样保留
+            val fullWeek = group.firstOrNull { it.week == null }
+            if (fullWeek != null) {
+                applied++
+                if (fullWeek.kind != 2) {
+                    val d = fullWeek.delta
+                    val span = (d?.span ?: (m.endJc - m.startJc + 1)).coerceAtLeast(1)
+                    val base = d?.startJc ?: m.startJc
+                    for (i in 0 until span) {
+                        val src = rows.getOrNull(i) ?: rows.last()
+                        val ranges = minusWeeks(d?.ranges ?: src.ranges, claimed)
+                        if (ranges.isNotEmpty()) out += src.copy(
+                            kc = d?.kc ?: src.kc,
+                            teacher = d?.teacher ?: src.teacher,
+                            room = d?.room ?: src.room,
+                            day = d?.day ?: src.day,
+                            jc = base + i,
+                            zc = d?.zc ?: src.zc,
+                            ranges = ranges,
+                            editId = fullWeek.id,
+                        )
+                    }
+                }
+            } else {
                 for (src in rows) {
-                    val rest = minusWeek(src.ranges, w)
+                    val rest = minusWeeks(src.ranges, claimed)
                     if (rest.isNotEmpty()) out += src.copy(ranges = rest, editId = null)
                 }
+            }
+            // 单周修改(拖拽产生): 该周输出移动后的副本, 各自认领各自的周互不覆盖。
+            // 沿用原始 zc 文本保持锚点/身份稳定, 详情页的周次以 ranges 渲染为准。
+            for (e in weekEdits) {
+                applied++
+                if (e.kind == 2) continue
+                val d = e.delta
+                val span = (d?.span ?: (m.endJc - m.startJc + 1)).coerceAtLeast(1)
+                val base = d?.startJc ?: m.startJc
+                val w = e.week!!
                 for (i in 0 until span) {
                     val src = rows.getOrNull(i) ?: rows.last()
                     out += src.copy(
@@ -159,20 +209,6 @@ object UserEdits {
                         editId = e.id,
                     )
                 }
-                continue
-            }
-            for (i in 0 until span) {
-                val src = rows.getOrNull(i) ?: rows.last()
-                out += src.copy(
-                    kc = d?.kc ?: src.kc,
-                    teacher = d?.teacher ?: src.teacher,
-                    room = d?.room ?: src.room,
-                    day = d?.day ?: src.day,
-                    jc = base + i,
-                    zc = d?.zc ?: src.zc,
-                    ranges = d?.ranges ?: src.ranges,
-                    editId = e.id,
-                )
             }
         }
         for (e in mine.filter { it.kind == 0 }) {
@@ -200,87 +236,6 @@ object UserEdits {
             fx = "", jxb = "", jxbzc = "", type = TYPE_LOCAL,
         )
         synchronized(lock) { edits += Edit(id = newId(), bjid = bjid, kind = 0, course = c) }
-        persist(ctx)
-    }
-
-    /**
-     * 拖拽移动课块 (newDay/newStartJc 为落点, week=拖拽所在周)。
-     * 语义: 只移动该周的这一节课, 其它周的原课不动 ——
-     * 多周课会被拆成「其余周(原位) + 该周(新位置)」两条记录; 拖回学校原始位置 = 单周修改自动还原。
-     */
-    fun moveBlock(ctx: Context, bjid: String, block: Block, newDay: Int, newStartJc: Int, week: Int) {
-        ensureLoaded(ctx)
-        synchronized(lock) {
-            val e = editOfLocked(block.course.editId)
-            when (e?.kind) {
-                0 -> {
-                    // 自建课: 多周行拆出单周副本移走, 单周行直接移动
-                    val c = e.course!!
-                    val rest = minusWeek(c.ranges, week)
-                    if (rest.size == c.ranges.size) {
-                        replace(e, e.copy(course = c.copy(day = newDay, jc = newStartJc)))
-                    } else if (rest.isEmpty()) {
-                        replace(e, e.copy(course = c.copy(day = newDay, jc = newStartJc, ranges = listOf(week..week))))
-                    } else {
-                        replace(e, e.copy(course = c.copy(ranges = rest)))
-                        edits += Edit(newId(), bjid, 0, course = c.copy(
-                            day = newDay, jc = newStartJc, ranges = listOf(week..week)))
-                    }
-                }
-                1 -> {
-                    val m = e.match!!
-                    if (e.week != null) {
-                        // 已是单周修改: 更新该周位置; 拖回学校原始位置 = 还原(其余周本来就没动)
-                        val d = (e.delta ?: Delta()).copy(
-                            day = newDay.takeIf { it != m.day },
-                            startJc = newStartJc.takeIf { it != m.startJc },
-                        )
-                        if (d == Delta()) edits.remove(e)
-                        else replace(e, e.copy(delta = d))
-                    } else {
-                        // 全周修改再拖拽: 生效范围扣除该周留给原记录, 该周另开单周修改
-                        val ref = Repo.dataset?.classes?.get(bjid)?.courses?.firstOrNull {
-                            it.kc == m.kc && it.fx == m.fx && it.zc == m.zc && it.day == m.day && it.jc == m.startJc
-                        }
-                        val cur = e.delta?.ranges ?: ref?.ranges ?: block.course.ranges
-                        val rest = minusWeek(cur, week)
-                        if (rest.size == cur.size) {
-                            // 该周不在生效范围(异常), 按整行移动处理
-                            val d = (e.delta ?: Delta()).copy(
-                                day = newDay.takeIf { it != m.day },
-                                startJc = newStartJc.takeIf { it != m.startJc },
-                            )
-                            if (d == Delta()) edits.remove(e) else replace(e, e.copy(delta = d))
-                        } else if (rest.isEmpty()) {
-                            // 生效范围只有这一周: 移动它 = 移动整个生效范围,
-                            // 保留周次修改, 只更新位置; 拖回原始位置 = 还原
-                            val d = (e.delta ?: Delta()).copy(
-                                day = newDay.takeIf { it != m.day },
-                                startJc = newStartJc.takeIf { it != m.startJc },
-                            )
-                            if (d == Delta()) edits.remove(e)
-                            else replace(e, e.copy(delta = d))
-                        } else {
-                            replace(e, e.copy(delta = (e.delta ?: Delta()).copy(
-                                ranges = rest, zc = zcText(rest))))
-                            // 副本 delta 必须显式写绝对位置: 拖到的位置可能恰好等于学校原始锚点,
-                            // takeIf 置空会让这条记录变空而不创建, 该周的课就凭空消失了
-                            edits += Edit(newId(), bjid, 1, week = week, match = m, delta = Delta(
-                                day = newDay, startJc = newStartJc))
-                        }
-                    }
-                }
-                else -> {
-                    val m = anchorOf(block)
-                    val d = Delta(
-                        day = newDay.takeIf { it != m.day },
-                        startJc = newStartJc.takeIf { it != m.startJc },
-                    )
-                    if (d.day != null || d.startJc != null)
-                        edits += Edit(newId(), bjid, 1, week = week, match = m, delta = d)
-                }
-            }
-        }
         persist(ctx)
     }
 
@@ -383,6 +338,10 @@ object UserEdits {
         }
         return out
     }
+
+    /** 周次区间扣除多个周 (同锚点多条单周编辑各自认领, 基础行要把被认领的周全部扣掉) */
+    private fun minusWeeks(ranges: List<IntRange>, weeks: Set<Int>): List<IntRange> =
+        weeks.fold(ranges) { acc, w -> minusWeek(acc, w) }
 
     /** 周次区间 → "1-4,6-16" 显示文本 (与 [zcOf] 同格式) */
     fun zcText(ranges: List<IntRange>): String = ranges.joinToString(",") {
