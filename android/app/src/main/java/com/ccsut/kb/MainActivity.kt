@@ -991,9 +991,12 @@ fun App() {
         }
 
         // ---- 弹窗队列: 修复类更新 > critical 通知 > 普通通知, 一次只弹一个, 处理完自动弹下一个 ----
-        // 远程通知 once 类在点过按钮后记已读 (下次不再弹); 主按钮触发时 url 非空则用浏览器打开;
-        // 修复类更新只有「去更新」且不可点外部关闭, 点它不记跳过 (主动去更新页, 不装的话下次启动仍会提醒)。
-        dialogQueue.firstOrNull()?.let { item ->
+        // 只在课表主界面空闲时插入: 引导页/选班页/设置与关于等面板/登录/课程编辑流程中不弹。
+        // 检查照常进行, 待弹条目留在队列里, 用户回到课表界面后自动出现。
+        val mainIdle = !showWelcome && !screenChoose && !showMore && !showAbout && !showDev &&
+            !showUpdate && !showLogin && detailCourse == null && addAt == null &&
+            editBlock == null && delBlock == null
+        if (mainIdle) dialogQueue.firstOrNull()?.let { item ->
             fun finish() {
                 handledDialogKeys = handledDialogKeys + item.key
                 dialogQueue = dialogQueue.filterNot { it.key == item.key }
