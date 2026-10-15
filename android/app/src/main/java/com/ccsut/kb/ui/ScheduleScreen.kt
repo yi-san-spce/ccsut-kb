@@ -138,7 +138,7 @@ private val EVE_H = 88.dp        // 晚上大节槽位高度 (整周无晚课时
 private val LEFT_W = 42.dp       // 左侧时间轴: 10sp 刻度可读的最小宽度
 
 /** 拖拽药片的抬升缩放: graphicsLayer 在 pointerInput 外层, positionChange 是缩放空间值,
- *  累计位移必须按它还原成屏幕位移, 否则药片永远比手指慢 4.8%, 贴边翻周永远差一截 */
+ *  累计位移必须按它还原成屏幕位移, 否则药片永远比手指慢 4.8% */
 private const val PILL_SCALE = 1.05f
 
 /** 拖拽块的生效节数: 本地编辑会话可能只占融合连堂的一部分(Weeks.editSpan), 未指定(0/越界)按原始 span 处理 */
@@ -193,7 +193,7 @@ private fun BlockContent(name: String, room: String, onColor: Color, modifier: M
 }
 
 /**
- * 长按拖拽换位的会话状态 (ScheduleScreen 级, 全周页共享)。raw: 拖拽累计位移, anchorDay: 锚定列 (初始 = 课程原 day, 翻周后重置为新页最边列);
+ * 长按拖拽换位的会话状态 (ScheduleScreen 级, 全周页共享)。raw: 拖拽累计位移, anchorDay: 锚定列 (初始 = 课程原 day);
  * settleStart/targetOffset: 松手帧药片的最终视觉偏移, 两者相等 → settle 协程 snapTo 后 animateTo 瞬时完成;
  * pendingMove: settle 结束后才提交 onMoveBlock, 提交瞬间数据位置变化与视觉归零同帧重合, 消除松手帧跳。
  */
@@ -207,7 +207,6 @@ private class DragHost {
     var anchorDay by mutableIntStateOf(0)
     var targetDay by mutableIntStateOf(0)
     var targetJc by mutableIntStateOf(0)
-    var edgeHint by mutableIntStateOf(0)    // -1 悬停在左缘 / 0 无 / 1 悬停在右缘
     var settling by mutableStateOf(false)
     var targetOffset by mutableStateOf(Offset.Zero)
     var pendingMove by mutableStateOf<PendingMove?>(null)
@@ -218,19 +217,10 @@ private class DragHost {
     // 消除「旧块闪回原位一帧再跳到新位」的抽搐
     var pinning by mutableStateOf(false)
     var pinnedOffset by mutableStateOf(Offset.Zero)
-    // 手指抓握点在列内的相对位置(0..1): 边缘翻周判定用绝对列号, 只看位移时右缘阈值永远够不到
-    var grabFrac by mutableFloatStateOf(0f)
-    // 刚翻过周的方向锁: 落位后手指往回拖出一段才允许再次触发边缘翻周, 防止瞬间连环翻
-    var flipLock by mutableIntStateOf(0)
-    // 翻页动画进行中: 页面从手指下滑过会产生假 positionChange, 期间禁止累计 drag.raw
-    var flipInProgress by mutableStateOf(false)
     // 最近一次手势活动时间 (System.nanoTime), 供看门狗判断手势协程是否已被翻页连带杀死
     var lastActiveAt: Long = 0L
-    // 本次拖拽的起始周: 拖拽语义 = 只移动该周的这节课 (数据层按 week 拆分),
-    // 跨周松手仍只看不放 —— 翻周页面不属于起始周, 落课必是误操作
+    // 本次拖拽的起始周: 拖拽锁定在当前周页内, 落点只可能是本周的格子 (跨周页不进入拖拽会话)
     var originWeek by mutableIntStateOf(0)
-    // 大于 0 时自动翻回的目标周: 跨周导航松手后由 LaunchedEffect 消费(把镜头带回起始周)后清零
-    var flipBackTo by mutableIntStateOf(0)
     // 每次提交移动(onMoveBlock)自增: 钉住解锁的兜底信号 —— 同内容提交(如拖回原状)时
     // cls.courses 内容不变, 数据帧永远不来, 靠它 + 短延时兜底解锁翻页
     var commitGen by mutableIntStateOf(0)
@@ -511,7 +501,7 @@ fun ScheduleScreen(
             modifier = Modifier.weight(1f),
             pageSpacing = 8.dp,
             userScrollEnabled = drag.block == null,
-            // 拖拽翻周后原页必须保持组合: 手势协程住在原页的课程块里,
+            // 拖拽期间锁定当前周页: 手势协程住在当前页的课程块里,
             // 页面被销毁 = 手势死亡 = 拖拽失焦卡死 (看门狗只是兜底)
             beyondViewportPageCount = 1,
         ) { page ->
@@ -880,8 +870,6 @@ private fun WeekGrid(
             if (pm == null) {
                 drag.block = null
                 drag.raw = Offset.Zero
-                drag.edgeHint = 0
-                drag.flipLock = 0
                 drag.originWeek = 0
                 drag.pendingMove = null
             } else {
@@ -900,8 +888,6 @@ private fun WeekGrid(
                 drag.pinning = false
                 drag.block = null
                 drag.raw = Offset.Zero
-                drag.edgeHint = 0
-                drag.flipLock = 0
                 drag.originWeek = 0
                 drag.pendingMove = null
             }
@@ -916,37 +902,8 @@ private fun WeekGrid(
                 drag.pinning = false
                 drag.block = null
                 drag.raw = Offset.Zero
-                drag.edgeHint = 0
-                drag.flipLock = 0
                 drag.originWeek = 0
                 drag.pendingMove = null
-            }
-        }
-        // 拖到左/右边缘悬停半秒自动翻周; 翻页后锚定列重置到边缘列, 药片跟随手指出现在新页
-        LaunchedEffect(drag.edgeHint, drag.block) {
-            val dir = drag.edgeHint
-            if (dir != 0 && drag.block != null && week == drag.dragWeek) {
-                delay(500)   // 悬停半秒才翻周, 防误触
-                val target = pagerState.currentPage + dir
-                if (target in 0 until pagerState.pageCount) {
-                    // 动画期间冻结 dragMove: 页面从手指下滑过会产生假 positionChange,
-                    // 不冻结既会污染 raw 又会搅动状态导致翻页动画中途夭折
-                    drag.flipInProgress = true
-                    pagerState.animateScrollToPage(target)
-                    drag.flipInProgress = false
-                    drag.dragWeek = target + 1
-                    drag.anchorDay = if (dir > 0) 7 else 1   // 手指停在边缘, 新页锚定到最边列
-                    drag.raw = Offset(0f, drag.raw.y)
-                    drag.flipLock = dir
-                }
-                drag.edgeHint = 0
-            }
-        }
-        // 跨周导航松手后自动翻回起始周: 药片已原地归位, 翻页只是把镜头带回去
-        LaunchedEffect(drag.flipBackTo) {
-            if (drag.flipBackTo > 0 && week == drag.dragWeek) {
-                pagerState.animateScrollToPage(drag.flipBackTo - 1)
-                drag.flipBackTo = 0
             }
         }
         // 兜底看门狗: 若手势协程被意外取消, onDragEnd/onDragCancel 都不会再回调,
@@ -966,7 +923,7 @@ private fun WeekGrid(
             }
         }
         // 药片拖拽/回弹期间叠加的位移 (布局期读取, 不触发重组):
-        // 视觉 = raw + (anchorDay - 课程原day) × 列宽, 翻周后锚定到新页边缘列, 药片落在手指所在的边缘列
+        // 视觉 = raw + (anchorDay - 课程原day) × 列宽 (拖拽锁定在本周页内)
         val visualOf: (Block) -> Offset = { b ->
             val d = drag.block
             if (d == null || b != d || week != drag.dragWeek) Offset.Zero
@@ -988,11 +945,9 @@ private fun WeekGrid(
             // 已有拖拽进行中(如第二根手指误触)不接受新会话
             if (drag.block == null) {
                 drag.anchorDay = b.course.day
-                drag.grabFrac = (grabX / colW).coerceIn(0f, 1f)
                 drag.raw = Offset.Zero
                 drag.settling = false
                 drag.pinning = false
-                drag.flipLock = 0
                 drag.pendingMove = null
                 drag.targetDay = b.course.day
                 drag.targetJc = b.startJc
@@ -1006,46 +961,34 @@ private fun WeekGrid(
         val dragMove: (Block, Offset) -> Unit = dragMove@{ b, amt ->
             // 会话互斥: 非本会话块的手指事件 (第二根手指长按到另一门课) 一律忽略
             if (drag.block == null || b != drag.block) return@dragMove
-            if (drag.flipInProgress) {
-                // 翻页动画把页面从手指下滑过, positionChange 是假位移, 严禁累计
-                drag.lastActiveAt = System.nanoTime()
-            } else {
-                // amt 在 1.05 缩放空间里, 换算回屏幕位移再累计 (见 PILL_SCALE 注释)
-                drag.raw += amt * PILL_SCALE
-                // 目标节数用生效节数(编辑会话可能只占连堂一部分, 见 effSpan), 吸附范围随之放宽
-                val span = drag.block?.effSpan() ?: b.span
-                // 列吸附: 锚定列 + 累计位移换算成 0-based 连续列, 四舍五入得目标天
-                val col = (drag.anchorDay - 1) + drag.raw.x / colW
-                drag.targetDay = (col.roundToInt() + 1).coerceIn(1, 7)
-                with(density) {
-                    val fingerY = yOfJc(b.startJc) + drag.raw.y.toDp()
-                    var k = 0
-                    for (i in 0 until model.slots) if (yTop[i] <= fingerY) k = i
+            // amt 在 1.05 缩放空间里, 换算回屏幕位移再累计 (见 PILL_SCALE 注释)
+            drag.raw += amt * PILL_SCALE
+            // 目标节数用生效节数(编辑会话可能只占连堂一部分, 见 effSpan), 吸附范围随之放宽
+            val span = drag.block?.effSpan() ?: b.span
+            // 列吸附: 锚定列 + 累计位移换算成 0-based 连续列, 四舍五入得目标天
+            val col = (drag.anchorDay - 1) + drag.raw.x / colW
+            drag.targetDay = (col.roundToInt() + 1).coerceIn(1, 7)
+            with(density) {
+                val fingerY = yOfJc(b.startJc) + drag.raw.y.toDp()
+                var k = 0
+                for (i in 0 until model.slots) if (yTop[i] <= fingerY) k = i
+                // 骑缝杜绝: 多节卡必须对齐大节起点, 不再出现骑在两节课之间或午休中轴线上的落点;
+                // 单节卡不存在骑缝, 保留大节上下半格的自由
+                drag.targetJc = if (span <= 1) {
                     val half = ((fingerY - yTop[k]) / (slotH(k) / 2)).toInt().coerceIn(0, 1)
-                    drag.targetJc = (2 * k + 1 + half).coerceIn(1, dataset.periods.size - span + 1)
+                    (2 * k + 1 + half).coerceIn(1, dataset.periods.size - span + 1)
+                } else {
+                    model.jcRange[k].first.coerceIn(1, dataset.periods.size - span + 1)
                 }
-                // 边缘翻周判定用「手指的绝对列号」(锚点列 + 抓握点偏移 + 位移):
-                // 只看累计位移时, 从周一往右拖到屏幕边缘也够不到右缘阈值
-                val fingerCol = (drag.anchorDay - 1) + drag.grabFrac + drag.raw.x / colW
-                drag.edgeHint = when {
-                    drag.flipLock != 0 -> 0
-                    fingerCol > 6.35f -> 1     // 右缘 ~90px 内即触发 (真机边缘拒识区比模拟器宽, 阈值太贴边永远够不到)
-                    fingerCol < -0.42f -> -1   // 手指压到屏幕左缘(左侧时间轴宽 0.63 列)
-                    else -> 0
-                }
-                // 翻周落位后, 往回拖出一段才解锁, 防止锚定在边缘列瞬间连环翻周
-                if (drag.flipLock == 1 && drag.raw.x < -0.45f * colW) drag.flipLock = 0
-                if (drag.flipLock == -1 && drag.raw.x > 0.45f * colW) drag.flipLock = 0
-                drag.lastActiveAt = System.nanoTime()
             }
+            // 拖拽锁定在当前周页内: 不做边缘翻周, 松手落点只可能是本周的格子
+            drag.lastActiveAt = System.nanoTime()
         }
         val dragEnd: (Block) -> Unit = dragEnd@{ b ->
             // 会话互斥: 非本会话块的抬手一律忽略
             if (drag.block == null || b != drag.block) return@dragEnd
-            // 跨周只看不放: 翻到别的周的拖拽只用于查看(含翻周后锁未解的纯导航),
-            // 松手一律不提交移动 —— 落课语义只认起始周, 翻周页面落课必是误操作。
-            // 药片在起始周原地归位, 并由 flipBackTo effect 自动翻页把镜头带回起始周。
-            val navigating = drag.flipLock != 0 || drag.dragWeek != drag.originWeek
+            // 防御: 落点必须在起始周页内 (拖拽已锁定本周, 此处恒为 false)
+            val navigating = drag.dragWeek != drag.originWeek
             var moved = !navigating &&
                 (drag.targetDay != b.course.day || drag.targetJc != b.startJc)
             // 落点占用检测: 单周拖拽下, 当前周视图里的块都在同一周, 节次区间重叠即绝对冲突
@@ -1073,11 +1016,6 @@ private fun WeekGrid(
             }
             drag.settleStart = if (moved) target else Offset.Zero
             drag.targetOffset = drag.settleStart
-            if (navigating && drag.dragWeek != drag.originWeek) {
-                // 拖拽周切回起始周: 本页幽灵消失, 起始周块本体原地归位(视觉零偏移)
-                drag.dragWeek = drag.originWeek
-                drag.flipBackTo = drag.originWeek
-            }
             drag.pendingMove = if (moved) PendingMove(b, drag.targetDay, drag.targetJc, drag.originWeek) else null
             drag.settling = true
             if (moved) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -1277,27 +1215,6 @@ private fun WeekGrid(
                                 )
                             }
                         }
-                    }
-                }
-                // 拖到左右边缘时的翻周提示: 对应侧一条向内渐隐的竖向光带
-                if (drag.block != null && drag.edgeHint != 0) {
-                    val hintColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                    if (drag.edgeHint < 0) {
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterStart)
-                                .fillMaxHeight()
-                                .width(10.dp)
-                                .background(Brush.horizontalGradient(listOf(hintColor, Color.Transparent))),
-                        )
-                    } else {
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterEnd)
-                                .fillMaxHeight()
-                                .width(10.dp)
-                                .background(Brush.horizontalGradient(listOf(Color.Transparent, hintColor))),
-                        )
                     }
                 }
                 // 跨周药片(幽灵): 翻周后块本体仍画在另一周页面, 本页按同一套视觉公式渲染幽灵
