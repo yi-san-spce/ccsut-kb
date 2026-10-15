@@ -45,11 +45,19 @@ data class Block(
     /**
      * 拥有 [course.editId] 的那个 session 的节数(行数)。
      * == span 表示块内全属同一 session (未融合的单行块, 或全由原始行 editId=null 组成的融合块);
-     * < span 表示块头是被修改行(editId!=null)且混入了其它 session 的行, 还原/再拖只作用于 editSpan 对应的那一段;
+     * < span 表示块内混有多个 session (如自建课贴着学校课融合), 还原/再拖只作用于 editSpan 对应的那一段;
      * 0 = 未指定(默认构造), 调用方按 span 处理。
      */
     val editSpan: Int = 0,
-)
+    /**
+     * 块内的 session 分段 (按 jc 连续、editId 相同归组; 单 session 块为空表不参与拆分拖拽)。
+     * 会话拆分拖拽用: 按抓握位置选中某一段拎起移动, 其余段原地留置。
+     */
+    val sessions: List<Session> = emptyList(),
+) {
+    /** 融合块内的一个 session 段: 连续若干行属同一 editId 归属 */
+    data class Session(val startJc: Int, val span: Int, val course: Course)
+}
 
 object Merger {
 
@@ -81,7 +89,23 @@ object Merger {
                 val editSpan = if (course.editId != null)
                     seg.count { it.editId == course.editId }.coerceIn(1, span)
                 else span
-                out += Block(course, s, span, rooms, teachers, editSpan)
+                // session 分段: 按 jc 排序后, editId 相同的连续行归为一段 (原始行 editId=null 同归一组)
+                val ordered = seg.sortedBy { it.jc }
+                val runs = mutableListOf<Block.Session>()
+                var rs = ordered.first()
+                var runLen = 1
+                for (i in 1 until ordered.size) {
+                    val r = ordered[i]
+                    if (r.editId == rs.editId) {
+                        runLen++
+                    } else {
+                        runs += Block.Session(rs.jc, runLen, rs)
+                        rs = r
+                        runLen = 1
+                    }
+                }
+                runs += Block.Session(rs.jc, runLen, rs)
+                out += Block(course, s, span, rooms, teachers, editSpan, runs)
             }
             for (i in 1 until jcs.size) {
                 val jc = jcs[i]
