@@ -22,6 +22,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,6 +45,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,6 +64,13 @@ import kotlinx.coroutines.withContext
  *
  * 打开时先探测 CAS 会话: 若登录状态仍有效 (上次登录的 CAS TGC 还在), 免短信直接拉课表。
  */
+
+/** 中国大陆手机号: 1 开头, 第二位 3-9, 共 11 位数字 */
+private val PHONE_REGEX = Regex("^1[3-9]\\d{9}$")
+
+/** 明显是想输手机号但格式不对: 纯数字、不少于 11 位且不符合手机号格式 (学号等短号或含字母输入不判定) */
+private fun looksLikeBadPhone(s: String): Boolean =
+    s.isNotEmpty() && s.length >= 11 && s.all(Char::isDigit) && !PHONE_REGEX.matches(s)
 @Composable
 fun LoginScreen(
     initialAccount: String,
@@ -178,6 +188,23 @@ fun LoginScreen(
                 singleLine = true,
                 enabled = busy == null,
                 shape = RoundedCornerShape(14.dp),
+                trailingIcon = {
+                    // 即时校验: 绿勾 = 手机号格式正确; 红叉 = 明显输错的手机号 (学号等输入不判定)
+                    when {
+                        PHONE_REGEX.matches(account) -> Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = "手机号格式正确",
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier.size(20.dp),
+                        )
+                        looksLikeBadPhone(account) -> Icon(
+                            Icons.Filled.Cancel,
+                            contentDescription = "手机号格式不正确",
+                            tint = cs.error,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                },
             )
 
             Spacer(Modifier.height(12.dp))
@@ -235,7 +262,7 @@ fun LoginScreen(
                             }
                         }
                     },
-                    enabled = busy == null && countdown == 0,
+                    enabled = busy == null && countdown == 0 && !looksLikeBadPhone(account),
                     shape = RoundedCornerShape(14.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = cs.primary),
                     modifier = Modifier.height(56.dp),
@@ -258,6 +285,10 @@ fun LoginScreen(
                 onClick = {
                     val acct = account.trim()
                     val cd = code.trim()
+                    if (looksLikeBadPhone(acct)) {
+                        error = "手机号格式不正确，请检查后重试"
+                        return@Button
+                    }
                     if (cd.length != 6) {
                         error = "请输入 6 位短信验证码"
                         return@Button
