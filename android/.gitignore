@@ -1,0 +1,14 @@
+# Android/Gradle 构建产物与本地环境 (随仓库分发; 根目录 .gitignore 为本机私有)
+.gradle/
+build/
+app/build/
+.kotlin/
+.externalNativeBuild/
+captures/
+local.properties
+.idea/
+*.iml
+.DS_Store
+
+# 本地调试更新服务用 debug 源集: 仅本机存在, 严禁入库
+app/src/debug/
