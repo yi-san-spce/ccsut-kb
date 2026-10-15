@@ -1,0 +1,85 @@
+name: CI
+
+# 每次推送/PR 自动: 远程通知清单校验 → (代码变更时) 版本双写校验 → 单元测试 → 构建冒烟。
+# 背景: v2.10.3 发布事故 (APK 裹进半成品代码启动闪退) 的防线延伸 —— 源码仓 HEAD 必须可编译可测试。
+# 仅 data/** 变更 (推远程通知/数据集) 时跳过 gradle 构建, 公告提交不再烧构建时长;
+# 通知清单校验 (notice job) 则永远执行 —— 内容错误要在推送时拦下, 而不是等 App 端静默降级。
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  # 远程通知清单校验: 本地也可手动跑 python3 scripts/check_notice.py
+  notice:
+    name: 校验远程通知清单
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验 data/notice.json (存在时)
+        run: python3 scripts/check_notice.py
+
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android   # gradlew 与 settings.gradle 都在 android/ 子目录
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # push 时需要 HEAD~1 做变更范围对比
+
+      - name: 变更范围检测 (仅 data/** 时跳过构建)
+        id: scope
+        working-directory: .   # git 命令要在仓库根跑, 不吃 job 级 android/ 子目录默认值
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && git rev-parse -q --verify HEAD~1 >/dev/null; then
+            files="$(git diff --name-only HEAD~1 HEAD)"
+          else
+            files="src-changed"   # PR / 首次提交一律全量跑
+          fi
+          # 存在任何一个 data/ 之外的变更文件 → 照常构建; 全部在 data/ 下 → 跳过
+          # (不用 grep -qv: BSD grep 的 -q/-v 组合语义有坑, 用普通 grep -v 取反判断)
+          if [ -z "$files" ]; then
+            echo "skip=false" >> "$GITHUB_OUTPUT"   # 拿不到变更清单, 保守起见照常构建
+          elif [ -z "$(printf '%s\n' "$files" | grep -v '^data/')" ]; then
+            echo "skip=true"  >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: JDK 17
+        if: steps.scope.outputs.skip != 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Gradle 缓存
+        if: steps.scope.outputs.skip != 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 版本双写一致性 (build.gradle ↔ Updater.kt)
+        if: steps.scope.outputs.skip != 'true'
+        run: ./gradlew checkVersionSync
+
+      - name: 单元测试
+        if: steps.scope.outputs.skip != 'true'
+        run: ./gradlew testDebugUnitTest
+
+      - name: 构建冒烟
+        if: steps.scope.outputs.skip != 'true'
+        run: ./gradlew assembleDebug
+
+      - name: 跳过构建说明
+        if: steps.scope.outputs.skip == 'true'
+        run: echo "本次仅变更 data/** (远程通知/数据集), 跳过 Android 构建"
+
+      - name: 上传测试报告 (失败时)
+        if: failure() && steps.scope.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: android/app/build/reports/tests/   # upload-artifact 不受 working-directory 影响, 相对仓库根
+          if-no-files-found: ignore

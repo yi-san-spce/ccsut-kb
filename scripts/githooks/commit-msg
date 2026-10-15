@@ -1,0 +1,31 @@
+#!/bin/sh
+# Conventional Commits 提交信息校验
+# 启用（本仓一次性配置）: git config core.hooksPath scripts/githooks
+# 格式: <type>(<scope>): <主题>        发版: chore(release): vX.Y.Z <主题>
+# type: feat fix perf refactor docs test build chore ci style
+f="$1"
+[ -f "$f" ] || exit 0
+
+first=$(head -n 1 "$f")
+
+# 合并 / 回滚 / fixup 提交放行
+case "$first" in
+  "Merge "*|"Revert "*|"fixup!"*|"squash!"*) exit 0 ;;
+esac
+
+if ! printf '%s' "$first" | grep -qE '^(feat|fix|perf|refactor|docs|test|build|chore|ci|style)(\([a-zA-Z0-9._/-]+\))?!?: .+'; then
+  echo "✗ 提交信息不符合 Conventional Commits: $first"
+  echo "  格式: <type>(<scope>): <中文主题>，细节写进正文（空行后）"
+  echo "  type: feat fix perf refactor docs test build chore ci style"
+  echo "  发版: chore(release): vX.Y.Z <主题>"
+  exit 1
+fi
+
+# 主题行硬上限 200 字符（细节请放正文，保持单行可读）
+len=$(printf '%s' "$first" | wc -m | tr -d ' ')
+if [ "$len" -gt 200 ]; then
+  echo "✗ 主题行过长（${len} > 200 字符）: 技术细节请移到提交正文"
+  exit 1
+fi
+
+exit 0

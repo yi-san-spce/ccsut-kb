@@ -1,0 +1,679 @@
+package com.ccsut.kb.ui
+import android.Manifest
+import android.app.Activity
+import android.app.AlarmManager
+import android.content.Intent
+import androidx.activity.ComponentActivity
+import androidx.core.app.ActivityCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.BugReport
+import androidx.compose.material.icons.rounded.Celebration
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.ManageAccounts
+import androidx.compose.material.icons.rounded.PrivacyTip
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ripple
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.ccsut.kb.data.BgStore
+import com.ccsut.kb.data.Cls
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@Composable
+fun MoreSheet(
+    cls: Cls?,
+    appVersion: String,
+    themeMode: Int,
+    bgOn: Boolean,
+    bgAlpha: Int,
+    colorSource: Int,
+    bgSeed: Int,
+    styleTheme: Int,
+    reminderOn: Boolean,
+    reminderLead: Int,
+    nextReminderAt: Long,
+    afterClassOn: Boolean,
+    earlyOn: Boolean,
+    alarmMode: Boolean,
+    devMode: Boolean,
+    personalActive: Boolean,
+    personalName: String,
+    personalSyncedAt: Long,
+    onThemeMode: (Int) -> Unit,
+    onBgSaved: () -> Unit,
+    onRemoveBg: () -> Unit,
+    onBgAlpha: (Int) -> Unit,
+    onColorSource: (Int) -> Unit,
+    onStyleTheme: (Int) -> Unit,
+    onReminderToggle: (Boolean) -> Unit,
+    onLeadChange: (Int) -> Unit,
+    onAfterClassChange: (Boolean) -> Unit,
+    onEarlyChange: (Boolean) -> Unit,
+    onAlarmModeChange: (Boolean) -> Unit,
+    onSelectClass: () -> Unit,
+    onOpenPersonalLogin: () -> Unit,
+    onSetTimetable: (Boolean) -> Unit,
+    onRefreshPersonal: () -> Unit,
+    onLogoutPersonal: () -> Unit,
+    onOpenDev: () -> Unit,
+    onDismiss: () -> Unit,
+    onOpenAbout: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showBgDialog by remember { mutableStateOf(false) }
+
+    // 相册选图 (Photo Picker, 免存储权限)
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching { BgStore.saveFromUri(ctx, uri) }
+                        .onFailure { android.util.Log.e("kb-bg", "saveFromUri 异常", it) }
+                        .getOrDefault(false)
+                }
+                if (ok) onBgSaved()
+                else Toast.makeText(ctx, "背景图处理失败，请换一张试试", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // 提醒权限状态 (每次 RESUME 重查: 从系统设置授权/撤销返回后副标题才不会停在旧状态)
+    var notifGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    // 「禁止后不再询问」: 再 launch 也静默无弹窗, 红行跳系统应用通知设置
+    var permDeniedForever by remember { mutableStateOf(false) }
+    var exactOk by remember { mutableStateOf(false) }
+    DisposableEffect(ctx) {
+        val am = ctx.getSystemService(AlarmManager::class.java)
+        val refresh = {
+            notifGranted = Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+            exactOk = am?.canScheduleExactAlarms() ?: false
+        }
+        refresh()
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) refresh() }
+        val lifecycle = (ctx as? ComponentActivity)?.lifecycle
+        lifecycle?.addObserver(obs)
+        onDispose { lifecycle?.removeObserver(obs) }
+    }
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        notifGranted = it
+        // 拒绝且系统不再弹窗 = 永久拒绝, 之后只引导去系统设置
+        permDeniedForever = !it && Build.VERSION.SDK_INT >= 33 &&
+            !ActivityCompat.shouldShowRequestPermissionRationale(ctx as Activity, Manifest.permission.POST_NOTIFICATIONS)
+    }
+    fun requestNotifPerm() {
+        if (Build.VERSION.SDK_INT < 33) return
+        permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    if (showBgDialog) {
+        AlertDialog(
+            onDismissRequest = { showBgDialog = false },
+            title = { Text("课表背景") },
+            text = { Text("换一张，还是不要背景了？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBgDialog = false
+                    picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                }) { Text("换一张") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBgDialog = false; onRemoveBg() }) { Text("移除") }
+            },
+        )
+    }
+
+    val sheetScroll = rememberScrollState()
+    KbSheet(onDismiss = onDismiss, title = "更多") {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(sheetScroll)
+                .padding(horizontal = 16.dp)
+                .navigationBarsPadding(),
+        ) {
+            // 登录态 = 教务姓名非空; 当前课表卡与账号卡两处共用同一判定
+            val personalLoggedIn = personalName.isNotBlank()
+
+            // ---- 当前课表 ----
+            SectionHeader("当前课表")
+            SettingCard {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+                ) {
+                    // 与表单同一枚 chip 形态: 未选中=灰底描边
+                    FormChip(
+                        text = "班级课表",
+                        on = !personalActive,
+                        // 幂等守卫: 只在「当前不是班级课表」时才触发切换; 点已选中的 Chip 无操作
+                        onClick = { if (personalActive) onSetTimetable(false) },
+                    )
+                    FormChip(
+                        text = "个人课表",
+                        on = personalActive,
+                        enabled = personalLoggedIn,
+                        onClick = { if (!personalActive) onSetTimetable(true) },
+                    )
+                }
+                if (!personalActive) {
+                    SettingRow(
+                        icon = Icons.Rounded.Person,
+                        title = cls?.bjmc ?: "还没选班级",
+                        subtitle = cls?.let { "${it.yxmc} · ${it.zymc}" } ?: "选好班级就能看课表了",
+                        trailing = { RowTrailing("换班") },
+                        onClick = onSelectClass,
+                    )
+                } else {
+                    SettingRow(
+                        icon = Icons.Rounded.Person,
+                        title = "个人课表",
+                        subtitle = "上次同步 " + formatSynced(personalSyncedAt),
+                        trailing = { RowTrailing("同步") },
+                        onClick = onRefreshPersonal,
+                    )
+                }
+            }
+
+            // ---- 个人课表: 账号生命周期 ----
+            SectionHeader("个人课表")
+            SettingCard {
+                // 未登录/已登录两组内容互补展开收起: 高度 + 淡入淡出, 换态不突兀
+                AnimatedVisibility(
+                    visible = !personalLoggedIn,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+                ) {
+                    SettingRow(
+                        icon = Icons.Rounded.ManageAccounts,
+                        title = "登录教务账号",
+                        subtitle = "短信验证码直连教务，只拉你自己的课表",
+                        trailing = { RowTrailing("登录") },
+                        onClick = onOpenPersonalLogin,
+                    )
+                }
+                AnimatedVisibility(
+                    visible = personalLoggedIn,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+                ) {
+                    Column {
+                        SettingRow(
+                            icon = Icons.Rounded.ManageAccounts,
+                            title = personalName,
+                            subtitle = "已登录 · 上次同步 " + formatSynced(personalSyncedAt),
+                            trailing = { RowTrailing("同步") },
+                            onClick = onRefreshPersonal,
+                        )
+                        SettingRow(
+                            icon = Icons.AutoMirrored.Rounded.Logout,
+                            title = "退出登录",
+                            subtitle = "清除本机个人课表与登录状态",
+                            onClick = onLogoutPersonal,
+                        )
+                    }
+                }
+            }
+
+            // ---- 外观 ----
+            SectionHeader("外观")
+            SettingCard {
+                // 分段控件独占一行 (标签行 + 全宽分段): 尾槽塞三档会把标题挤竖排, 与 UpdateScreen 同款
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SettingIconBadge(Icons.Rounded.DarkMode)
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        "深色模式",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                SingleChoiceSegmentedButtonRow(
+                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                ) {
+                    val modes = listOf("系统" to 0, "浅色" to 1, "深色" to 2)
+                    modes.forEachIndexed { i, (label, v) ->
+                        SegmentedButton(
+                            selected = themeMode == v,
+                            onClick = { onThemeMode(v) },
+                            shape = SegmentedButtonDefaults.itemShape(i, modes.size),
+                        ) { Text(label, fontSize = 12.sp) }
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SettingIconBadge(Icons.Rounded.Palette)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "主题配色",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            lineHeight = 19.sp,
+                        )
+                        // 右侧分段已表达「品牌」档, 副标题只报当前主题名
+                        Text(
+                            if (styleTheme != 0) (ThemePacks.byId(styleTheme)?.title ?: "品牌配色") else when (colorSource) {
+                                1 -> if (bgOn) "跟随背景图取色" else "跟随背景图（未设背景）"
+                                2 -> "经典品牌蓝"
+                                else -> "跟随系统壁纸"
+                            },
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                SingleChoiceSegmentedButtonRow(
+                    Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                ) {
+                    val srcs = listOf("壁纸" to 0, "背景图" to 1, "品牌" to 2)
+                    srcs.forEachIndexed { i, (label, v) ->
+                        SegmentedButton(
+                            // 主题风格归入品牌档: 固定配色, 永不随壁纸/背景变化
+                            selected = if (styleTheme != 0) v == 2 else colorSource == v,
+                            enabled = v != 1 || bgOn,
+                            onClick = {
+                                when (v) {
+                                    // 品牌 = 固定配色档: 已选主题风格则保持, 否则回经典品牌蓝
+                                    2 -> onColorSource(2)
+                                    else -> {
+                                        if (styleTheme != 0) onStyleTheme(0)
+                                        onColorSource(v)
+                                    }
+                                }
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(i, srcs.size),
+                        ) { Text(label, fontSize = 12.sp) }
+                    }
+                }
+                // ---- 主题风格直达: 色卡平铺, 点选即换 ----
+                Text(
+                    "主题风格",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(start = 14.dp, top = 8.dp),
+                )
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 10.dp),
+                ) {
+                    ThemeSwatchCard(
+                        title = "经典品牌蓝",
+                        selected = styleTheme == 0 && colorSource == 2,
+                        preview = listOf(
+                            LightColors.background, LightColors.primary, LightColors.primaryContainer,
+                            LightColors.secondaryContainer, LightColors.tertiaryContainer,
+                        ),
+                        onClick = { onStyleTheme(0); onColorSource(2) },
+                    )
+                    ThemePacks.ALL.forEach { p ->
+                        ThemeSwatchCard(
+                            title = p.title,
+                            selected = styleTheme == p.id,
+                            preview = ThemePacks.previewOf(p),
+                            onClick = { onStyleTheme(p.id); onColorSource(2) },
+                        )
+                    }
+                }
+                SettingRow(
+                    icon = Icons.Rounded.Wallpaper,
+                    title = "课表背景",
+                    subtitle = if (bgOn) "已设置" else "选张图当背景",
+                    trailing = { RowTrailing(if (bgOn) "更换" else "选择") },
+                    onClick = {
+                        if (bgOn) showBgDialog = true
+                        else picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    },
+                )
+                // 设了背景才出现的透明度调杆: 展开收起带高度过渡
+                AnimatedVisibility(
+                    visible = bgOn,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+                ) {
+                    Column(Modifier.padding(start = 62.dp, end = 14.dp, bottom = 10.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "透明度",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "$bgAlpha%",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Slider(
+                            value = bgAlpha / 100f,
+                            onValueChange = { onBgAlpha((it * 100).toInt().coerceIn(10, 100)) },
+                        )
+                    }
+                }
+                SettingRow(
+                    icon = Icons.Rounded.Palette,
+                    title = "课程颜色",
+                    subtitle = "在课程详情里为单门课自定义颜色",
+                )
+            }
+
+            // ---- 提醒 ----
+            SectionHeader("提醒")
+            SettingCard {
+                data class RemState(val sub: String, val err: Boolean, val click: (() -> Unit)?)
+                val rem = when {
+                    !reminderOn -> RemState("每节课开始前按时提醒", false, null)
+                    !notifGranted -> if (permDeniedForever) RemState(
+                        // 永久拒绝后系统弹窗再也不出现, 只能引导去系统应用通知设置
+                        "通知权限被关了，点这里去系统设置", true,
+                    ) {
+                        runCatching {
+                            ctx.startActivity(
+                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName),
+                            )
+                        }
+                    } else RemState(
+                        "先去开通知权限", true,
+                    ) { requestNotifPerm() }
+                    !exactOk -> RemState(
+                        "可能不准时，点这里去设置", true,
+                    ) {
+                        runCatching {
+                            ctx.startActivity(
+                                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                                    .setData(Uri.parse("package:${ctx.packageName}")),
+                            )
+                        }
+                    }
+                    nextReminderAt > 0 -> RemState(
+                        "下次 " + DateTimeFormatter.ofPattern("M月d日 HH:mm")
+                            .format(Instant.ofEpochMilli(nextReminderAt).atZone(ZoneId.systemDefault())),
+                        false, null,
+                    )
+                    else -> RemState("已开启", false, null)
+                }
+                SettingRow(
+                    icon = Icons.Rounded.Notifications,
+                    title = "课前提醒",
+                    subtitle = rem.sub,
+                    subtitleColor = if (rem.err) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    trailing = {
+                        KbSwitch(checked = reminderOn, onCheckedChange = {
+                            if (it) requestNotifPerm()
+                            onReminderToggle(it)
+                        })
+                    },
+                    onClick = rem.click,
+                )
+                // 开启提醒才展开的子设置: 提前量分段 + 闹钟模式开关
+                AnimatedVisibility(
+                    visible = reminderOn,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+                ) {
+                    Column {
+                        SettingRow(
+                            icon = Icons.Rounded.Schedule,
+                            title = "提前量",
+                            subtitle = "提醒早于上课的分钟数",
+                        )
+                        val leads = listOf(5, 10, 15, 20, 30)
+                        SingleChoiceSegmentedButtonRow(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                        ) {
+                            leads.forEachIndexed { i, v ->
+                                SegmentedButton(
+                                    selected = reminderLead == v,
+                                    onClick = { onLeadChange(v) },
+                                    shape = SegmentedButtonDefaults.itemShape(i, leads.size),
+                                ) { Text("$v", fontSize = 12.sp) }
+                            }
+                        }
+                        SettingRow(
+                            icon = Icons.Rounded.Alarm,
+                            title = "闹钟模式",
+                            subtitle = "到点全屏响铃，早八不怕睡过头（不依赖通知权限）",
+                            trailing = { KbSwitch(checked = alarmMode, onCheckedChange = onAlarmModeChange) },
+                        )
+                    }
+                }
+                // 与课前提醒各自独立: 关掉课前提醒不影响这两项
+                SettingRow(
+                    icon = Icons.Rounded.Celebration,
+                    title = "下课后小结",
+                    subtitle = "最后一节下课后推送今日课程小结",
+                    trailing = {
+                        KbSwitch(checked = afterClassOn, onCheckedChange = {
+                            if (it) requestNotifPerm()
+                            onAfterClassChange(it)
+                        })
+                    },
+                )
+                SettingRow(
+                    icon = Icons.Rounded.Bedtime,
+                    title = "早八前夜",
+                    subtitle = "前一晚 21:30，明天真有早八才提醒",
+                    trailing = {
+                        KbSwitch(checked = earlyOn, onCheckedChange = {
+                            if (it) requestNotifPerm()
+                            onEarlyChange(it)
+                        })
+                    },
+                )
+                SettingRow(
+                    icon = Icons.Rounded.Widgets,
+                    title = "桌面小组件",
+                    subtitle = "长按桌面空白处添加",
+                )
+            }
+
+            // ---- 开发者模式入口 ----
+            if (devMode) {
+                SectionHeader("开发者")
+                SettingCard {
+                    SettingRow(
+                        icon = Icons.Rounded.BugReport,
+                        title = "开发者模式",
+                        subtitle = "时间旅行 · 测试通知 · 日志与诊断",
+                        trailing = { RowTrailing() },
+                        onClick = onOpenDev,
+                    )
+                }
+            }
+
+            // ---- 关于 ----
+            // 品牌块 / 软件更新 / 课表数据 / 社区都在独立「关于」页, 这里只留一个入口
+            SectionHeader("关于")
+            SettingCard {
+                SettingRow(
+                    icon = Icons.Rounded.Info,
+                    title = "关于长工课表通",
+                    subtitle = "v$appVersion · 软件更新 · 加入社区",
+                    trailing = { RowTrailing("详情") },
+                    onClick = onOpenAbout,
+                )
+            }
+
+            Spacer(Modifier.height(28.dp))
+        }
+    }
+}
+
+// ==================== 开发者模式面板 ====================
+
+@Composable
+internal fun DevActionRow(title: String, subtitle: String, onClick: () -> Unit) {
+    SettingRow(title = title, subtitle = subtitle, trailing = { RowTrailing() }, onClick = onClick)
+}
+
+// ==================== 主题风格选择 ====================
+
+/** 主题风格色卡: 迷你课表预览(底色+主色条+容器块) + 名称, 选中描边高亮 */
+@Composable
+private fun ThemeSwatchCard(
+    title: String,
+    selected: Boolean,
+    preview: List<Color>,
+    onClick: () -> Unit,
+) {
+    val cs = MaterialTheme.colorScheme
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width(76.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 5.dp),
+    ) {
+        Box(
+            Modifier
+                .padding(horizontal = 6.dp)
+                .fillMaxWidth()
+                .height(46.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(preview[0])
+                .border(
+                    width = if (selected) 2.dp else 1.dp,
+                    color = if (selected) cs.primary else cs.outlineVariant.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(12.dp),
+                )
+                .padding(7.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                // 主色条 = 顶栏, 三个容器块 = 课程卡
+                Box(
+                    Modifier
+                        .fillMaxWidth(0.62f)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(preview[1]),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    listOf(preview[2], preview[3], preview[4]).forEach { c ->
+                        Box(
+                            Modifier
+                                .weight(1f)
+                                .height(16.dp)
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(c),
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(3.dp))
+        Text(
+            title,
+            fontSize = 10.sp,
+            lineHeight = 12.sp,
+            maxLines = 1,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected) cs.primary else cs.onSurfaceVariant,
+        )
+    }
+}
