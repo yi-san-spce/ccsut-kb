@@ -594,7 +594,7 @@ fun App() {
                 showDelete = false,
                 onSave = { f ->
                     if (slotConflict(f, null)) {
-                        Toast.makeText(ctx, "该时段已有课程（周次有重叠），换天/节次或周次试试", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(ctx, "这个时段已经有课了，换个时间或周次试试", Toast.LENGTH_SHORT).show()
                         return@CourseFormSheet
                     }
                     addAt = null
@@ -619,7 +619,7 @@ fun App() {
                 showDelete = true,
                 onSave = { f ->
                     if (slotConflict(f, b)) {
-                        Toast.makeText(ctx, "该时段已有课程（周次有重叠），换天/节次或周次试试", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(ctx, "这个时段已经有课了，换个时间或周次试试", Toast.LENGTH_SHORT).show()
                         return@CourseFormSheet
                     }
                     editBlock = null
@@ -639,7 +639,7 @@ fun App() {
             AlertDialog(
                 onDismissRequest = { delBlock = null },
                 title = { Text("删除课程") },
-                text = { Text("确定从你的课表移除「${b.course.kc}」吗？只影响你自己，不影响其他同学。") },
+                text = { Text("确定移除「${b.course.kc}」吗？") },
                 confirmButton = {
                     TextButton({
                         val id = editTarget

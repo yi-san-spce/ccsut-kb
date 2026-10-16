@@ -279,7 +279,7 @@ fun MoreSheet(
                 AlertDialog(
                     onDismissRequest = { showResetConfirm = false },
                     title = { Text("重置课表修改") },
-                    text = { Text("将清除你在这份班级课表上的全部本地修改（移动、加课、删课、改色），恢复为学校原课表。此操作不可撤销，确定继续吗？") },
+                    text = { Text("会清除你在这份班级课表上的全部修改（移动、加课、删课、改色），恢复成学校原课表，之后找不回来。确定继续吗？") },
                     confirmButton = {
                         TextButton(onClick = {
                             showResetConfirm = false
@@ -503,7 +503,7 @@ fun MoreSheet(
                             )
                         }
                     } else RemState(
-                        "先去开通知权限", true,
+                        "还没开通知权限，点这里去授权", true,
                     ) { requestNotifPerm() }
                     !exactOk -> RemState(
                         "可能不准时，点这里去设置", true,

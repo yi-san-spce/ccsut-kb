@@ -376,7 +376,7 @@ object ReminderScheduler {
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         nm.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "贴心提醒", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "课前提醒、放学小结和早八前夜的温馨问候"
+                description = "课前提醒、放学小结和早八前夜的问候"
                 enableVibration(true)
             },
         )

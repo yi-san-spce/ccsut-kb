@@ -644,7 +644,7 @@ private fun DoneBody(nickname: String) {
         }
         Spacer(Modifier.height(10.dp))
         Rise(shown >= 2) {
-            Text("你的使用，是我们的荣幸。", fontSize = 16.sp, color = cs.onSurfaceVariant)
+            Text("很高兴认识你，祝你新学期顺利。", fontSize = 16.sp, color = cs.onSurfaceVariant)
         }
     }
 }

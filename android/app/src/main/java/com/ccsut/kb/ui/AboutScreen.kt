@@ -77,7 +77,7 @@ fun AboutScreen(
         AlertDialog(
             onDismissRequest = { showResetConfirm = false },
             title = { Text("恢复内置数据") },
-            text = { Text("会丢掉在线更新的那份课表，回到 app 自带的那份。") },
+            text = { Text("会退回 app 自带的课表，在线更新的那份会丢掉。") },
             confirmButton = {
                 TextButton(
                     onClick = { showResetConfirm = false; onClearUpdate() },
@@ -247,7 +247,7 @@ fun AboutScreen(
                 SettingRow(
                     icon = Icons.Rounded.Star,
                     title = "给项目点个 Star",
-                    subtitle = "GitHub，你的 Star 是更新的动力",
+                    subtitle = "源码和更新记录都在这里",
                     trailing = { RowTrailing() },
                     onClick = { openUrl(ctx, OPEN_SOURCE_URL) },
                 )
