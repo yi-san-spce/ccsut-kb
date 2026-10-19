@@ -226,8 +226,8 @@ object Updater {
  * 内测 X.Y.Z-beta.N 由发版时的 NAME 携带; 开发者版 X.Y.Z-dev 由 debug 构建自动挂载。
  */
 object BuildVersion {
-    const val CODE = 42
-    const val NAME = "1.0.2"
+    const val CODE = 43
+    const val NAME = "1.0.3"
 
     /** 展示与版本比较用: release 构建原样用 NAME, debug 构建 (开发者版) 自动挂 -dev */
     val DISPLAY: String get() = if (BuildConfig.DEBUG) "$NAME-dev" else NAME
