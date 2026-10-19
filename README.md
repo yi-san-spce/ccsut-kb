@@ -112,7 +112,6 @@ cd ccsut-kb/android
 | 把项目跑起来、配环境、过一遍开发工作流 | [docs/上手教程/getting-started.md](docs/上手教程/getting-started.md) |
 | 理解代码架构与数据流，准备动手改 | [docs/原理与接口/architecture.md](docs/原理与接口/architecture.md) |
 | 查某个功能的入口与实现细节 | [docs/上手教程/features.md](docs/上手教程/features.md) |
-| 数据链路与登录链路的技术细节 | 因敏感因素，暂不提供相关的文档说明 |
 | 查术语 / 行话定义（覆盖层、双链、CAS…） | [docs/glossary.md](docs/glossary.md) |
 | 发布新版本 / 更新课表数据 | [docs/开发者/release.md](docs/开发者/release.md) |
 | 看每个版本改了什么 | [docs/CHANGELOG.md](docs/CHANGELOG.md) · [docs/release-notes/](docs/release-notes/) |
