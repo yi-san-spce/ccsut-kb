@@ -100,6 +100,15 @@ fun AboutScreen(
         ) {
             // ---- 品牌块 ----
             var devClicks by remember { mutableIntStateOf(0) }
+            // 步进提示: 每次新建 Toast 并先取消上一条 —— 新实例立即显示,
+            // 同实例 cancel+show 在部分 Android 版本上会被系统忽略 (表现为等旧消息弹完)
+            var lastStepToast by remember { mutableStateOf<Toast?>(null) }
+            fun stepToastShow(msg: String) {
+                lastStepToast?.cancel()
+                val t = Toast.makeText(ctx, msg, Toast.LENGTH_SHORT)
+                lastStepToast = t
+                t.show()
+            }
             Column(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -118,16 +127,16 @@ fun AboutScreen(
                                     devClicks >= 7 -> {
                                         devClicks = 0
                                         onDevModeChange(true)
-                                        Toast.makeText(ctx, "开发者模式已开启", Toast.LENGTH_SHORT).show()
+                                        stepToastShow("开发者模式已开启")
                                     }
                                     devClicks >= 3 ->
-                                        Toast.makeText(ctx, "再点 ${7 - devClicks} 次进入开发者模式", Toast.LENGTH_SHORT).show()
+                                        stepToastShow("再点 ${7 - devClicks} 次进入开发者模式")
                                 }
                             },
                             onLongClick = if (devMode) {
                                 {
                                     onDevModeChange(false)
-                                    Toast.makeText(ctx, "开发者模式已关闭", Toast.LENGTH_SHORT).show()
+                                    stepToastShow("开发者模式已关闭")
                                 }
                             } else null,
                         ),

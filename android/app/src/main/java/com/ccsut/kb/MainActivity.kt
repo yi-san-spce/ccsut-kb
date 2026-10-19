@@ -306,13 +306,15 @@ fun App() {
         }
     }
 
-    fun startDownload(r: ReleaseInfo) {
+    /** 下载 APK 并在落盘后自动拉起安装; onReady 在安装意图发出前回调 (更新弹窗用它收掉自己) */
+    fun startDownload(r: ReleaseInfo, onReady: (() -> Unit)? = null) {
         val url = r.fileUrl ?: return
         if (downloadingVer != null) return   // 同一时间只允许一个下载任务
         scope.launch {
             // 下载前先查下载目录: 这个通道的这个版本 APK 已经在手就直接安装, 不再重复下载
             val cached = withContext(Dispatchers.IO) { Updater.cachedApk(ctx, r.channel, r.versionName, r.sha256) }
             if (cached != null) {
+                onReady?.invoke()
                 installApk(ctx, cached)
                 return@launch
             }
@@ -331,6 +333,7 @@ fun App() {
             if (f != null) {
                 // 装包留在下载目录: 用户取消安装或没给授权时, 重开页面直接「立即安装」
                 cachedApks = cachedApks + (r.channel to r.versionName)
+                onReady?.invoke()
                 installApk(ctx, f)
             } else {
                 // 镜像可能中途挂了: 清掉缓存让下次更新重新测速
@@ -355,18 +358,20 @@ fun App() {
                     runCatching { Releases.fetchLatest(ctx, UpdateChannels.source(ctx), Channels.current(ctx)) }.getOrNull()
                 }?.takeIf { Releases.relation(it) > 0 }
                 latestKnown = latest
-                // 「更新提醒」开启时分流: 修复类更新 → 进弹窗队列 (最高优先级); 普通更新 → 系统通知栏;
-                // 点取消跳过的版本不再提醒, 出现更高版本时重新提醒 (设置页可总开关)
+                // 更新分流 (设置页「更新提醒」开关):
+                // 通知栏 = 后台侧提醒, 文案带版本性质 (强制/修复/普通), 划掉即跳过该版本;
+                // 弹窗 = 进入软件检查到新版本一律弹 (force 时无视开关且不可取消), 已下载直接「立即安装」。
+                // 2 秒内重复触发去重, 单飞防并发重叠
                 val queue = mutableListOf<PendingDialog>()
-                if (Prefs.autoUpdateOn(ctx)) {
-                    val eligible = latest?.takeIf { it.versionName != Prefs.updateDismissedVersion(ctx) }
-                    when {
-                        eligible == null -> UpdateNotifier.cancel(ctx)
-                        eligible.isBugfixUpdate() -> queue += PendingDialog.BugfixUpdate(eligible)
-                        else -> UpdateNotifier.notifyAvailable(ctx, eligible)
+                val eligible = latest?.takeIf { it.force || it.versionName != Prefs.updateDismissedVersion(ctx) }
+                when {
+                    eligible == null -> UpdateNotifier.cancel(ctx)
+                    else -> {
+                        val autoOn = Prefs.autoUpdateOn(ctx)
+                        if (autoOn) UpdateNotifier.notifyAvailable(ctx, eligible)
+                        if (autoOn || eligible.force) queue += PendingDialog.UpdateOffer(eligible)
+                        if (!autoOn) UpdateNotifier.cancel(ctx)   // 通知被关: 收掉历史通知, 弹窗只留 force
                     }
-                } else {
-                    UpdateNotifier.cancel(ctx)
                 }
                 // 远程通知: 全部命中排期/定向/去重的都进队列 (critical 在前, 同级按文件顺序)
                 val notices = withContext(Dispatchers.IO) { RemoteNotices.fetch(ctx) }
@@ -385,6 +390,8 @@ fun App() {
         withContext(Dispatchers.IO) {
             if (Repo.dataset == null) Repo.load(ctx)
             PersonalRepo.load(ctx)
+            // 启动清理过期安装包: 装完/过期的 APK 留在下载目录会让版本页误亮「立即安装」
+            Updater.pruneApks(ctx, BuildVersion.DISPLAY)
         }
         ready = true
         // 启动时就拿通知权限 (13+ 无权限时通知被静默丢弃)
@@ -838,6 +845,23 @@ fun App() {
                     showMore = false
                     showDev = true
                 },
+                onDevModeChange = { v ->
+                    Prefs.setDevMode(ctx, v)
+                    devMode = v
+                    if (v) {
+                        DebugLog.log("dev", "开发者模式已开启 (更多面板开关)")
+                        Toast.makeText(ctx, "开发者模式已开启", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // 关闭即彻底失效: 临时版本覆盖一并清掉, 按真实版本重新复查更新
+                        if (BuildVersion.displayOverride != null || BuildVersion.codeOverride != null) {
+                            BuildVersion.displayOverride = null
+                            BuildVersion.codeOverride = null
+                            checkUpdatesAndNotice()
+                        }
+                        DebugLog.log("dev", "开发者模式已关闭 (更多面板开关, 开发者选项全部失效)")
+                        Toast.makeText(ctx, "开发者模式已关闭", Toast.LENGTH_SHORT).show()
+                    }
+                },
                 onDismiss = { showMore = false },
                 onOpenAbout = {
                     showMore = false
@@ -925,6 +949,30 @@ fun App() {
                     ReminderScheduler.scheduleTestRing(ctx)
                     Toast.makeText(ctx, "已排测试响铃，10 秒后应全屏响铃（可锁屏验证）", Toast.LENGTH_SHORT).show()
                 },
+                onTestUpdateNotify = {
+                    Toast.makeText(ctx, "已排测试更新通知，10 秒后发出（固定测试数据）", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        kotlinx.coroutines.delay(10_000)
+                        com.ccsut.kb.UpdateNotifier.notifyAvailable(ctx, com.ccsut.kb.ui.devTestRelease())
+                        DebugLog.log("dev", "测试更新通知已发 (v9.9.9-test)")
+                    }
+                },
+                onTestUpdateDialog = {
+                    Toast.makeText(ctx, "已排测试更新弹窗，10 秒后排队（回到课表主界面弹出）", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        kotlinx.coroutines.delay(10_000)
+                        dialogQueue = (dialogQueue + PendingDialog.UpdateOffer(com.ccsut.kb.ui.devTestRelease()))
+                            .distinctBy { it.key }
+                        DebugLog.log("dev", "测试更新弹窗已排队 (v9.9.9-test)")
+                    }
+                },
+                onVersionOverride = { name, code ->
+                    BuildVersion.displayOverride = name
+                    BuildVersion.codeOverride = code
+                    DebugLog.log("dev", "临时版本 → v${BuildVersion.DISPLAY} (code=${BuildVersion.EFFECTIVE_CODE})")
+                    // 立即按新版本基准复查: 真实的更新通知与弹窗会按线上数据触发
+                    checkUpdatesAndNotice()
+                },
                 onReloadData = {
                     scope.launch {
                         withContext(Dispatchers.IO) { Repo.load(ctx) }
@@ -1005,7 +1053,7 @@ fun App() {
             )
         }
 
-        // ---- 弹窗队列: 修复类更新 > critical 通知 > 普通通知, 一次只弹一个, 处理完自动弹下一个 ----
+        // ---- 弹窗队列: 更新提醒 > critical 通知 > 普通通知, 一次只弹一个, 处理完自动弹下一个 ----
         // 只在课表主界面空闲时插入: 引导页/选班页/设置与关于等面板/登录/课程编辑流程中不弹。
         // 检查照常进行, 待弹条目留在队列里, 用户回到课表界面后自动出现。
         val mainIdle = !showWelcome && !screenChoose && !showMore && !showAbout && !showDev &&
@@ -1018,18 +1066,20 @@ fun App() {
                 if (item is PendingDialog.Remote && item.notice.once) RemoteNotices.markSeen(ctx, item.notice.id)
             }
             when (item) {
-                is PendingDialog.BugfixUpdate -> NoticeDialog(
-                    title = "发现问题修复更新",
-                    message = "新版本 v${item.release.versionName} 修复了已知问题，建议尽快更新。",
-                    critical = true,
-                    confirmText = "去更新",
-                    dismissText = null,
-                    onConfirm = {
-                        finish()
-                        showUpdate = true
-                        if (releases == null && !releasesLoading) loadReleases()
+                is PendingDialog.UpdateOffer -> com.ccsut.kb.ui.UpdateOfferDialog(
+                    release = item.release,
+                    downloading = downloadingVer,
+                    progress = apkProgress,
+                    // 立即更新/立即安装统一走 startDownload (内部自带缓存命中直装); 安装意图发出后收掉弹窗。
+                    // 测试数据 (fileUrl 为空) 不会真实下载, 点按钮只提示
+                    onInstall = {
+                        if (item.release.fileUrl == null) {
+                            Toast.makeText(ctx, "测试数据没有真实安装包，仅供预览", Toast.LENGTH_SHORT).show()
+                        } else {
+                            startDownload(item.release) { finish() }
+                        }
                     },
-                    onDismiss = null,
+                    onCancel = { finish() },
                 )
                 is PendingDialog.Remote -> NoticeDialog(
                     title = item.notice.title,
@@ -1084,10 +1134,10 @@ sealed interface PendingDialog {
     val key: String
     val priority: Int
 
-    /** 修复类更新: 阻断弹窗, 优先级最高 */
-    data class BugfixUpdate(val release: ReleaseInfo) : PendingDialog {
+    /** 更新提醒弹窗: 进入软件检查到新版本一律弹; force (强制更新) 优先级最高且不可取消 */
+    data class UpdateOffer(val release: ReleaseInfo) : PendingDialog {
         override val key: String = "update:${release.versionName}"
-        override val priority: Int = 30
+        override val priority: Int = if (release.force) 40 else 30
     }
 
     /** 远程通知: critical 在普通通知之前, 同优先级保持文件里给的顺序 */

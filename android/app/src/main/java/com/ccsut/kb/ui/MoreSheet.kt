@@ -140,6 +140,7 @@ fun MoreSheet(
     onRefreshPersonal: () -> Unit,
     onLogoutPersonal: () -> Unit,
     onOpenDev: () -> Unit,
+    onDevModeChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onOpenAbout: () -> Unit,
 ) {
@@ -614,15 +615,16 @@ fun MoreSheet(
                 )
             }
 
-            // ---- 开发者模式入口 ----
+            // ---- 开发者模式入口: 仅开启时显示, 关闭后整块隐藏, 如同从未开启 ----
             if (devMode) {
                 SectionHeader("开发者")
                 SettingCard {
                     SettingRow(
                         icon = Icons.Rounded.BugReport,
                         title = "开发者模式",
-                        subtitle = "时间旅行 · 测试通知 · 日志与诊断",
-                        trailing = { RowTrailing() },
+                        subtitle = "时间旅行 · 测试通知 · 日志与诊断 · 点行进入面板",
+                        trailing = { KbSwitch(checked = devMode, onCheckedChange = onDevModeChange) },
+                        // 行主体进面板; 拨开关即整体关闭 (临时版本等开发者选项一并失效)
                         onClick = onOpenDev,
                     )
                 }

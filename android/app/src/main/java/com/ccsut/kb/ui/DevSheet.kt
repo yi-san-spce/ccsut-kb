@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.ccsut.kb.Prefs
+import com.ccsut.kb.data.BuildVersion
 import com.ccsut.kb.data.ClassCache
 import com.ccsut.kb.data.Dataset
 import com.ccsut.kb.data.Repo
@@ -57,7 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 
 /**
- * 开发者模式面板。结构固定八段: 状态速览 → 时间旅行 → 即时操作 → 调试入口 → 更新通道 → 日志 → 诊断 → 危险区。
+ * 开发者模式面板。结构固定九段: 状态速览 → 时间旅行 → 即时操作 → 页面预览 → 调试入口 → 更新通道 → 日志 → 诊断 → 危险区。
  * 速览一律 [DetailRow] (label 固定 + value 折行省略), 操作一律 [DevActionRow], 新增调试项先找对应分组再加。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -75,6 +76,9 @@ fun DevSheet(
     onTestNotification: () -> Unit,
     onTestAlarm: () -> Unit,
     onTestRing: () -> Unit,
+    onTestUpdateNotify: () -> Unit,
+    onTestUpdateDialog: () -> Unit,
+    onVersionOverride: (String?, Int?) -> Unit,
     onReloadData: () -> Unit,
     onMockApkUpdate: () -> Unit,
     onToggleTimetable: () -> Unit,
@@ -90,6 +94,9 @@ fun DevSheet(
     var fetchingManifest by remember { mutableStateOf(false) }
     var confirmPersonal by remember { mutableStateOf(false) }
     var confirmFull by remember { mutableStateOf(false) }
+    // 页面预览: null=关闭; Boolean 为形态选择 (更新弹窗=是否强制 / 通知弹窗=是否阻断)
+    var previewUpdateForce by remember { mutableStateOf<Boolean?>(null) }
+    var previewNoticeCritical by remember { mutableStateOf<Boolean?>(null) }
 
     val snap = remember(tick) { runCatching { ClassCache.load(ctx) }.getOrNull() }
     val snapFile = remember(tick) { ctx.getFileStreamPath("class_cache.json") }
@@ -139,6 +146,31 @@ fun DevSheet(
         )
     }
 
+    // ---- 页面预览弹窗 (固定测试数据, 与线上数据无关) ----
+    previewUpdateForce?.let { force ->
+        UpdateOfferDialog(
+            release = devTestRelease(force),
+            downloading = null,
+            progress = null,
+            onInstall = {
+                previewUpdateForce = null
+                Toast.makeText(ctx, "测试数据没有真实安装包，仅供预览", Toast.LENGTH_SHORT).show()
+            },
+            onCancel = { previewUpdateForce = null },
+        )
+    }
+    previewNoticeCritical?.let { critical ->
+        NoticeDialog(
+            title = if (critical) "【测试】阻断式通知" else "【测试】普通通知",
+            message = "这是固定测试数据的通知弹窗：预览标题、正文与按钮形态。实际通知弹窗由远程通知下发生成。",
+            confirmText = "知道了",
+            dismissText = if (critical) null else "先不",
+            critical = critical,
+            onConfirm = { previewNoticeCritical = null },
+            onDismiss = { previewNoticeCritical = null },
+        )
+    }
+
     val sheetScroll = rememberScrollState()
     KbSheet(onDismiss = onDismiss, title = "开发者模式") {
         Column(
@@ -151,36 +183,39 @@ fun DevSheet(
             // ---- 1. 状态速览 (只读, 全 DetailRow) ----
             SectionHeader("状态速览")
             SettingCard {
-                DetailRow(
-                    "数据",
-                    "v${dataset.version} · ${dataset.xnxq.ifBlank { "—" }} · ${dataset.classes.size} 个班 · " +
-                        if (Repo.fromUpdate) "在线更新" else "内置",
-                )
-                DetailRow("学期", "${dataset.startDate} 起 · ${dataset.weeks} 周")
-                DetailRow(
-                    "快照",
-                    snap?.let {
-                        "${it.bjmc} · ${it.courses.size} 条课" + if (snapFile.exists()) " · ${snapFile.length()}B" else ""
-                    } ?: "未选班级",
-                )
-                DetailRow("课表模式", if (personalActive) "个人课表" else "班级课表")
-                DetailRow(
-                    "个人课表",
-                    if (personalName.isNotBlank()) {
-                        personalName + (personalFile?.takeIf { it.exists() }?.let { " · 缓存 ${it.length()}B" } ?: "")
-                    } else "未登录",
-                )
-                DetailRow(
-                    "语义今天",
-                    "${KbClock.fmt(KbClock.today())} · 第${Weeks.currentWeek(dataset, KbClock.today())}周" +
-                        if (offset != 0) "（偏移 $offset 天）" else "",
-                )
-                DetailRow(
-                    "提醒",
-                    "下次 " + (if (nextReminderAt > 0) fmtTime(nextReminderAt) else "未安排") +
-                        " · 精确闹钟${if (exactOk) "✓" else "✗"} · 通知${if (notifOk) "✓" else "✗"}",
-                )
-                DetailRow("小组件", "$widgetCount 个已添加")
+                // DetailRow 本身无水平边距 (CourseDetailSheet 卡片自带), 这里补齐与 SettingRow 相同的 14dp
+                Column(Modifier.padding(horizontal = 14.dp).padding(top = 6.dp, bottom = 10.dp)) {
+                    DetailRow(
+                        "数据",
+                        "v${dataset.version} · ${dataset.xnxq.ifBlank { "—" }} · ${dataset.classes.size} 个班 · " +
+                            if (Repo.fromUpdate) "在线更新" else "内置",
+                    )
+                    DetailRow("学期", "${dataset.startDate} 起 · ${dataset.weeks} 周")
+                    DetailRow(
+                        "快照",
+                        snap?.let {
+                            "${it.bjmc} · ${it.courses.size} 条课" + if (snapFile.exists()) " · ${snapFile.length()}B" else ""
+                        } ?: "未选班级",
+                    )
+                    DetailRow("课表模式", if (personalActive) "个人课表" else "班级课表")
+                    DetailRow(
+                        "个人课表",
+                        if (personalName.isNotBlank()) {
+                            personalName + (personalFile?.takeIf { it.exists() }?.let { " · 缓存 ${it.length()}B" } ?: "")
+                        } else "未登录",
+                    )
+                    DetailRow(
+                        "语义今天",
+                        "${KbClock.fmt(KbClock.today())} · 第${Weeks.currentWeek(dataset, KbClock.today())}周" +
+                            if (offset != 0) "（偏移 $offset 天）" else "",
+                    )
+                    DetailRow(
+                        "提醒",
+                        "下次 " + (if (nextReminderAt > 0) fmtTime(nextReminderAt) else "未安排") +
+                            " · 精确闹钟${if (exactOk) "✓" else "✗"} · 通知${if (notifOk) "✓" else "✗"}",
+                    )
+                    DetailRow("小组件", "$widgetCount 个已添加")
+                }
             }
 
             // ---- 2. 时间旅行 ----
@@ -221,8 +256,27 @@ fun DevSheet(
                 DevActionRow("发送测试通知", "验证渠道 / 图标 / 权限") { onTestNotification(); tick++ }
                 DevActionRow("10 秒后测试闹钟", "验证 闹钟→接收器→通知 全链路") { onTestAlarm(); tick++ }
                 DevActionRow("10 秒测试响铃", "验证 闹钟→全屏响铃页 链路（闹钟模式）") { onTestRing(); tick++ }
+                DevActionRow("10 秒后测试更新通知", "固定测试数据 · 验证通知的更新/修复性质文案") { onTestUpdateNotify(); tick++ }
+                DevActionRow("10 秒后测试更新弹窗", "固定测试数据 · 回到课表主界面后弹出") { onTestUpdateDialog(); tick++ }
                 DevActionRow("重载数据", "重新解析内置 / 已下载的数据集") { onReloadData(); tick++ }
                 DevActionRow("模拟软件更新页", "预览版本历史页 UI（模拟下载必然失败）") { onMockApkUpdate(); tick++ }
+            }
+
+            // ---- 3.5 页面预览 (固定测试数据, 立即弹出, 关闭即走) ----
+            SectionHeader("页面预览")
+            SettingCard {
+                DevActionRow("更新弹窗（普通）", "测试数据 v9.9.9-test · 带取消按钮") {
+                    previewUpdateForce = false; tick++
+                }
+                DevActionRow("更新弹窗（强制更新）", "测试数据 · 无取消按钮，点外部不关闭") {
+                    previewUpdateForce = true; tick++
+                }
+                DevActionRow("通知弹窗（普通）", "测试数据 · 主/次双按钮") {
+                    previewNoticeCritical = false; tick++
+                }
+                DevActionRow("通知弹窗（阻断）", "测试数据 · 只有关闭按钮") {
+                    previewNoticeCritical = true; tick++
+                }
             }
 
             // ---- 4. 调试入口 ----
@@ -239,6 +293,37 @@ fun DevSheet(
             // ---- 5. 更新通道 ----
             SectionHeader("更新通道")
             SettingCard {
+                // 临时软件版本: 只改内存里的比较基准, 不落盘, 重启还原。
+                // 改低版本号后下一次检查会把线上真实新版本判为可更新, 看到真实的通知与更新弹窗。
+                SettingRow(
+                    title = "临时软件版本",
+                    subtitle = if (BuildVersion.displayOverride != null) {
+                        "已临时改为 v${BuildVersion.DISPLAY}（仅本次启动，回到课表主界面生效）"
+                    } else {
+                        "临时改低版本号，可看到针对线上真实版本的通知与更新弹窗（重启还原）"
+                    },
+                    subtitleColor = if (BuildVersion.displayOverride != null) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                SingleChoiceSegmentedButtonRow(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                ) {
+                    val presets = listOf("还原" to (null as String?), "1.0.2" to "1.0.2", "1.0.3" to "1.0.3")
+                    presets.forEachIndexed { i, (label, name) ->
+                        SegmentedButton(
+                            selected = BuildVersion.displayOverride == name,
+                            onClick = {
+                                // 版本号配套编译期对应值: 1.0.2→42, 1.0.3→43 (relationTo 优先比 versionCode)
+                                val code = when (name) { "1.0.2" -> 42; "1.0.3" -> 43; else -> null }
+                                onVersionOverride(name, code)
+                                tick++
+                            },
+                            shape = SegmentedButtonDefaults.itemShape(i, presets.size),
+                        ) { Text(label, fontSize = 12.sp) }
+                    }
+                }
                 var ignoreVersion by remember { mutableStateOf(Prefs.devIgnoreVersion(ctx)) }
                 SettingRow(
                     title = "无视版本安装",
