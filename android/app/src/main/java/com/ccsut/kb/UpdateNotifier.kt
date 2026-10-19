@@ -15,7 +15,8 @@ import com.ccsut.kb.util.DebugLog
 
 /**
  * 软件更新的系统消息通知。展示形态分流 (见 MainActivity.checkUpdatesAndNotice):
- * 修复类更新 → 应用内阻断弹窗强提醒; 普通/功能更新 → 这里, 通知栏静默常驻。
+ * 进入软件检查到新版本一律弹应用内更新弹窗; 这里负责后台侧的提醒 ——
+ * 通知文案带版本性质: 强制更新 / 修复类 (说明带「修复」小节) / 普通功能更新。
  * 点按进软件更新页; 划掉通知 = 跳过该版本 (UpdateDismissReceiver 记录), 出现更高版本时重新提醒。
  */
 object UpdateNotifier {
@@ -60,11 +61,16 @@ object UpdateNotifier {
         )
         val first = r.sections.firstOrNull()?.items?.firstOrNull().orEmpty().ifBlank { "点按查看更新内容并安装" }
         val text = "v${r.versionName}：$first"
+        val title = when {
+            r.force -> "新版本 v${r.versionName} · 需要更新"
+            r.isBugfixUpdate() -> "发现修复更新 v${r.versionName}"
+            else -> "发现新版本 v${r.versionName}"
+        }
         nm.notify(
             NOTIFY_ID,
             NotificationCompat.Builder(ctx, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_bell)
-                .setContentTitle("发现新版本 v${r.versionName}")
+                .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)

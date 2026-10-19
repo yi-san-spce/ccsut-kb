@@ -145,6 +145,26 @@ object Updater {
         return dest
     }
 
+    /**
+     * 启动清理: 删除不比当前安装版本新的缓存安装包。
+     * 装完的包与过期的旧包留在 cache/apk 里, 会让版本页把旧版本误亮成「立即安装」;
+     * 这里按文件名里的版本与当前安装版本比较, <= 当前的一律删 (当前版本的重装可重新下载)。
+     */
+    fun pruneApks(ctx: Context, currentVersionName: String) {
+        val dir = File(ctx.cacheDir, "apk")
+        for (f in dir.listFiles() ?: return) {
+            // 文件名规则见 [apkFileName]: ccsut-kb-{通道}-{版本名}.apk; 版本段以数字开头,
+            // 贪婪回溯后通道/版本边界唯一 (版本名自身可含 -beta.N 等后缀)
+            val m = Regex("^ccsut-kb-[A-Za-z0-9._-]+-([0-9][A-Za-z0-9._-]*)\\.apk$").find(f.name)
+                ?: continue
+            val version = m.groupValues[1]
+            if (Releases.compareVersion(version, currentVersionName) <= 0) {
+                f.delete()
+                com.ccsut.kb.util.DebugLog.log("update", "清理过期安装包: ${f.name}")
+            }
+        }
+    }
+
     // ---- 工具 ----
 
     /** internal 仅为单测可及; 清单字段缺失时给默认值, 不抛格式异常 (格式异常由调用方兜) */
@@ -229,6 +249,13 @@ object BuildVersion {
     const val CODE = 43
     const val NAME = "1.0.3"
 
-    /** 展示与版本比较用: release 构建原样用 NAME, debug 构建 (开发者版) 自动挂 -dev */
-    val DISPLAY: String get() = if (BuildConfig.DEBUG) "$NAME-dev" else NAME
+    /** DevSheet「临时版本」覆盖: 只影响更新比较与展示, 仅本进程有效, 重启或「还原」即失效 */
+    var displayOverride: String? = null
+    var codeOverride: Int? = null
+
+    /** 展示与版本比较用: release 构建原样用 NAME, debug 构建 (开发者版) 自动挂 -dev; 可被临时版本覆盖 */
+    val DISPLAY: String get() = displayOverride ?: if (BuildConfig.DEBUG) "$NAME-dev" else NAME
+
+    /** 更新比较用的版本号 (受临时版本覆盖; 编译期常量之外的唯一可变口子) */
+    val EFFECTIVE_CODE: Int get() = codeOverride ?: CODE
 }

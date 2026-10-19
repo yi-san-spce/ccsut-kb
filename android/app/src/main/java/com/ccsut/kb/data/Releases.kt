@@ -133,6 +133,7 @@ data class ReleaseInfo(
     val downloadCount: Long? = null, // GitHub Releases 资产下载量 (发布时快照 / API 实时)
     val channel: String = Channels.TAG_STABLE,
     val sections: List<NoteSection> = emptyList(),
+    val force: Boolean = false,      // 强制更新: 弹窗不可取消 (publish.sh --force 写入 versions.json / Release 正文标记)
 )
 
 object Releases {
@@ -304,9 +305,9 @@ object Releases {
             downloadCount = v.optLong("downloads").takeIf { it > 0 },
             channel = channel,
             sections = sections ?: emptyList(),
+            force = v.optBoolean("force", false),
         )
     }
-
     private fun parseSectionsJson(arr: JSONArray): List<NoteSection>? {
         val out = (0 until arr.length()).mapNotNull { i ->
             val s = arr.getJSONObject(i)
@@ -340,6 +341,8 @@ object Releases {
             downloadCount = asset?.optLong("download_count")?.takeIf { it > 0 },
             channel = Channels.ofVersion(name),
             sections = parseMarkdownSections(o.optString("body")),
+            // 强制更新标记: publish.sh --force 在 Release 正文尾部埋 HTML 注释 (页面不显示, 这里识别)
+            force = o.optString("body").contains("<!-- kb-force"),
         )
     }
 
@@ -385,8 +388,8 @@ object Releases {
     private fun mainVersion(v: String): String =
         Regex("^\\d+(?:\\.\\d+)*").find(v.trim().removePrefix("v").removePrefix("V"))?.value ?: "0"
 
-    /** 与当前安装版本比较 (见 [relationTo]); 版本名/版本号来自编译期 BuildVersion */
-    fun relation(r: ReleaseInfo): Int = relationTo(r, BuildVersion.DISPLAY, BuildVersion.CODE)
+    /** 与当前安装版本比较 (见 [relationTo]); 版本名/版本号来自 BuildVersion (开发者「临时版本」可覆盖) */
+    fun relation(r: ReleaseInfo): Int = relationTo(r, BuildVersion.DISPLAY, BuildVersion.EFFECTIVE_CODE)
 
     /**
      * 与当前安装版本比较: 1=更高(可更新) 0=同一版本 -1=更低(可回退)。
@@ -449,6 +452,7 @@ object Releases {
                 return@forEach
             }
             if (line.startsWith("#")) return@forEach                  // 异常井号行, 保守跳过
+            if (line.startsWith("<!--")) return@forEach              // HTML 注释 (如强制更新标记), 不入说明条目
             if (line.startsWith("![") && line.contains("](")) return@forEach   // 图片
             var s = line.removePrefix(">").trim()                     // 引用块标记 (release-notes 摘要行)
             if (s.isEmpty()) return@forEach

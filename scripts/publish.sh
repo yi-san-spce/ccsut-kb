@@ -21,6 +21,8 @@
 #   scripts/publish.sh                                          # 抓取 + 发布稳定版数据
 #   scripts/publish.sh --skip                                   # 不重新抓取, 发布现有数据集
 #   scripts/publish.sh --skip --apk dist/ccsut-kb-1.0.1-stable.apk  # 稳定版连 APK 一起发布 (versionName 须为 X.Y.Z-stable)
+#   scripts/publish.sh --skip --apk <apk> --force               # 强制更新: versions.json 条目带 force=true,
+#                                                              # Release 正文埋 <!-- kb-force --> 标记 (老版本 App 忽略)
 #   scripts/publish.sh --skip --pre  --apk <apk>                # 抢先版发布 (APK versionName 须为 X.Y.Z-pre.YYYYMMDD)
 #   scripts/publish.sh --skip --beta --apk <apk>                # 内测版发布 (APK versionName 须为 X.Y.Z-beta.N)
 # 版本类后缀 (App 内 Channels 约定, 全英文): 稳定 X.Y.Z-stable / 抢先 X.Y.Z-pre.YYYYMMDD / 内测 X.Y.Z-beta.N;
@@ -39,12 +41,14 @@ SKIP_SCRAPE=""
 APK_PATH=""
 ALLOW_DIRTY=""
 PRERELEASE=""
+FORCE=""
 KIND=stable
 while [ $# -gt 0 ]; do
   case "$1" in
     --skip) SKIP_SCRAPE=1 ;;
     --apk)  APK_PATH="$2"; shift ;;
     --allow-dirty) ALLOW_DIRTY=1 ;;
+    --force) FORCE=1 ;;
     --beta) PRERELEASE=1; KIND=beta ;;
     --pre)  PRERELEASE=1; KIND=preview ;;
     *) echo "未知参数: $1"; exit 1 ;;
@@ -174,6 +178,8 @@ PYEOF
   else
     echo "长工课表通 $TAG" > "$BODY"
   fi
+  # --force: 正文尾部埋 HTML 注释标记, 官方直连模式 (Releases API 读 body) 由此识别强制更新; 页面不渲染
+  [ -n "$FORCE" ] && printf '\n<!-- kb-force: %s -->\n' "$TAG" >> "$BODY"
 
   PRE_INDEX_ARGS=""
   if [ "$KIND" = preview ]; then
@@ -181,9 +187,10 @@ PYEOF
     # 回填到最新稳定 Release, 让 releases/latest/download/versions-preview.json 始终最新
     curl -m 15 -sL "https://github.com/$GH_SLUG/releases/latest/download/versions.json" -o "$DIST/stable-snapshot.json" || true
     curl -m 15 -sL "https://github.com/$GH_SLUG/releases/latest/download/versions-preview.json" -o "$DIST/prev-preview.json" || true
-    python3 - "$DIST/stable-snapshot.json" "$DIST/prev-preview.json" "$DIST/notes.json" "$DIST/versions-preview.json" "$VNAME" "$VCODE" "$APK_NAME" "$APK_SHA" "$APK_SIZE" <<'PYEOF'
+    python3 - "$DIST/stable-snapshot.json" "$DIST/prev-preview.json" "$DIST/notes.json" "$DIST/versions-preview.json" "$VNAME" "$VCODE" "$APK_NAME" "$APK_SHA" "$APK_SIZE" "${FORCE:-0}" <<'PYEOF'
 import json, sys, os, datetime
 stable_path, prev_path, notes_path, out_path, vname, vcode, name, sha, size = sys.argv[1:10]
+force = sys.argv[10] == "1"
 vcode, size = int(vcode), int(size)
 def load(p, key):
     try:
@@ -205,6 +212,8 @@ new_entry = {
     "file": name, "sha256": sha, "bytes": size, "channel": "preview",
     "sections": load(notes_path, "sections"), "notes": load(notes_path, "notes"),
 }
+if force:
+    new_entry["force"] = True
 entries = sorted([new_entry] + pre + stable, key=lambda e: e.get("versionCode") or 0, reverse=True)
 json.dump({"versions": entries}, open(out_path, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
 print(f"versions-preview.json 已更新: 稳定 {len(stable)} + 抢先 {len(pre) + 1}")
@@ -229,11 +238,12 @@ PYEOF
     fi
   else
     # 内测: 打印可直接粘贴进团队内测清单 (versions-beta.json) 的条目
-    python3 - "$VNAME" "$VCODE" "$APK_NAME" "$APK_SHA" "$APK_SIZE" "$DIST/notes.json" <<'PYEOF'
+    python3 - "$VNAME" "$VCODE" "$APK_NAME" "$APK_SHA" "$APK_SIZE" "$DIST/notes.json" "${FORCE:-0}" <<'PYEOF'
 import json, sys, datetime
 vname, vcode, name = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 sha, size = sys.argv[4], int(sys.argv[5])
 meta = json.load(open(sys.argv[6], encoding="utf-8"))
+force = sys.argv[7] == "1"
 entry = {
     "versionCode": vcode, "versionName": vname,
     "date": datetime.date.today().isoformat(),
@@ -241,6 +251,8 @@ entry = {
     "sections": meta.get("sections") or [], "notes": meta.get("notes") or [],
     "fileUrl": f"https://github.com/yi-san-spce/ccsut-kb/releases/download/v{vname}/{name}",
 }
+if force:
+    entry["force"] = True
 print("把下面这条 JSON 追加到内测清单 versions-beta.json 的 versions 数组最前 (发到团队内测群里):")
 print(json.dumps(entry, ensure_ascii=False))
 print(f"内测版直链: https://github.com/yi-san-spce/ccsut-kb/releases/download/v{vname}/{name}")
@@ -326,10 +338,11 @@ if [ -n "$APK_NAME" ]; then
   cp "$DIST/$APK_NAME" "$TMP/"
   # versions.json: 稳定版全量索引 (App 稳定/抢先通道与官方兜底的数据源), 新条目插最前, 保留最近 30 个
   # 同时写入: mirrors = App 远程镜像清单; downloads = 各版本 GitHub 资产下载量快照 (gh api 逐版查询, 尽力而为)
-  python3 - "$TMP/versions.json" "$DIST/latest.json" "$VCODE" "$VNAME" "$APK_NAME" "$APK_SHA" "$APK_SIZE" "$(date +%F)" "$GH_MIRRORS" "$GH_SLUG" <<'PYEOF'
+  python3 - "$TMP/versions.json" "$DIST/latest.json" "$VCODE" "$VNAME" "$APK_NAME" "$APK_SHA" "$APK_SIZE" "$(date +%F)" "$GH_MIRRORS" "$GH_SLUG" "${FORCE:-0}" <<'PYEOF'
 import json, sys, os
 versions_path, latest_path, vcode, vname, name, sha, size, date = sys.argv[1:9]
 mirrors, gh_slug = sys.argv[9].split(), sys.argv[10]
+force = sys.argv[11] == "1"
 vcode, size = int(vcode), int(size)
 
 def downloads_of(vn):
@@ -353,12 +366,15 @@ if os.path.exists(versions_path):
         prev = {"versions": []}
 apk = json.load(open(latest_path, encoding="utf-8")).get("apk") or {}
 entries = [e for e in (prev.get("versions") or []) if e.get("versionName") != vname]
-entries.insert(0, {
+new_entry = {
     "versionCode": vcode, "versionName": vname, "date": date,
     "file": name, "sha256": sha, "bytes": size,
     "sections": apk.get("sections") or [],
     "notes": apk.get("notes") or [],
-})
+}
+if force:
+    new_entry["force"] = True
+entries.insert(0, new_entry)
 entries.sort(key=lambda e: e.get("versionCode") or 0, reverse=True)
 entries = entries[:30]
 for e in entries:
@@ -417,6 +433,8 @@ if [ -n "$APK_NAME" ] && [ -n "$VNAME" ]; then
     else
       echo "长工课表通 $TAG" > "$BODY"
     fi
+    # --force: 正文尾部埋 HTML 注释标记, 官方直连模式 (Releases API 读 body) 由此识别强制更新; 页面不渲染
+    [ -n "$FORCE" ] && printf '\n<!-- kb-force: %s -->\n' "$TAG" >> "$BODY"
     PRE_INDEX_ARGS=""
     [ -f "$DIST/versions-preview.json" ] && PRE_INDEX_ARGS="$DIST/versions-preview.json"
     if gh release create "$TAG" "$DIST/$APK_NAME" "$DIST/versions.json" $PRE_INDEX_ARGS -R "$GH_SLUG" \
