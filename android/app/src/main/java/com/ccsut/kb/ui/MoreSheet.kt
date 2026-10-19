@@ -134,6 +134,7 @@ fun MoreSheet(
     onAlarmModeChange: (Boolean) -> Unit,
     onSelectClass: () -> Unit,
     onResetClassEdits: () -> Unit,
+    onResetPersonalEdits: () -> Unit,
     onOpenPersonalLogin: () -> Unit,
     onSetTimetable: (Boolean) -> Unit,
     onRefreshPersonal: () -> Unit,
@@ -225,7 +226,8 @@ fun MoreSheet(
         ) {
             // 登录态 = 教务姓名非空; 当前课表卡与账号卡两处共用同一判定
             val personalLoggedIn = personalName.isNotBlank()
-            var showResetConfirm by remember { mutableStateOf(false) }
+            // 重置确认弹窗挂在哪种课表上: "class" / "personal", null=不弹
+            var resetConfirmFor by remember { mutableStateOf<String?>(null) }
 
             // ---- 当前课表 ----
             SectionHeader("当前课表")
@@ -261,7 +263,7 @@ fun MoreSheet(
                         title = "重置课表修改",
                         subtitle = "清除你在这份班级课表上的全部本地修改，恢复学校原课表",
                         trailing = { RowTrailing("重置") },
-                        onClick = { showResetConfirm = true },
+                        onClick = { resetConfirmFor = "class" },
                     )
                 } else {
                     SettingRow(
@@ -271,23 +273,35 @@ fun MoreSheet(
                         trailing = { RowTrailing("同步") },
                         onClick = onRefreshPersonal,
                     )
+                    // 与班级课表同一套重置: 拉取到的原课表只读, 本地修改是覆盖层, 重置即清空覆盖层
+                    SettingRow(
+                        icon = Icons.Rounded.RestartAlt,
+                        title = "重置课表修改",
+                        subtitle = "清除你在这份个人课表上的全部本地修改，恢复拉取时的原课表",
+                        trailing = { RowTrailing("重置") },
+                        onClick = { resetConfirmFor = "personal" },
+                    )
                 }
             }
 
-            // ---- 重置班级课表修改: 二次确认, 不可撤销 ----
-            if (showResetConfirm) {
+            // ---- 重置课表修改: 二次确认, 不可撤销 (班级/个人共用, 文案随目标切换) ----
+            resetConfirmFor?.let { target ->
+                val personal = target == "personal"
                 AlertDialog(
-                    onDismissRequest = { showResetConfirm = false },
+                    onDismissRequest = { resetConfirmFor = null },
                     title = { Text("重置课表修改") },
-                    text = { Text("会清除你在这份班级课表上的全部修改（移动、加课、删课、改色），恢复成学校原课表，之后找不回来。确定继续吗？") },
+                    text = { Text(
+                        if (personal) "会清除你在这份个人课表上的全部修改（移动、加课、删课、改色），恢复成拉取时的原课表，之后找不回来。确定继续吗？"
+                        else "会清除你在这份班级课表上的全部修改（移动、加课、删课、改色），恢复成学校原课表，之后找不回来。确定继续吗？"
+                    ) },
                     confirmButton = {
                         TextButton(onClick = {
-                            showResetConfirm = false
-                            onResetClassEdits()
+                            resetConfirmFor = null
+                            if (personal) onResetPersonalEdits() else onResetClassEdits()
                         }) { Text("重置", color = MaterialTheme.colorScheme.error) }
                     },
                     dismissButton = {
-                        TextButton(onClick = { showResetConfirm = false }) { Text("取消") }
+                        TextButton(onClick = { resetConfirmFor = null }) { Text("取消") }
                     },
                 )
             }

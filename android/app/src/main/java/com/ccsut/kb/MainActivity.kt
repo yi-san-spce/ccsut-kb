@@ -796,6 +796,11 @@ fun App() {
                         Toast.makeText(ctx, "班级课表修改已重置，已恢复学校原课表", Toast.LENGTH_SHORT).show()
                     }
                 },
+                onResetPersonalEdits = {
+                    showMore = false
+                    applyEdit { UserEdits.clearClass(ctx, PersonalRepo.PERSONAL_BJID) }
+                    Toast.makeText(ctx, "个人课表修改已重置，已恢复原课表", Toast.LENGTH_SHORT).show()
+                },
                 onOpenPersonalLogin = {
                     showMore = false
                     showLogin = true
