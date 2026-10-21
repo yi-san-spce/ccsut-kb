@@ -70,28 +70,44 @@ fun UpdateOfferDialog(
         title = { Text(dialogTitle(release)) },
         text = {
             Column {
-                // 更新说明: 绿色对勾条目 (与更新页同款), 条目多时默认只显示前两条, 可展开
+                // 更新说明: 与软件更新页同构 —— 小节标题 (更新了什么/修复了什么) + 绿色对勾条目;
+                // 条目超过 2 条时默认只显示前 2 条, 可展开看全
                 var notesExpanded by remember(release.versionName) { mutableStateOf(false) }
-                val allItems = release.sections.flatMap { it.items }
-                val items = if (notesExpanded) allItems else allItems.take(2)
-                if (items.isEmpty()) {
+                val totalItems = release.sections.sumOf { it.items.size }
+                if (release.sections.isEmpty()) {
                     Text("性能优化与问题修复。", fontSize = 14.sp, lineHeight = 20.sp)
                 } else {
-                    items.forEach { item ->
-                        Row(Modifier.padding(vertical = 2.dp)) {
-                            Icon(
-                                Icons.Rounded.CheckCircle,
-                                contentDescription = null,
-                                tint = CourseColors.successColor(CourseColors.isDark(cs)),
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .padding(top = 1.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(item, fontSize = 14.sp, lineHeight = 20.sp)
+                    var budget = if (notesExpanded) Int.MAX_VALUE else 2
+                    release.sections.forEach { sec ->
+                        val visible = sec.items.take(budget.coerceAtLeast(0))
+                        if (visible.isNotEmpty()) {
+                            sec.title?.let { t ->
+                                Text(
+                                    t,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = cs.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                                )
+                            }
+                            visible.forEach { item ->
+                                budget--
+                                Row(Modifier.padding(vertical = 2.dp)) {
+                                    Icon(
+                                        Icons.Rounded.CheckCircle,
+                                        contentDescription = null,
+                                        tint = CourseColors.successColor(CourseColors.isDark(cs)),
+                                        modifier = Modifier
+                                            .size(16.dp)
+                                            .padding(top = 1.dp),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(item, fontSize = 14.sp, lineHeight = 20.sp)
+                                }
+                            }
                         }
                     }
-                    if (allItems.size > 2) {
+                    if (totalItems > 2) {
                         Row(
                             Modifier
                                 .padding(top = 2.dp)
@@ -100,7 +116,7 @@ fun UpdateOfferDialog(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                if (notesExpanded) "收起" else "展开全部 ${allItems.size} 条",
+                                if (notesExpanded) "收起" else "展开全部 $totalItems 条",
                                 fontSize = 13.sp,
                                 color = cs.primary,
                             )
