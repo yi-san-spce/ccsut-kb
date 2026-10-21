@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -108,11 +109,12 @@ fun DemoShowcaseSheet(steps: List<DemoStep>, onDismiss: () -> Unit) {
         ) { i ->
             val s = steps[i]
             Column(
-                Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+                // 固定页高: 各步正文行数不同也不让弹层高度跳变
+                Modifier.fillMaxWidth().padding(horizontal = 6.dp).heightIn(min = 236.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 s.art()
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(18.dp))
                 Text(
                     s.title,
                     fontSize = 17.sp,
@@ -124,6 +126,7 @@ fun DemoShowcaseSheet(steps: List<DemoStep>, onDismiss: () -> Unit) {
                     s.body,
                     fontSize = 13.sp,
                     lineHeight = 20.sp,
+                    minLines = 3,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 10.dp),
                 )
@@ -272,7 +275,7 @@ private fun ArtUndo() {
     }
 }
 
-/** 步骤 3: 灰色虚线虚影 + 「已删除」角标 */
+/** 步骤 3: 灰色虚线虚影 (课名+教室齐全) + 右下角「已删除」角标 */
 @Composable
 private fun ArtGhost() {
     val cs = MaterialTheme.colorScheme
@@ -291,13 +294,17 @@ private fun ArtGhost() {
                     )
                     .padding(7.dp),
             ) {
-                Text("高等数学", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = cs.onSurfaceVariant)
+                Column(Modifier.align(Alignment.CenterStart)) {
+                    Text("高等数学", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = cs.onSurfaceVariant, maxLines = 1)
+                    Spacer(Modifier.height(2.dp))
+                    Text("7-南206", fontSize = 9.sp, color = cs.onSurfaceVariant.copy(alpha = 0.85f), maxLines = 1)
+                }
                 Text(
                     "已删除",
                     fontSize = 8.sp,
                     color = cs.background,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
+                        .align(Alignment.BottomEnd)
                         .background(cs.onSurfaceVariant.copy(alpha = 0.9f), RoundedCornerShape(5.dp))
                         .padding(horizontal = 3.dp),
                 )
@@ -337,13 +344,17 @@ private fun ArtDot() {
                         .border(1.dp, ghostLine(cs), RoundedCornerShape(10.dp))
                         .padding(7.dp),
                 ) {
-                    Text("复变函数", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = cs.onSurfaceVariant)
+                    Column(Modifier.align(Alignment.CenterStart)) {
+                        Text("复变函数", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = cs.onSurfaceVariant, maxLines = 1)
+                        Spacer(Modifier.height(2.dp))
+                        Text("7-南308", fontSize = 9.sp, color = cs.onSurfaceVariant.copy(alpha = 0.85f), maxLines = 1)
+                    }
                     Text(
                         "已移动",
                         fontSize = 8.sp,
                         color = cs.background,
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
+                            .align(Alignment.BottomEnd)
                             .background(cs.onSurfaceVariant.copy(alpha = 0.9f), RoundedCornerShape(5.dp))
                             .padding(horizontal = 3.dp),
                     )

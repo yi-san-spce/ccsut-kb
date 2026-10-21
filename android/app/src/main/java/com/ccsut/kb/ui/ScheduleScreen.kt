@@ -1190,13 +1190,14 @@ private fun DayColumn(
                     },
             ) {
                 BlockContent(gb.course.kc, gb.course.room, gLine)
+                // 角标放右下: 避开居中的课程名
                 Text(
                     if (g.kind == EditSession.GHOST_DELETED) "已删除" else "已移动",
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Medium,
                     color = cs.background,
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
+                        .align(Alignment.BottomEnd)
                         .padding(4.dp)
                         .background(gLine.copy(alpha = 0.9f), RoundedCornerShape(6.dp))
                         .padding(horizontal = 4.dp, vertical = 1.dp),
