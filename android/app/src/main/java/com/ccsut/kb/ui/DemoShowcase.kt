@@ -103,6 +103,8 @@ fun DemoShowcaseSheet(steps: List<DemoStep>, onDismiss: () -> Unit) {
     val last = page == steps.lastIndex
 
     KbSheet(onDismiss = onDismiss, title = if (steps.size == 1) "小提示" else "功能演示") {
+        // 标题与演示画布之间留出呼吸高度
+        Spacer(Modifier.height(10.dp))
         HorizontalPager(
             state = pager,
             modifier = Modifier.fillMaxWidth(),
@@ -110,7 +112,7 @@ fun DemoShowcaseSheet(steps: List<DemoStep>, onDismiss: () -> Unit) {
             val s = steps[i]
             Column(
                 // 固定页高: 各步正文行数不同也不让弹层高度跳变
-                Modifier.fillMaxWidth().padding(horizontal = 6.dp).heightIn(min = 236.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 6.dp).heightIn(min = 264.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 s.art()
@@ -174,14 +176,14 @@ fun DemoShowcaseSheet(steps: List<DemoStep>, onDismiss: () -> Unit) {
 
 // ---- 迷你示意图 (纯 Compose 绘制, 与 App 内真实样式同源) ----
 
-/** 演示画布: 圆角浅底, 统一高度 */
+/** 演示画布: 圆角浅底, 统一高度 (内容高 = 132 - 上下内边距 28 = 104dp, 容得下卡片+说明文字) */
 @Composable
 private fun DemoCanvas(content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
     val cs = MaterialTheme.colorScheme
     Row(
         Modifier
             .fillMaxWidth()
-            .height(104.dp)
+            .height(132.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(cs.surfaceVariant.copy(alpha = 0.45f))
             .padding(horizontal = 22.dp, vertical = 14.dp),
@@ -237,7 +239,7 @@ private fun ArtOverview() {
     }
 }
 
-/** 步骤 2: 顶栏右上角的回退按钮 + 更多按钮 */
+/** 步骤 2: 顶栏右上角的回退按钮 + 更多按钮 (不加指向箭头, 避免误读为「更多」变成「回退」) */
 @Composable
 private fun ArtUndo() {
     val cs = MaterialTheme.colorScheme
@@ -256,9 +258,7 @@ private fun ArtUndo() {
                         tint = cs.onSurfaceVariant, modifier = Modifier.size(20.dp),
                     )
                 }
-                Spacer(Modifier.width(8.dp))
-                Text("←", fontSize = 12.sp, color = cs.outline)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(10.dp))
                 Box(
                     Modifier
                         .size(40.dp)
@@ -270,7 +270,7 @@ private fun ArtUndo() {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("点按 = 回退一步 · 按住 = 还原全部", fontSize = 11.sp, color = cs.onSurfaceVariant)
+            Text("左边新增的是回退按钮 · 点按回退一步 / 按住还原全部", fontSize = 11.sp, color = cs.onSurfaceVariant)
         }
     }
 }
@@ -315,26 +315,14 @@ private fun ArtGhost() {
     }
 }
 
-/** 步骤 4: 带小圆点的修改卡 + 「已移动」虚影 */
+/** 步骤 4: 原位置「已移动」虚影 → 带小圆点的新位置卡片 */
 @Composable
 private fun ArtDot() {
     val cs = MaterialTheme.colorScheme
     DemoCanvas {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box {
-                    MiniCard("复变函数", "7-南308", cs.tertiaryContainer, cs.onTertiaryContainer)
-                    Box(
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(4.dp)
-                            .size(5.dp)
-                            .background(cs.onTertiaryContainer, CircleShape),
-                    )
-                }
-                Spacer(Modifier.width(14.dp))
-                Text("→", fontSize = 12.sp, color = cs.outline)
-                Spacer(Modifier.width(14.dp))
+                // 原位置: 灰色虚影
                 Box(
                     Modifier
                         .width(86.dp)
@@ -359,9 +347,23 @@ private fun ArtDot() {
                             .padding(horizontal = 3.dp),
                     )
                 }
+                Spacer(Modifier.width(14.dp))
+                Text("→", fontSize = 12.sp, color = cs.outline)
+                Spacer(Modifier.width(14.dp))
+                // 新位置: 带小圆点的正常卡片
+                Box {
+                    MiniCard("复变函数", "7-南308", cs.tertiaryContainer, cs.onTertiaryContainer)
+                    Box(
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(4.dp)
+                            .size(5.dp)
+                            .background(cs.onTertiaryContainer, CircleShape),
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
-            Text("小圆点 = 改过 · 时间周次改动留虚影", fontSize = 11.sp, color = cs.onSurfaceVariant)
+            Text("原位置留虚影 · 新卡片带小圆点", fontSize = 11.sp, color = cs.onSurfaceVariant)
         }
     }
 }
