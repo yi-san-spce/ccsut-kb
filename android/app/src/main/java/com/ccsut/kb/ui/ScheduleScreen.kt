@@ -23,7 +23,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.border
@@ -52,6 +54,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.ripple
@@ -74,12 +77,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -218,6 +225,13 @@ fun ScheduleScreen(
     onOpenMore: () -> Unit,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int, Int) -> Unit,   // (day, jc, week) —— week 供加课表单默认勾选当前周
+    // 编辑会话: 回退按钮 + 虚影 (由 MainActivity 持有状态, 这里只渲染)
+    undoVisible: Boolean = false,
+    undoCount: Int = 0,
+    onUndo: () -> Unit = {},
+    onUndoAll: () -> Unit = {},
+    ghosts: List<Ghost> = emptyList(),
+    onGhostRestore: (Ghost) -> Unit = {},
 ) {
     // 时间旅行: dbgOffset 变化时重取语义今天 (KbClock, 只平移日期);
     // 之后由下方 30 秒 ticker 自动跟进真实日期, 跨零点/跨周后顶栏日期、今日列高亮、今日横条不会停在昨天
@@ -315,6 +329,10 @@ fun ScheduleScreen(
                 showBackToCurrent = viewWeek != initialWeek,
                 onBackToCurrent = { scope.launch { pagerState.animateScrollToPage(initialWeek - 1) } },
                 onOpenMore = onOpenMore,
+                undoVisible = undoVisible,
+                undoCount = undoCount,
+                onUndo = onUndo,
+                onUndoAll = onUndoAll,
             )
         } else {
         // ---- 顶栏: 周次 + 日期 ----
@@ -398,6 +416,15 @@ fun ScheduleScreen(
                     }
                 }
             }
+            // 编辑会话回退按钮: 有可回退操作且在生存期内才出现, 点按回退一步, 长按震动还原全部
+            if (undoVisible && undoCount > 0) {
+                UndoButton(
+                    count = undoCount,
+                    onClick = onUndo,
+                    onLongClick = onUndoAll,
+                    modifier = Modifier.width(48.dp).height(48.dp),
+                )
+            }
             Box(
                 Modifier.width(48.dp).height(48.dp).clip(CircleShape).clickable(onClick = onOpenMore),
                 contentAlignment = Alignment.Center,
@@ -462,6 +489,8 @@ fun ScheduleScreen(
                 pagerState = pagerState,
                 onCourseClick = onCourseClick,
                 onAddAt = { d, j -> onAddAt(d, j, page + 1) },
+                ghosts = ghosts,
+                onGhostRestore = onGhostRestore,
             )
         }
         }
@@ -639,6 +668,10 @@ private fun CompactBar(
     showBackToCurrent: Boolean,
     onBackToCurrent: () -> Unit,
     onOpenMore: () -> Unit,
+    undoVisible: Boolean = false,
+    undoCount: Int = 0,
+    onUndo: () -> Unit = {},
+    onUndoAll: () -> Unit = {},
 ) {
     Row(
         // 横屏无玻璃, 状态栏 insets 自行消化
@@ -673,6 +706,14 @@ private fun CompactBar(
                 onClick = onBackToCurrent,
             )
         }
+        if (undoVisible && undoCount > 0) {
+            UndoButton(
+                count = undoCount,
+                onClick = onUndo,
+                onLongClick = onUndoAll,
+                modifier = Modifier.width(44.dp).height(44.dp),
+            )
+        }
         Box(
             Modifier.width(44.dp).height(44.dp).clip(CircleShape).clickable(onClick = onOpenMore),
             contentAlignment = Alignment.Center,
@@ -682,6 +723,50 @@ private fun CompactBar(
                 contentDescription = "更多",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+/** 顶栏回退按钮: 点按回退一步, 长按震动后还原全部; 角标显示可回退步数 (尺寸由调用方给定) */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun UndoButton(
+    count: Int,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier
+            .clip(CircleShape)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClickLabel = "还原全部修改",
+                onLongClick = onLongClick,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.AutoMirrored.Rounded.Undo,
+            contentDescription = "回退 $count 步修改，长按还原全部",
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        if (count > 1) {
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 6.dp, end = 4.dp)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "$count",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                )
+            }
         }
     }
 }
@@ -699,6 +784,8 @@ private fun WeekGrid(
     pagerState: PagerState,   // 组合期不读: 落场判定由 DayColumn 在协程里读 settledPage
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int) -> Unit,
+    ghosts: List<Ghost> = emptyList(),
+    onGhostRestore: (Ghost) -> Unit = {},
 ) {
     val todayDay = today.dayOfWeek.value
     val isCurrentWeek = week == initialWeek
@@ -707,6 +794,10 @@ private fun WeekGrid(
         // 色板按全学期课程排序分配, 不同课程必不同色 (小组件绑同一份 ClassCache 排序)
         CourseColors.bindOrder(cls.courses.map { CourseColors.seedOf(it.kc, it.fx) })
         Merger.blocksOf(cls.courses, week).groupBy { it.course.day }
+    }
+    // 本周仍处生存期的虚影, 按天分组 (原课块的周次区间覆盖到本周才显示)
+    val ghostsByDay = remember(ghosts, week) {
+        ghosts.filter { it.coversWeek(week) }.groupBy { it.block.course.day }
     }
 
     // 网格内字号放大封顶 1.15: 课程块 11sp、时间轴 10sp 在系统大字体下仍不撑爆行高/列宽,
@@ -892,6 +983,8 @@ private fun WeekGrid(
                                 blockAlpha = if (hasBg) 0.97f else 1f,
                                 week = week,
                                 pagerState = pagerState,
+                                ghosts = ghostsByDay[day].orEmpty(),
+                                onGhostRestore = onGhostRestore,
                                 modifier = Modifier.weight(1f).fillMaxHeight(),
                             )
                         }
@@ -1022,6 +1115,8 @@ private fun DayColumn(
     blockAlpha: Float = 1f,   // 有自定义背景时 0.97 微透, 色块透出一点壁纸呼吸感
     week: Int = 1,            // 本列所属周: 落场判定与 settledPage 比较
     pagerState: PagerState,   // 落场判定在协程内读 settledPage, 不在组合期订阅
+    ghosts: List<Ghost> = emptyList(),
+    onGhostRestore: (Ghost) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -1081,6 +1176,53 @@ private fun DayColumn(
                         contentDescription = "${Weeks.cnDay(day)}第${model.jcRange[k].first}节，双击添加课程"
                     },
             )
+        }
+        // 虚影卡片: 删除/移位后的原位置残影 —— 信息保留、整体变淡 + 虚线描边,
+        // 生存期内点按即恢复; 画在真实课程块下层, 与现行卡重叠时让位
+        ghosts.forEach { g ->
+            val gb = g.block
+            val gTop = yOfJc(gb.startJc)
+            val gH = yBottomJc(gb.startJc + gb.span - 1) - gTop - 4.dp
+            val gShape = RoundedCornerShape(12.dp)
+            val gSeed = CourseColors.seedOf(gb.course.kc, gb.course.fx)
+            val (_, gOn) = CourseColors.pair(cs, gSeed, colorMap[gSeed])
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .offset { IntOffset(0, (gTop + 2.dp).roundToPx()) }
+                    .height(gH)
+                    .graphicsLayer { alpha = 0.45f }
+                    .background(cs.surfaceVariant.copy(alpha = 0.6f), gShape)
+                    .drawBehind {
+                        drawRoundRect(
+                            color = gOn.copy(alpha = 0.7f),
+                            style = Stroke(
+                                width = 1.2.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 7f)),
+                            ),
+                            cornerRadius = CornerRadius(12.dp.toPx()),
+                        )
+                    }
+                    .clip(gShape)
+                    .clickable(onClickLabel = "恢复课程") { onGhostRestore(g) }
+                    .semantics {
+                        val what = if (g.kind == EditSession.GHOST_DELETED) "已删除" else "已移动"
+                        contentDescription = "$what 的课程 ${gb.course.kc}，点按恢复"
+                    },
+            ) {
+                BlockContent(gb.course.kc, gb.course.room, gOn)
+                Text(
+                    if (g.kind == EditSession.GHOST_DELETED) "已删除" else "已移动",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = gOn,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .background(cs.background.copy(alpha = 0.75f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                )
+            }
         }
         // 课程块(按真实小节定位): 渐变 + 柔影, 顶部微微提亮出光泽;
         // 整列块包进单层 graphicsLayer 做落场淡入 —— 每帧只更新一层 alpha,

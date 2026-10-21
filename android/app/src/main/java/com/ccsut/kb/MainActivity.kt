@@ -61,11 +61,15 @@ import com.ccsut.kb.ui.ChooseClassScreen
 import com.ccsut.kb.ui.CourseColors
 import com.ccsut.kb.ui.CourseFormSheet
 import com.ccsut.kb.ui.DevSheet
+import com.ccsut.kb.ui.EditOpResult
+import com.ccsut.kb.ui.EditSession
+import com.ccsut.kb.ui.Ghost
 import com.ccsut.kb.ui.KbTheme
 import com.ccsut.kb.ui.LoginScreen
 import com.ccsut.kb.ui.MoreSheet
 import com.ccsut.kb.ui.NoticeDialog
 import com.ccsut.kb.ui.ScheduleScreen
+import com.ccsut.kb.ui.UndoEntry
 import com.ccsut.kb.ui.UpdateScreen
 import com.ccsut.kb.ui.WelcomeScreen
 import com.ccsut.kb.util.Block
@@ -73,6 +77,7 @@ import com.ccsut.kb.util.DebugLog
 import com.ccsut.kb.util.KbClock
 import com.ccsut.kb.util.Weeks
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -175,6 +180,14 @@ fun App() {
     var earlyOn by remember { mutableStateOf(Prefs.earlyOn(ctx)) }
     var alarmMode by remember { mutableStateOf(Prefs.alarmMode(ctx)) }
 
+    // ---- 编辑会话: 回退栈 + 虚影 (内存态; 换班级/重置修改即整场作废) ----
+    var undoStack by remember { mutableStateOf(listOf<UndoEntry>()) }
+    var ghosts by remember { mutableStateOf(listOf<Ghost>()) }
+    var sessionBefore by remember { mutableStateOf<List<com.ccsut.kb.data.UserEdits.Edit>?>(null) }
+    var sessionBjid by remember { mutableStateOf<String?>(null) }
+    var lastOpStamp by remember { mutableIntStateOf(0) }
+    var undoVisible by remember { mutableStateOf(false) }
+
     // ---- 开发者模式 ----
     var devMode by remember { mutableStateOf(Prefs.devMode(ctx)) }
     var showDev by remember { mutableStateOf(false) }
@@ -229,6 +242,14 @@ fun App() {
             withContext(Dispatchers.IO) { runCatching { op() } }
             dataTick++
             resync()
+        }
+    }
+
+    /** 短震动反馈 (回退按钮长按还原全部用) */
+    fun vibrateTap() {
+        runCatching {
+            val v = ctx.getSystemService(Context.VIBRATOR_SERVICE) as? android.os.Vibrator ?: return
+            v.vibrate(android.os.VibrationEffect.createOneShot(60, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
         }
     }
 
@@ -473,6 +494,131 @@ fun App() {
         // 本地编辑覆盖层的键: 班级课表用班级 id, 个人课表用伪 id
         val editTarget: String? = if (usePersonal) PersonalRepo.PERSONAL_BJID else clsId
 
+        // ---- 编辑会话 (回退栈 + 虚影): 状态与动作 ----
+        // 换课表(编辑键变化)即整场作废: 虚影和回退栈都只对当前课表有意义
+        LaunchedEffect(editTarget) {
+            sessionBjid = editTarget
+            sessionBefore = null
+            undoStack = emptyList()
+            ghosts = emptyList()
+            undoVisible = false
+        }
+        // 虚影生命周期: 一次性 delay 到最早到期点销毁, 不轮询
+        LaunchedEffect(ghosts) {
+            val wait = EditSession.nextExpiryIn(ghosts, System.currentTimeMillis()) ?: return@LaunchedEffect
+            delay(wait)
+            ghosts = EditSession.prune(ghosts, System.currentTimeMillis())
+        }
+        // 回退按钮生命周期: 栈非空时出现, 最后一次编辑/回退后 UNDO_VISIBLE_MS 到点隐去
+        LaunchedEffect(lastOpStamp, undoStack) {
+            if (undoStack.isEmpty()) {
+                undoVisible = false
+                return@LaunchedEffect
+            }
+            undoVisible = true
+            delay(EditSession.UNDO_VISIBLE_MS)
+            undoVisible = false
+        }
+
+        /** 编辑会话记账: 记逆操作 + 收虚影; 首笔操作记下整层快照供「还原全部」 */
+        fun recordOp(result: EditOpResult, target: String?) {
+            if (target == null) return
+            if (sessionBjid != target) {
+                sessionBjid = target
+                undoStack = emptyList()
+                ghosts = emptyList()
+                sessionBefore = result.beforeSnapshot
+            } else if (sessionBefore == null) {
+                sessionBefore = result.beforeSnapshot
+            }
+            result.entry?.let { undoStack = undoStack + it }
+            result.ghost?.let { ghosts = ghosts + it }
+            lastOpStamp++
+        }
+
+        /** 带会话记账的编辑收尾: IO 里执行操作(产出逆操作与虚影), 回主线程重组 + 刷快照/小组件/提醒 */
+        fun applyEditTracked(target: String?, op: suspend () -> EditOpResult) {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) { runCatching { op() }.getOrNull() }
+                if (result != null) recordOp(result, target)
+                dataTick++
+                resync()
+            }
+        }
+
+        /** 回退一步: 弹出栈顶逆操作精确执行; 该步产生的虚影一并撤掉 */
+        fun undoOne() {
+            val entry = undoStack.lastOrNull() ?: return
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        when (entry) {
+                            is UndoEntry.Added -> UserEdits.removeById(ctx, entry.editId)
+                            is UndoEntry.Modified ->
+                                if (entry.before != null) UserEdits.putEdit(ctx, entry.before)
+                                else UserEdits.removeById(ctx, entry.editId)
+                            is UndoEntry.Removed -> {
+                                entry.hideEditId?.let { UserEdits.removeById(ctx, it) }
+                                entry.prior?.let { UserEdits.putEdit(ctx, it) }
+                            }
+                            is UndoEntry.Reverted -> UserEdits.putEdit(ctx, entry.before)
+                        }
+                    }
+                }
+                dataTick++
+                resync()
+            }
+            undoStack = undoStack.dropLast(1)
+            ghosts = ghosts.filter { it.opId != entry.opId }
+            lastOpStamp++
+        }
+
+        /** 长按回退: 震动后把覆盖层整层还原到本会话第一笔操作之前 */
+        fun restoreAll() {
+            val target = editTarget
+            val snap = sessionBefore
+            if (target == null || snap == null) return
+            vibrateTap()
+            scope.launch {
+                withContext(Dispatchers.IO) { runCatching { UserEdits.restore(ctx, target, snap) } }
+                dataTick++
+                resync()
+            }
+            undoStack = emptyList()
+            ghosts = emptyList()
+            sessionBefore = null
+            lastOpStamp++
+            Toast.makeText(ctx, "已还原全部修改", Toast.LENGTH_SHORT).show()
+        }
+
+        /** 点虚影恢复: 精确撤销产生它的那笔操作 (不动之后的其它修改), 虚影与其回退条目同步摘除 */
+        fun restoreGhost(g: Ghost) {
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        g.hideEditId?.let { UserEdits.removeById(ctx, it) }
+                        if (g.priorEdit != null) UserEdits.putEdit(ctx, g.priorEdit)
+                        else g.moveEditId?.let { UserEdits.removeById(ctx, it) }
+                    }
+                }
+                dataTick++
+                resync()
+            }
+            ghosts = ghosts.filter { it.id != g.id }
+            undoStack = undoStack.filter { it.opId != g.opId }
+            lastOpStamp++
+            Toast.makeText(ctx, "已恢复「${g.block.course.kc}」", Toast.LENGTH_SHORT).show()
+        }
+
+        /** 重置类操作后的会话清场 (覆盖层已整体变化, 回退栈与虚影全部作废) */
+        fun resetEditSession() {
+            sessionBefore = null
+            undoStack = emptyList()
+            ghosts = emptyList()
+            undoVisible = false
+            lastOpStamp++
+        }
+
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             if (showWelcome) {
                 WelcomeScreen(
@@ -536,6 +682,12 @@ fun App() {
                         onOpenMore = { showMore = true },
                         onCourseClick = { detailCourse = it },
                         onAddAt = { d, j, w -> addAt = Triple(d, j, w) },
+                        undoVisible = undoVisible,
+                        undoCount = undoStack.size,
+                        onUndo = { undoOne() },
+                        onUndoAll = { restoreAll() },
+                        ghosts = ghosts,
+                        onGhostRestore = { restoreGhost(it) },
                     )
                 }
             }
@@ -558,7 +710,16 @@ fun App() {
                     {
                         detailCourse = null
                         val id = editTarget
-                        if (id != null) applyEdit { UserEdits.revertBlock(ctx, id, block) }
+                        if (id != null) applyEditTracked(id) {
+                            val snap = UserEdits.snapshot(id)
+                            val prior = UserEdits.editOf(block.course.editId)
+                            UserEdits.revertBlock(ctx, id, block)
+                            EditOpResult(
+                                entry = prior?.let { UndoEntry.Reverted(EditSession.newOpId(), it) },
+                                ghost = null,
+                                beforeSnapshot = snap,
+                            )
+                        }
                         Toast.makeText(ctx, "已还原为学校课表", Toast.LENGTH_SHORT).show()
                     }
                 } else null,
@@ -614,7 +775,15 @@ fun App() {
                     }
                     addAt = null
                     val id = editTarget
-                    if (id != null) applyEdit { UserEdits.add(ctx, id, f) }
+                    if (id != null) applyEditTracked(id) {
+                        val snap = UserEdits.snapshot(id)
+                        val editId = UserEdits.add(ctx, id, f)
+                        EditOpResult(
+                            entry = UndoEntry.Added(EditSession.newOpId(), editId),
+                            ghost = null,   // 新增没有"原位置", 不留虚影
+                            beforeSnapshot = snap,
+                        )
+                    }
                 },
                 onDismiss = { addAt = null },
             )
@@ -639,7 +808,26 @@ fun App() {
                     }
                     editBlock = null
                     val id = editTarget
-                    if (id != null) applyEdit { UserEdits.saveBlock(ctx, id, b, f) }
+                    if (id != null) applyEditTracked(id) {
+                        val snap = UserEdits.snapshot(id)
+                        val prior = UserEdits.editOf(b.course.editId)
+                        val editId = UserEdits.saveBlock(ctx, id, b, f)
+                        val opId = EditSession.newOpId()
+                        // 时间/周次被改动: 原位置留移位虚影, 新位置是带点的正常卡片
+                        val moved = editId != null && EditSession.touchedTimeOrWeek(f, b)
+                        EditOpResult(
+                            entry = editId?.let { UndoEntry.Modified(opId, it, prior) },
+                            ghost = if (moved) Ghost(
+                                id = EditSession.newGhostId(),
+                                opId = opId,
+                                block = b,
+                                kind = EditSession.GHOST_MOVED,
+                                priorEdit = prior,
+                                moveEditId = editId,
+                            ) else null,
+                            beforeSnapshot = snap,
+                        )
+                    }
                 },
                 onDelete = {
                     editBlock = null
@@ -658,7 +846,25 @@ fun App() {
                 confirmButton = {
                     TextButton({
                         val id = editTarget
-                        if (id != null) applyEdit { UserEdits.removeBlock(ctx, id, b) }
+                        if (id != null) applyEditTracked(id) {
+                            val snap = UserEdits.snapshot(id)
+                            val prior = UserEdits.editOf(b.course.editId)
+                            val hideId = UserEdits.removeBlock(ctx, id, b)
+                            val opId = EditSession.newOpId()
+                            EditOpResult(
+                                entry = UndoEntry.Removed(opId, hideId, prior),
+                                // 原位置虚影: 信息保留、变淡、生存期内可点按恢复
+                                ghost = if (hideId != null || prior != null) Ghost(
+                                    id = EditSession.newGhostId(),
+                                    opId = opId,
+                                    block = b,
+                                    kind = EditSession.GHOST_DELETED,
+                                    priorEdit = prior,
+                                    hideEditId = hideId,
+                                ) else null,
+                                beforeSnapshot = snap,
+                            )
+                        }
                         delBlock = null
                     }) { Text("删除", color = MaterialTheme.colorScheme.error) }
                 },
@@ -808,12 +1014,14 @@ fun App() {
                     showMore = false
                     clsId?.let { id ->
                         applyEdit { UserEdits.clearClass(ctx, id) }
+                        resetEditSession()
                         Toast.makeText(ctx, "班级课表修改已重置，已恢复学校原课表", Toast.LENGTH_SHORT).show()
                     }
                 },
                 onResetPersonalEdits = {
                     showMore = false
                     applyEdit { UserEdits.clearClass(ctx, PersonalRepo.PERSONAL_BJID) }
+                    resetEditSession()
                     Toast.makeText(ctx, "个人课表修改已重置，已恢复原课表", Toast.LENGTH_SHORT).show()
                 },
                 onOpenPersonalLogin = {
@@ -1048,6 +1256,7 @@ fun App() {
                             studentName = ""
                             lastSyncAt = 0L
                         resetVisualState()
+                        resetEditSession()
                         reminderOn = false
                         nextReminderAt = 0
                         dbgOffset = 0

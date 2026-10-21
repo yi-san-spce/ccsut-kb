@@ -226,8 +226,8 @@ object UserEdits {
         id?.let { i -> edits.firstOrNull { it.id == i } }
     }
 
-    /** 添加自建课程 */
-    fun add(ctx: Context, bjid: String, form: Form) {
+    /** 添加自建课程, 返回新编辑记录 id (供编辑会话做撤销) */
+    fun add(ctx: Context, bjid: String, form: Form): String {
         ensureLoaded(ctx)
         val c = Course(
             kc = form.kc, teacher = form.teacher, room = form.room,
@@ -235,22 +235,27 @@ object UserEdits {
             zc = form.zc, ranges = form.ranges,
             fx = "", jxb = "", jxbzc = "", type = TYPE_LOCAL,
         )
-        synchronized(lock) { edits += Edit(id = newId(), bjid = bjid, kind = 0, course = c) }
+        val id = newId()
+        synchronized(lock) { edits += Edit(id = id, bjid = bjid, kind = 0, course = c) }
         persist(ctx)
+        return id
     }
 
-    /** 表单保存 (加课信息/位置/周次一并生效) */
-    fun saveBlock(ctx: Context, bjid: String, block: Block, form: Form) {
+    /** 表单保存 (加课信息/位置/周次一并生效), 返回受影响的编辑记录 id */
+    fun saveBlock(ctx: Context, bjid: String, block: Block, form: Form): String? {
         ensureLoaded(ctx)
+        var outId: String? = null
         synchronized(lock) {
             val e = editOfLocked(block.course.editId)
             if (e?.kind == 0) {
-                replace(e, e.copy(course = e.course!!.copy(
+                val ne = e.copy(course = e.course!!.copy(
                     kc = form.kc, teacher = form.teacher, room = form.room,
                     day = form.day, jc = form.startJc, djs = form.span,
-                    zc = form.zc, ranges = form.ranges)))
+                    zc = form.zc, ranges = form.ranges))
+                replace(e, ne)
+                outId = ne.id
                 persist(ctx)
-                return
+                return outId
             }
             val m = e?.match ?: anchorOf(block)
             // 单周修改的块: 勾选周次没动 → 保持单周语义(delta 不写周次, 拆行照旧);
@@ -259,29 +264,44 @@ object UserEdits {
             val d = diff(bjid, m, form)
             if (singleWeek != null && form.ranges == listOf(singleWeek..singleWeek)) {
                 val kept = d.copy(ranges = null, zc = null)
-                if (e != null) replace(e, e.copy(match = m, delta = kept))
-                else edits += Edit(newId(), bjid, 1, week = singleWeek, match = m, delta = kept)
+                if (e != null) {
+                    replace(e, e.copy(match = m, delta = kept))
+                    outId = e.id
+                } else {
+                    val ne = Edit(newId(), bjid, 1, week = singleWeek, match = m, delta = kept)
+                    edits += ne
+                    outId = ne.id
+                }
             } else if (e != null) {
                 replace(e, e.copy(match = m, delta = d, week = null))
+                outId = e.id
             } else {
-                edits += Edit(newId(), bjid, 1, match = m, delta = d)
+                val ne = Edit(newId(), bjid, 1, match = m, delta = d)
+                edits += ne
+                outId = ne.id
             }
             persist(ctx)
         }
+        return outId
     }
 
-    /** 删除课块: 自建课删记录; 学校课按原始锚点隐藏 (不影响他人) */
-    fun removeBlock(ctx: Context, bjid: String, block: Block) {
+    /** 删除课块: 自建课删记录; 学校课按原始锚点隐藏 (不影响他人)。
+     *  返回新建隐藏记录的 id (自建课/已隐藏返回 null), 供虚影做精确恢复 */
+    fun removeBlock(ctx: Context, bjid: String, block: Block): String? {
         ensureLoaded(ctx)
+        var outId: String? = null
         synchronized(lock) {
             val e = editOfLocked(block.course.editId)
-            if (e?.kind == 2) return  // 已是隐藏记录, 无需重复
+            if (e?.kind == 2) return null  // 已是隐藏记录, 无需重复
             if (e != null) edits.remove(e)
             if (e?.kind != 0) {
-                edits += Edit(newId(), bjid, 2, match = e?.match ?: anchorOf(block))
+                val ne = Edit(newId(), bjid, 2, match = e?.match ?: anchorOf(block))
+                edits += ne
+                outId = ne.id
             }
             persist(ctx)
         }
+        return outId
     }
 
     /** 还原一条修改记录 (回到学校原始数据); 自建课请走 [removeBlock] */
@@ -292,6 +312,44 @@ object UserEdits {
             edits.remove(e)
             persist(ctx)
         }
+    }
+
+    // ---- 编辑会话回退 (内存精确逆操作, 均为最小改动 + 落盘) ----
+
+    /** 按记录 id 精确移除一条编辑 */
+    fun removeById(ctx: Context, id: String): Boolean {
+        ensureLoaded(ctx)
+        val removed = synchronized(lock) {
+            val found = edits.firstOrNull { x -> x.id == id } ?: return false
+            edits.remove(found)
+        }
+        persist(ctx)
+        return removed
+    }
+
+    /** 按 id 放回/覆盖一条编辑 (撤销时精确还原操作前的记录形态) */
+    fun putEdit(ctx: Context, edit: Edit) {
+        ensureLoaded(ctx)
+        synchronized(lock) {
+            val i = edits.indexOfFirst { x -> x.id == edit.id }
+            if (i >= 0) edits[i] = edit else edits += edit
+        }
+        persist(ctx)
+    }
+
+    /** 某班级的编辑快照 (不可变浅拷贝, Edit 全为不可变数据类) */
+    fun snapshot(bjid: String): List<Edit> = synchronized(lock) {
+        edits.filter { it.bjid == bjid }
+    }
+
+    /** 用快照整体还原某班级的编辑 (撤销全部用), 其余班级不动 */
+    fun restore(ctx: Context, bjid: String, snapshot: List<Edit>) {
+        ensureLoaded(ctx)
+        synchronized(lock) {
+            edits.removeAll { it.bjid == bjid }
+            edits.addAll(snapshot)
+        }
+        persist(ctx)
     }
 
     /** 完全重置用: 清空全部本地修改 */
