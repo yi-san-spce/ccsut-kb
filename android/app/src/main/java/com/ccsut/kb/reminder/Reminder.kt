@@ -48,6 +48,7 @@ object ReminderScheduler {
     const val EXTRA_ROOM = "room"
     const val EXTRA_START = "start"
     const val EXTRA_LEAD = "lead"
+    const val EXTRA_AT = "at"
     const val EXTRA_TEST = "test"
 
     private const val TYPE_CLASS = 0   // 课前提醒
@@ -56,6 +57,26 @@ object ReminderScheduler {
 
     /** 早八前夜提醒时刻 */
     private val EARLY_AT: LocalTime = LocalTime.of(21, 30)
+
+    /** 响铃迟到容忍线(毫秒): 上课时刻已过这条线就不再响 (排定时刻之后的迟到投递/迟点通知都靠它拦) */
+    internal const val RING_LATE_TOLERANCE_MS = 60_000L
+
+    /** 上课时刻(毫秒) = 排定响铃时刻 + 提前量; atMillis<=0 (测试链路) 返回 0 表示未知 */
+    internal fun classStartMillis(atMillis: Long, leadMin: Int?): Long =
+        if (atMillis <= 0L) 0L else atMillis + (leadMin?.coerceAtLeast(0) ?: 0) * 60_000L
+
+    /** 响铃是否已过点: 投递晚于 上课时刻+容忍线 就静默放弃, 别在课堂上炸 "还有 N 分钟" */
+    internal fun ringExpired(atMillis: Long, leadMin: Int?, nowMillis: Long): Boolean {
+        val start = classStartMillis(atMillis, leadMin)
+        return start > 0L && nowMillis > start + RING_LATE_TOLERANCE_MS
+    }
+
+    /** 距上课的剩余分钟(向上取整): 无排定时刻时退回提前量原值, 与旧文案兼容 */
+    internal fun remainingMinutes(atMillis: Long, leadMin: Int?, nowMillis: Long): Int {
+        val start = classStartMillis(atMillis, leadMin)
+        if (start <= 0L) return leadMin?.coerceAtLeast(0) ?: 0
+        return (((start - nowMillis) + 59_999L) / 60_000L).toInt().coerceAtLeast(0)
+    }
 
     private data class Ev(
         val type: Int,
@@ -90,15 +111,14 @@ object ReminderScheduler {
         return ao.toBundle()
     }
 
-    /** 响铃页 PI: 全屏意图通知与尽力直启共用 (extras 随重排更新) */
-    private fun alarmActivityPi(ctx: Context, ev: Ev? = null): PendingIntent {
+    /** 响铃页 PI: 全屏意图通知与尽力直启共用 (extras 随响铃事件更新, 锁屏页才有课名/时间/剩余分钟) */
+    private fun alarmActivityPi(ctx: Context, kc: String?, room: String?, start: String?, lead: Int?, at: Long): PendingIntent {
         val it = Intent(ctx, AlarmActivity::class.java).setAction(ACTION_ALARM_RING)
-        if (ev != null) {
-            it.putExtra(EXTRA_KC, ev.block!!.course.kc)
-                .putExtra(EXTRA_ROOM, ev.block!!.rooms.ifBlank { ev.block!!.course.room }.trim())
-                .putExtra(EXTRA_START, ev.classStart?.format(DateTimeFormatter.ofPattern("H:mm")) ?: "")
-                .putExtra(EXTRA_LEAD, Prefs.reminderLead(ctx))
-        }
+        if (!kc.isNullOrBlank()) it.putExtra(EXTRA_KC, kc)
+        if (!room.isNullOrBlank()) it.putExtra(EXTRA_ROOM, room)
+        if (!start.isNullOrBlank()) it.putExtra(EXTRA_START, start)
+        if (lead != null && lead > 0) it.putExtra(EXTRA_LEAD, lead)
+        if (at > 0) it.putExtra(EXTRA_AT, at)
         return PendingIntent.getActivity(
             ctx, 2, it,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
@@ -114,6 +134,8 @@ object ReminderScheduler {
                 .putExtra(EXTRA_ROOM, ev.block!!.rooms.ifBlank { ev.block!!.course.room }.trim())
                 .putExtra(EXTRA_START, ev.classStart?.format(DateTimeFormatter.ofPattern("H:mm")) ?: "")
                 .putExtra(EXTRA_LEAD, Prefs.reminderLead(ctx))
+                // 排定响铃时刻: 接收器据其识别迟到投递 (上课后才到点的不响), 响铃文案也按它算实时剩余分钟
+                .putExtra(EXTRA_AT, ev.at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli())
         }
         return PendingIntent.getBroadcast(
             ctx, 4, it,
@@ -136,13 +158,25 @@ object ReminderScheduler {
      * 闹钟到点 (由 ReminderReceiver 调起): 双通道拉起响铃页
      * ① 全屏意图通知 —— 平台保障路径, 锁屏/后台直接全屏 (USE_FULL_SCREEN_INTENT, 闹钟类应用默认授予)
      * ② 尽力直启 —— BAL opt-in 生效的平台立即全屏, 不依赖通知权限
+     *
+     * 迟到投递防护: setAlarmClock 定点准, 但广播投递到被杀进程可能被系统推迟几分钟到几十分钟,
+     * 上课后再响 "还有 N 分钟上课" 纯属惊扰 —— 上课时刻已过容忍线就静默放弃, 只留痕。
      */
-    fun fireAlarmRing(ctx: Context, kc: String?, room: String?, start: String?, lead: Int?) {
+    fun fireAlarmRing(ctx: Context, kc: String?, room: String?, start: String?, lead: Int?, at: Long = 0L) {
         runCatching {
+            if (ringExpired(at, lead, System.currentTimeMillis())) {
+                DebugLog.log("remind", "响铃投递迟到且已过上课时刻, 静默放弃 (排定=$at)")
+                runCatching {
+                    ctx.getSystemService(android.app.NotificationManager::class.java)
+                        ?.cancel(NOTIF_ALARM_RING)
+                }
+                return
+            }
+            val remain = remainingMinutes(at, lead, System.currentTimeMillis())
+            val title = if (remain > 0) "还有 $remain 分钟上课" else "快上课啦"
             ensureAlarmChannel(ctx)
             val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
                 ?: return
-            val title = if (lead != null && lead > 0) "还有 $lead 分钟上课" else "快上课啦"
             val fullText = buildString {
                 if (!start.isNullOrBlank()) append("$start · ")
                 append(kc?.takeIf { it.isNotBlank() } ?: "该去上课啦")
@@ -158,7 +192,7 @@ object ReminderScheduler {
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setOngoing(true)
                 .setAutoCancel(true)
-                .setFullScreenIntent(alarmActivityPi(ctx, null), true)
+                .setFullScreenIntent(alarmActivityPi(ctx, kc, room, start, lead, at), true)
                 .build()
             nm.notify(NOTIF_ALARM_RING, notif)
             // 尽力直启: BAL opt-in 生效的平台立即弹全屏 (FSI 也可能被系统转成 heads-up, 双保险)
@@ -168,8 +202,9 @@ object ReminderScheduler {
             if (room != null) intent.putExtra(EXTRA_ROOM, room)
             if (start != null) intent.putExtra(EXTRA_START, start)
             if (lead != null) intent.putExtra(EXTRA_LEAD, lead)
+            if (at > 0) intent.putExtra(EXTRA_AT, at)
             ctx.startActivity(intent, balOpts())
-            DebugLog.log("remind", "响铃通知已发 + 响铃页已尝试直启")
+            DebugLog.log("remind", "响铃通知已发 + 响铃页已尝试直启 (剩余=${remain}min)")
         }.onFailure {
             DebugLog.log("remind", "闹钟响铃链路失败: ${it.javaClass.simpleName}: ${it.message}")
         }
@@ -427,7 +462,9 @@ object ReminderScheduler {
                 TYPE_CLASS -> {
                     val b = ev.block!!
                     val room = b.rooms.ifBlank { b.course.room }.trim()
-                    "还有 $lead 分钟上课" to buildString {
+                    // 投递可能比排定晚几分钟: 按真实剩余分钟生成文案, 不照抄排定时的提前量
+                    val remain = ChronoUnit.MINUTES.between(now, ev.classStart).toInt().coerceAtLeast(0)
+                    (if (remain > 0) "还有 $remain 分钟上课" else "快上课啦") to buildString {
                         append("第${b.startJc}-${b.startJc + b.span - 1}节 ${b.course.kc}")
                         if (room.isNotBlank()) append(" · $room")
                         append("，${tails[idx % tails.size]}")
@@ -489,6 +526,7 @@ class ReminderReceiver : BroadcastReceiver() {
                         intent.getStringExtra(ReminderScheduler.EXTRA_ROOM),
                         intent.getStringExtra(ReminderScheduler.EXTRA_START),
                         intent.getIntExtra(ReminderScheduler.EXTRA_LEAD, -1).takeIf { it > 0 },
+                        intent.getLongExtra(ReminderScheduler.EXTRA_AT, 0L),
                     )
                 }.onFailure { DebugLog.log("remind", "ACTION_ALARM_RING 处理失败: ${it.message}") }
                 if (Prefs.reminderOn(ctx) || Prefs.afterClassOn(ctx) || Prefs.earlyOn(ctx))

@@ -86,8 +86,15 @@ class AlarmActivity : ComponentActivity() {
             getSystemService(android.app.NotificationManager::class.java)
                 ?.cancel(ReminderScheduler.NOTIF_ALARM_RING)
         }
-        startRinging()
         val lead = intent.getIntExtra(ReminderScheduler.EXTRA_LEAD, -1)
+        val at = intent.getLongExtra(ReminderScheduler.EXTRA_AT, 0L)
+        // 过点不响: 迟到的投递 / 通知栏里滞留的旧铃通知被点开, 都别在课堂上重新炸铃
+        if (ReminderScheduler.ringExpired(at, lead.takeIf { it > 0 }, System.currentTimeMillis())) {
+            DebugLog.log("remind", "响铃页过点打开, 静默退出 (排定=$at)")
+            finish()
+            return
+        }
+        startRinging()
         setContent {
             // 响铃场景恒用深色: 早八的闹钟大概率在暗环境里炸响, 不随系统浅色主题
             KbTheme(themeMode = 2) {
@@ -95,7 +102,9 @@ class AlarmActivity : ComponentActivity() {
                     kc = intent.getStringExtra(ReminderScheduler.EXTRA_KC).orEmpty().ifBlank { "上课啦" },
                     room = intent.getStringExtra(ReminderScheduler.EXTRA_ROOM).orEmpty(),
                     start = intent.getStringExtra(ReminderScheduler.EXTRA_START).orEmpty(),
-                    lead = lead,
+                    remainMin = ReminderScheduler.remainingMinutes(
+                        at, lead.takeIf { it > 0 }, System.currentTimeMillis(),
+                    ),
                     onStop = { stopAndFinish() },
                 )
             }
@@ -142,6 +151,11 @@ class AlarmActivity : ComponentActivity() {
         player = null
         runCatching { vibrator?.cancel() }
         vibrator = null
+        // 响铃已结束: 收掉可能滞留托盘的全屏意图通知, 避免事后被点开又走一遍响铃页
+        runCatching {
+            getSystemService(android.app.NotificationManager::class.java)
+                ?.cancel(ReminderScheduler.NOTIF_ALARM_RING)
+        }
         finish()
     }
 
@@ -171,7 +185,7 @@ class AlarmActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AlarmRingScreen(kc: String, room: String, start: String, lead: Int, onStop: () -> Unit) {
+private fun AlarmRingScreen(kc: String, room: String, start: String, remainMin: Int, onStop: () -> Unit) {
     // 响铃页动效: 图标摇摆 + 双圈声波涟漪 + 按钮呼吸 + 进场淡入上滑。
     // 全部挂在同一个 InfiniteTransition 上, 动画跑在绘制阶段, 不吃重组频率。
     val sway = rememberInfiniteTransition(label = "alarmSway")
@@ -230,7 +244,7 @@ private fun AlarmRingScreen(kc: String, room: String, start: String, lead: Int, 
                 }
                 Spacer(Modifier.height(28.dp))
                 Text(
-                    if (lead > 0) "还有 $lead 分钟上课" else "快上课啦",
+                    if (remainMin > 0) "还有 $remainMin 分钟上课" else "快上课啦",
                     fontSize = 30.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground,

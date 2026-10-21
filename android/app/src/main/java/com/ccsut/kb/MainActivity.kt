@@ -428,7 +428,15 @@ fun App() {
     val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) checkUpdatesAndNotice()
+            if (event == Lifecycle.Event.ON_START) {
+                checkUpdatesAndNotice()
+                // 后台期间接收器/响铃页可能已把「下次提醒」重排成新事件, 设置页若沿用旧状态
+                // 会显示一个已过去的时刻; 回前台重排一次并重读 (顺带自愈被系统吞掉的闹钟)
+                scope.launch {
+                    withContext(Dispatchers.IO) { runCatching { ReminderScheduler.reschedule(ctx) } }
+                    nextReminderAt = Prefs.nextReminderAt(ctx)
+                }
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
