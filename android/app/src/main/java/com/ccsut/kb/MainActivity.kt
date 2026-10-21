@@ -389,7 +389,12 @@ fun App() {
                 // 弹窗 = 进入软件检查到新版本一律弹 (force 时无视开关且不可取消), 已下载直接「立即安装」。
                 // 2 秒内重复触发去重, 单飞防并发重叠
                 val queue = mutableListOf<PendingDialog>()
-                val eligible = latest?.takeIf { it.force || it.versionName != Prefs.updateDismissedVersion(ctx) }
+                // 开发者「临时版本」生效时无视「已划过该版本」: 改临时版本号本来就是在验证更新链路,
+                // 若 latest 恰是当年划掉过的版本, 静默跳过会让测试者误以为链路坏了
+                val eligible = latest?.takeIf {
+                    it.force || BuildVersion.displayOverride != null ||
+                        it.versionName != Prefs.updateDismissedVersion(ctx)
+                }
                 when {
                     eligible == null -> UpdateNotifier.cancel(ctx)
                     else -> {

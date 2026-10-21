@@ -1,5 +1,6 @@
 package com.ccsut.kb.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.AltRoute
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Refresh
@@ -45,6 +48,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -447,28 +451,59 @@ private fun ReleaseCard(
                 }
             }
 
-            // 更新说明: 小节标题 + 绿色对勾条目 (与发布页一致)
+            // 更新说明: 小节标题 + 绿色对勾条目 (与发布页一致)。
+            // 条目超过 2 条时默认收起只显示前 2 条, 点「展开全部」看完整文案
+            var notesExpanded by remember(r.versionName) { mutableStateOf(false) }
+            val totalItems = r.sections.sumOf { it.items.size }
             if (r.sections.isEmpty()) {
                 Spacer(Modifier.height(10.dp))
                 Text("性能优化与问题修复。", fontSize = 14.sp, lineHeight = 20.sp)
             } else {
+                var budget = if (notesExpanded) Int.MAX_VALUE else 2
                 r.sections.forEach { sec ->
-                    sec.title?.let { t ->
-                        Spacer(Modifier.height(14.dp))
-                        Text(t, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurfaceVariant)
-                        Spacer(Modifier.height(4.dp))
-                    } ?: Spacer(Modifier.height(12.dp))
-                    sec.items.forEach { item ->
-                        Row(Modifier.padding(vertical = 5.dp)) {
-                            Icon(
-                                Icons.Rounded.CheckCircle,
-                                contentDescription = null,
-                                tint = checkGreen(CourseColors.isDark(cs)),
-                                modifier = Modifier.size(17.dp).padding(top = 1.dp),
-                            )
-                            Spacer(Modifier.width(10.dp))
-                            Text(item, fontSize = 14.sp, lineHeight = 20.sp)
+                    val visible = sec.items.take(budget.coerceAtLeast(0))
+                    if (visible.isNotEmpty()) {
+                        sec.title?.let { t ->
+                            Spacer(Modifier.height(14.dp))
+                            Text(t, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurfaceVariant)
+                            Spacer(Modifier.height(4.dp))
+                        } ?: Spacer(Modifier.height(12.dp))
+                        visible.forEach { item ->
+                            budget--
+                            Row(Modifier.padding(vertical = 5.dp)) {
+                                Icon(
+                                    Icons.Rounded.CheckCircle,
+                                    contentDescription = null,
+                                    tint = checkGreen(CourseColors.isDark(cs)),
+                                    modifier = Modifier.size(17.dp).padding(top = 1.dp),
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(item, fontSize = 14.sp, lineHeight = 20.sp)
+                            }
                         }
+                    }
+                }
+                if (totalItems > 2) {
+                    Row(
+                        Modifier
+                            .padding(top = 2.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { notesExpanded = !notesExpanded }
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            if (notesExpanded) "收起" else "展开全部 $totalItems 条",
+                            fontSize = 13.sp,
+                            color = cs.primary,
+                        )
+                        Spacer(Modifier.width(2.dp))
+                        Icon(
+                            if (notesExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            contentDescription = null,
+                            tint = cs.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
                     }
                 }
             }
