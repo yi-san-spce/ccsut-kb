@@ -117,18 +117,33 @@ object CourseColors {
     @Volatile
     var packOverride: Int = 0
 
-    /** 本学期全部课程种子的稳定排序 (主界面/小组件渲染前绑定同一份): 色板按序分配, 不同课程必不同色 */
+    /** 课程种子的颜色分配表 (持久化注册表, 只增不减): 色板按序分配, 不同课程必不同色 */
     @Volatile
     private var seedOrder: List<String> = emptyList()
 
-    fun bindOrder(seeds: Collection<String>) {
-        val next = seeds.distinct().sorted()
+    /**
+     * 注册表合并 (纯函数, 供单测): 既有分配原样保留 (删除课程不重排其余课程颜色,
+     * 恢复课程回到原色), 新出现的课程追加到表尾。
+     * 首次升级 (注册表为空): 以本次课程排序初始化, 与旧版「当前列表排序」的分配最接近。
+     */
+    internal fun mergeSeedOrder(persisted: List<String>, current: Collection<String>): List<String> {
+        if (persisted.isEmpty()) return current.distinct().sorted()
+        var next = persisted
+        for (s in current.distinct()) if (s !in next) next = next + s
+        return next
+    }
+
+    /** 绑定颜色分配表: 读持久化注册表, 新课程追加, 删除课程不回收槽位 */
+    fun bindOrder(ctx: android.content.Context, seeds: Collection<String>) {
+        val persisted = com.ccsut.kb.Prefs.courseSeedOrder(ctx)
+        val next = mergeSeedOrder(persisted, seeds)
+        if (next != persisted) com.ccsut.kb.Prefs.setCourseSeedOrder(ctx, next)
         if (next != seedOrder) seedOrder = next
     }
 
     /** 课程稳定序号: 排序表命中用序号, 未命中 (极端时序) 退回哈希 */
     private fun stableIndexOf(seed: String): Int =
-        seedOrder.indexOf(seed).takeIf { it >= 0 } ?: kotlin.math.abs(seed.hashCode())
+        seedOrder.indexOf(seed).takeIf { it >= 0 } ?: abs(seed.hashCode())
 
     /** 自动配色的稳定序号 (开放给小组件): 12 色板按同一份课程排序分配, 与 App 侧同源不撞色 */
     fun autoIndexOf(seed: String): Int = stableIndexOf(seed)

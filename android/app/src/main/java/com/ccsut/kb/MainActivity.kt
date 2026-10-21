@@ -60,6 +60,9 @@ import com.ccsut.kb.ui.AboutScreen
 import com.ccsut.kb.ui.ChooseClassScreen
 import com.ccsut.kb.ui.CourseColors
 import com.ccsut.kb.ui.CourseFormSheet
+import com.ccsut.kb.ui.DemoShowcaseSheet
+import com.ccsut.kb.ui.DemoStep
+import com.ccsut.kb.ui.DemoSteps
 import com.ccsut.kb.ui.DevSheet
 import com.ccsut.kb.ui.EditOpResult
 import com.ccsut.kb.ui.EditSession
@@ -187,6 +190,8 @@ fun App() {
     var sessionBjid by remember { mutableStateOf<String?>(null) }
     var lastOpStamp by remember { mutableIntStateOf(0) }
     var undoVisible by remember { mutableStateOf(false) }
+    // 功能演示: 非空时弹出演示弹层 (首次编辑触发 / 进表整组 / 更多面板手动入口)
+    var showDemo by remember { mutableStateOf<List<DemoStep>?>(null) }
 
     // ---- 开发者模式 ----
     var devMode by remember { mutableStateOf(Prefs.devMode(ctx)) }
@@ -519,6 +524,14 @@ fun App() {
             delay(EditSession.UNDO_VISIBLE_MS)
             undoVisible = false
         }
+        // 开屏引导后首次进表: 完整演示组只放一次 (老用户升级后也会看到这一遍)
+        LaunchedEffect(editTarget, cls != null) {
+            val t = editTarget
+            if (t != null && cls != null && !Prefs.demoIntroDone(ctx)) {
+                Prefs.setDemoIntroDone(ctx, true)
+                showDemo = DemoSteps.all
+            }
+        }
 
         /** 编辑会话记账: 记逆操作 + 收虚影; 首笔操作记下整层快照供「还原全部」 */
         fun recordOp(result: EditOpResult, target: String?) {
@@ -536,11 +549,16 @@ fun App() {
             lastOpStamp++
         }
 
-        /** 带会话记账的编辑收尾: IO 里执行操作(产出逆操作与虚影), 回主线程重组 + 刷快照/小组件/提醒 */
-        fun applyEditTracked(target: String?, op: suspend () -> EditOpResult) {
+        /** 带会话记账的编辑收尾: IO 里执行操作(产出逆操作与虚影), 回主线程重组 + 刷快照/小组件/提醒;
+         *  trigger = delete/modify/add 时, 首次操作顺带弹出对应功能演示 */
+        fun applyEditTracked(target: String?, trigger: String, op: suspend () -> EditOpResult) {
             scope.launch {
                 val result = withContext(Dispatchers.IO) { runCatching { op() }.getOrNull() }
-                if (result != null) recordOp(result, target)
+                if (result != null) {
+                    recordOp(result, target)
+                    val steps = DemoSteps.forTrigger(trigger, Prefs.demoSeen(ctx))
+                    if (steps.isNotEmpty()) showDemo = steps
+                }
                 dataTick++
                 resync()
             }
@@ -710,7 +728,7 @@ fun App() {
                     {
                         detailCourse = null
                         val id = editTarget
-                        if (id != null) applyEditTracked(id) {
+                        if (id != null) applyEditTracked(id, "revert") {
                             val snap = UserEdits.snapshot(id)
                             val prior = UserEdits.editOf(block.course.editId)
                             UserEdits.revertBlock(ctx, id, block)
@@ -775,7 +793,7 @@ fun App() {
                     }
                     addAt = null
                     val id = editTarget
-                    if (id != null) applyEditTracked(id) {
+                    if (id != null) applyEditTracked(id, "add") {
                         val snap = UserEdits.snapshot(id)
                         val editId = UserEdits.add(ctx, id, f)
                         EditOpResult(
@@ -808,7 +826,7 @@ fun App() {
                     }
                     editBlock = null
                     val id = editTarget
-                    if (id != null) applyEditTracked(id) {
+                    if (id != null) applyEditTracked(id, "modify") {
                         val snap = UserEdits.snapshot(id)
                         val prior = UserEdits.editOf(b.course.editId)
                         val editId = UserEdits.saveBlock(ctx, id, b, f)
@@ -846,7 +864,7 @@ fun App() {
                 confirmButton = {
                     TextButton({
                         val id = editTarget
-                        if (id != null) applyEditTracked(id) {
+                        if (id != null) applyEditTracked(id, "delete") {
                             val snap = UserEdits.snapshot(id)
                             val prior = UserEdits.editOf(b.course.editId)
                             val hideId = UserEdits.removeBlock(ctx, id, b)
@@ -869,6 +887,17 @@ fun App() {
                     }) { Text("删除", color = MaterialTheme.colorScheme.error) }
                 },
                 dismissButton = { TextButton({ delBlock = null }) { Text("取消") } },
+            )
+        }
+
+        // ---- 功能演示 (首次编辑触发 / 进表整组 / 更多面板手动入口) ----
+        showDemo?.let { steps ->
+            DemoShowcaseSheet(
+                steps = steps,
+                onDismiss = {
+                    Prefs.markDemoShown(ctx, steps.map { it.id })
+                    showDemo = null
+                },
             )
         }
 
@@ -1060,6 +1089,10 @@ fun App() {
                 onOpenDev = {
                     showMore = false
                     showDev = true
+                },
+                onOpenDemos = {
+                    showMore = false
+                    showDemo = DemoSteps.all
                 },
                 onDevModeChange = { v ->
                     Prefs.setDevMode(ctx, v)

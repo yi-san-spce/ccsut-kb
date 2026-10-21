@@ -59,6 +59,7 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
+import androidx.compose.material.icons.rounded.Slideshow
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.AlertDialog
@@ -140,6 +141,7 @@ fun MoreSheet(
     onRefreshPersonal: () -> Unit,
     onLogoutPersonal: () -> Unit,
     onOpenDev: () -> Unit,
+    onOpenDemos: () -> Unit = {},
     onDevModeChange: (Boolean) -> Unit,
     onDismiss: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -612,6 +614,17 @@ fun MoreSheet(
                     icon = Icons.Rounded.Widgets,
                     title = "桌面小组件",
                     subtitle = "长按桌面空白处添加",
+                )
+            }
+
+            // ---- 功能演示 ----
+            SectionHeader("功能演示")
+            SettingCard {
+                SettingRow(
+                    icon = Icons.Rounded.Slideshow,
+                    title = "功能演示",
+                    subtitle = "回退、虚影、圆点标记，一次看懂编辑课表的技巧",
+                    onClick = onOpenDemos,
                 )
             }
 

@@ -419,7 +419,6 @@ fun ScheduleScreen(
             // 编辑会话回退按钮: 有可回退操作且在生存期内才出现, 点按回退一步, 长按震动还原全部
             if (undoVisible && undoCount > 0) {
                 UndoButton(
-                    count = undoCount,
                     onClick = onUndo,
                     onLongClick = onUndoAll,
                     modifier = Modifier.width(48.dp).height(48.dp),
@@ -708,7 +707,6 @@ private fun CompactBar(
         }
         if (undoVisible && undoCount > 0) {
             UndoButton(
-                count = undoCount,
                 onClick = onUndo,
                 onLongClick = onUndoAll,
                 modifier = Modifier.width(44.dp).height(44.dp),
@@ -731,7 +729,6 @@ private fun CompactBar(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun UndoButton(
-    count: Int,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -748,26 +745,9 @@ private fun UndoButton(
     ) {
         Icon(
             Icons.AutoMirrored.Rounded.Undo,
-            contentDescription = "回退 $count 步修改，长按还原全部",
-            tint = MaterialTheme.colorScheme.primary,
+            contentDescription = "回退上一步修改，长按还原全部",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        if (count > 1) {
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 6.dp, end = 4.dp)
-                    .background(MaterialTheme.colorScheme.primary, CircleShape)
-                    .padding(horizontal = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "$count",
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
-        }
     }
 }
 
@@ -789,10 +769,11 @@ private fun WeekGrid(
 ) {
     val todayDay = today.dayOfWeek.value
     val isCurrentWeek = week == initialWeek
+    val context = LocalContext.current
     val model = remember(dataset.periods) { SlotModel(dataset.periods) }
     val blocksByDay = remember(cls.courses, week) {
-        // 色板按全学期课程排序分配, 不同课程必不同色 (小组件绑同一份 ClassCache 排序)
-        CourseColors.bindOrder(cls.courses.map { CourseColors.seedOf(it.kc, it.fx) })
+        // 色板按持久化注册表分配 (只增不减): 删除/恢复课程不影响其余课程颜色
+        CourseColors.bindOrder(context, cls.courses.map { CourseColors.seedOf(it.kc, it.fx) })
         Merger.blocksOf(cls.courses, week).groupBy { it.course.day }
     }
     // 本周仍处生存期的虚影, 按天分组 (原课块的周次区间覆盖到本周才显示)
@@ -1177,25 +1158,23 @@ private fun DayColumn(
                     },
             )
         }
-        // 虚影卡片: 删除/移位后的原位置残影 —— 信息保留、整体变淡 + 虚线描边,
-        // 生存期内点按即恢复; 画在真实课程块下层, 与现行卡重叠时让位
+        // 虚影卡片: 删除/移位后的原位置残影 —— 全部使用同一套灰色 + 虚线描边,
+        // 与彩色正式卡片拉开对比; 生存期内点按即恢复, 画在真实课程块下层
         ghosts.forEach { g ->
             val gb = g.block
             val gTop = yOfJc(gb.startJc)
             val gH = yBottomJc(gb.startJc + gb.span - 1) - gTop - 4.dp
             val gShape = RoundedCornerShape(12.dp)
-            val gSeed = CourseColors.seedOf(gb.course.kc, gb.course.fx)
-            val (_, gOn) = CourseColors.pair(cs, gSeed, colorMap[gSeed])
+            val gLine = cs.onSurfaceVariant
             Box(
                 Modifier
                     .fillMaxWidth()
                     .offset { IntOffset(0, (gTop + 2.dp).roundToPx()) }
                     .height(gH)
-                    .graphicsLayer { alpha = 0.45f }
-                    .background(cs.surfaceVariant.copy(alpha = 0.6f), gShape)
+                    .background(cs.onSurfaceVariant.copy(alpha = 0.14f), gShape)
                     .drawBehind {
                         drawRoundRect(
-                            color = gOn.copy(alpha = 0.7f),
+                            color = gLine.copy(alpha = 0.85f),
                             style = Stroke(
                                 width = 1.2.dp.toPx(),
                                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 7f)),
@@ -1210,16 +1189,16 @@ private fun DayColumn(
                         contentDescription = "$what 的课程 ${gb.course.kc}，点按恢复"
                     },
             ) {
-                BlockContent(gb.course.kc, gb.course.room, gOn)
+                BlockContent(gb.course.kc, gb.course.room, gLine)
                 Text(
                     if (g.kind == EditSession.GHOST_DELETED) "已删除" else "已移动",
                     fontSize = 9.sp,
                     fontWeight = FontWeight.Medium,
-                    color = gOn,
+                    color = cs.background,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(4.dp)
-                        .background(cs.background.copy(alpha = 0.75f), RoundedCornerShape(6.dp))
+                        .background(gLine.copy(alpha = 0.9f), RoundedCornerShape(6.dp))
                         .padding(horizontal = 4.dp, vertical = 1.dp),
                 )
             }

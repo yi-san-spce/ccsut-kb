@@ -124,6 +124,42 @@ object Prefs {
         sp(ctx).edit().putLong("next_reminder_at", at).apply()
     }
 
+    // ---- 课程颜色注册表 (删除/恢复课程不重排其余课程颜色) ----
+
+    private const val SEED_SEP = "\u0001"   // 课程名不会出现的控制符
+
+    /** 课程种子 → 颜色槽位的分配顺序 (持久化, 只增不减) */
+    fun courseSeedOrder(ctx: Context): List<String> =
+        sp(ctx).getString("course_seed_order", null)
+            ?.split(SEED_SEP)?.filter { it.isNotBlank() }
+            ?: emptyList()
+
+    fun setCourseSeedOrder(ctx: Context, order: List<String>) {
+        sp(ctx).edit().putString("course_seed_order", order.joinToString(SEED_SEP)).apply()
+    }
+
+    // ---- 功能演示 (首次触发去重) ----
+
+    private const val DEMO_SEP = ","
+
+    /** 已看过的演示 id 集合 */
+    fun demoSeen(ctx: Context): Set<String> =
+        sp(ctx).getString("demo_seen", null)?.split(DEMO_SEP)?.filter { it.isNotBlank() }?.toSet()
+            ?: emptySet()
+
+    fun markDemoShown(ctx: Context, ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        val merged = demoSeen(ctx) + ids
+        sp(ctx).edit().putString("demo_seen", merged.joinToString(DEMO_SEP)).apply()
+    }
+
+    /** 进表后的完整演示组是否已放过 (只放一次) */
+    fun demoIntroDone(ctx: Context): Boolean = sp(ctx).getBoolean("demo_intro_done", false)
+
+    fun setDemoIntroDone(ctx: Context, v: Boolean) {
+        sp(ctx).edit().putBoolean("demo_intro_done", v).apply()
+    }
+
     // ---- 欢迎引导 ----
 
     /** 用户昵称(选填, 姓名/昵称/空) */
