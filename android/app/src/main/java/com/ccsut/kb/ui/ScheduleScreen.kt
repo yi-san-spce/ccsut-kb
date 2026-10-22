@@ -232,6 +232,8 @@ fun ScheduleScreen(
     onUndoAll: () -> Unit = {},
     ghosts: List<Ghost> = emptyList(),
     onGhostRestore: (Ghost) -> Unit = {},
+    // 自定义外观: 「今天」状态条 (今日课程横条) 的透明度百分比 (10-100)
+    todayBarAlpha: Int = 100,
 ) {
     // 时间旅行: dbgOffset 变化时重取语义今天 (KbClock, 只平移日期);
     // 之后由下方 30 秒 ticker 自动跟进真实日期, 跨零点/跨周后顶栏日期、今日列高亮、今日横条不会停在昨天
@@ -444,6 +446,7 @@ fun ScheduleScreen(
                 barBg = barBg,
                 barFg = barFg,
                 haze = haze,
+                alpha = todayBarAlpha / 100f,
                 modifier = Modifier.weight(1f).onSizeChanged { barH = with(density) { it.height.toDp() } },
             )
             AnimatedVisibility(
@@ -462,6 +465,7 @@ fun ScheduleScreen(
                 BackToCurrentPill(
                     bg = barBg,
                     fg = barFg,
+                    alpha = todayBarAlpha / 100f,
                     modifier = Modifier.padding(start = 6.dp).height(barH),
                     onClick = { scope.launch { pagerState.animateScrollToPage(initialWeek - 1) } },
                 )
@@ -502,13 +506,14 @@ private fun TodayBar(
     barBg: Color,
     barFg: Color,
     haze: HazeState? = null,
+    alpha: Float = 1f,   // 自定义外观: 状态条底色透明度 (文字保持全不透明保证可读)
     modifier: Modifier = Modifier,
 ) {
     // 浅色底流光用黑光带才可见; 无限动画本体在 ShimmerBand 内驱动
     val dark = CourseColors.isDark(MaterialTheme.colorScheme)
 
     Surface(
-        color = if (haze != null) Color.Transparent else barBg,
+        color = if (haze != null) Color.Transparent else barBg.copy(alpha = alpha),
         contentColor = barFg,
         shape = RoundedCornerShape(16.dp),
         modifier = modifier
@@ -520,7 +525,7 @@ private fun TodayBar(
                         haze,
                         style = HazeStyle(
                             backgroundColor = MaterialTheme.colorScheme.surface,
-                            tints = listOf(HazeTint(barBg.copy(alpha = 0.45f))),
+                            tints = listOf(HazeTint(barBg.copy(alpha = 0.45f * alpha))),
                             blurRadius = 30.dp,
                             noiseFactor = 0f,
                         ),
@@ -637,13 +642,14 @@ private fun BackToCurrentPill(
     bg: Color,
     fg: Color,
     onClick: () -> Unit,
+    alpha: Float = 1f,   // 与状态条同一族: 跟随自定义外观的透明度
     modifier: Modifier = Modifier,
 ) {
     Box(
         modifier
             .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(50))
-            .background(bg)
+            .background(bg.copy(alpha = alpha))
             .clickable(onClickLabel = "回到本周", onClick = onClick)
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,
@@ -971,8 +977,8 @@ private fun WeekGrid(
                         }
                     }
                 }
-                // 当前时间线: 画在课程列之后 = 悬浮最上层, 跨过课程块也始终可见;
-                // 末节贴底时钳到网格内, 避免线条/圆点被底边裁掉半截。
+                // 当前时间线 (苹果日历同款): 画在课程列之后 = 悬浮最上层, 跨过课程块也始终可见;
+                // 左侧时刻胶囊 + 自胶囊向右延伸的细线; 末节贴底时钳到网格内, 避免被底边裁掉半截。
                 // nowY 每 30s 步进一次会瞬间跳变 → animateDpAsState 在 400ms 内线性滑到新位置;
                 // 放课后/翻周消失时淡出, 记住最后位置避免从顶部闪回。
                 var lastY by remember { mutableStateOf<Dp?>(null) }
@@ -993,16 +999,25 @@ private fun WeekGrid(
                         )
                         // lambda 版 offset: 动画值只在放置期读取, 400ms 滑动每帧不再重组本作用域
                         // (组合期读值曾让滑动逐帧重跑时间线并重建渐变 Brush, 跨今天边界翻周卡顿的主源)
+                        // 外层盒 20dp 高给胶囊容身, 线段垂直居中其中; 顶部钳位保证胶囊不出网格
                         Box(
                             Modifier
                                 .fillMaxWidth()
-                                .offset { IntOffset(0, animY.coerceAtMost(totalH - 2.dp).roundToPx()) }
-                                .padding(start = LEFT_W)
-                                .height(2.dp),
+                                .offset {
+                                    IntOffset(
+                                        0,
+                                        (animY - 9.dp).coerceIn(0.dp, (totalH - 20.dp).coerceAtLeast(0.dp)).roundToPx(),
+                                    )
+                                }
+                                .height(20.dp),
                         ) {
+                            // 横线: 自时间轴右缘延伸到最右, 垂直居中于胶囊
                             Box(
                                 Modifier
-                                    .fillMaxSize()
+                                    .align(Alignment.CenterStart)
+                                    .padding(start = LEFT_W)
+                                    .fillMaxWidth()
+                                    .height(2.dp)
                                     .background(
                                         Brush.horizontalGradient(
                                             listOf(
@@ -1013,22 +1028,20 @@ private fun WeekGrid(
                                         RoundedCornerShape(2.dp),
                                     ),
                             )
+                            // 时刻胶囊: 白字时刻, 左缘压进时间轴少许盖住横线起点
                             Box(
                                 Modifier
                                     .align(Alignment.CenterStart)
-                                    .offset(x = (-2).dp, y = (-5).dp)
-                                    .size(12.dp),
+                                    .offset(x = (-6).dp)
+                                    .clip(RoundedCornerShape(9.dp))
+                                    .background(MaterialTheme.colorScheme.primary)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
                             ) {
-                                Box(
-                                    Modifier
-                                        .size(12.dp)
-                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f), CircleShape),
-                                )
-                                Box(
-                                    Modifier
-                                        .align(Alignment.Center)
-                                        .size(8.dp)
-                                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                Text(
+                                    "${nowMin / 60}:${(nowMin % 60).toString().padStart(2, '0')}",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimary,
                                 )
                             }
                         }

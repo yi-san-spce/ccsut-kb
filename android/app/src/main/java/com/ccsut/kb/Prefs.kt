@@ -124,6 +124,15 @@ object Prefs {
         sp(ctx).edit().putLong("next_reminder_at", at).apply()
     }
 
+    // ---- 自定义外观 ----
+
+    /** 「今天」状态条底色透明度百分比 (10-100, 100=不透明); 「回到本周」药丸同族跟随 */
+    fun todayBarAlpha(ctx: Context): Int = sp(ctx).getInt("today_bar_alpha", 100)
+
+    fun setTodayBarAlpha(ctx: Context, v: Int) {
+        sp(ctx).edit().putInt("today_bar_alpha", v.coerceIn(10, 100)).apply()
+    }
+
     // ---- 课程颜色注册表 (删除/恢复课程不重排其余课程颜色) ----
 
     private const val SEED_SEP = "\u0001"   // 课程名不会出现的控制符

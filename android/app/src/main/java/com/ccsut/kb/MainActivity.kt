@@ -173,6 +173,7 @@ fun App() {
     var bgOn by remember { mutableStateOf(Prefs.bgOn(ctx)) }
     var bgTick by remember { mutableIntStateOf(0) }
     var bgAlpha by remember { mutableIntStateOf(Prefs.bgAlpha(ctx)) }
+    var todayBarAlpha by remember { mutableIntStateOf(Prefs.todayBarAlpha(ctx)) }
     var colorSource by remember { mutableIntStateOf(Prefs.colorSource(ctx)) }
     var bgSeed by remember { mutableIntStateOf(Prefs.bgSeed(ctx)) }
     var styleTheme by remember { mutableIntStateOf(Prefs.styleTheme(ctx)) }
@@ -711,6 +712,7 @@ fun App() {
                         onUndoAll = { restoreAll() },
                         ghosts = ghosts,
                         onGhostRestore = { restoreGhost(it) },
+                        todayBarAlpha = todayBarAlpha,
                     )
                 }
             }
@@ -980,6 +982,11 @@ fun App() {
                 onBgAlpha = {
                     Prefs.setBgAlpha(ctx, it)
                     bgAlpha = it
+                },
+                todayBarAlpha = todayBarAlpha,
+                onTodayBarAlpha = {
+                    Prefs.setTodayBarAlpha(ctx, it)
+                    todayBarAlpha = it
                 },
                 onColorSource = { v ->
                     Prefs.setColorSource(ctx, v)
