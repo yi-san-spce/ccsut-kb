@@ -151,6 +151,18 @@ App 和小组件共用同一套渲染逻辑（连堂合并 `Merger`），所以�
 - 更新两条通道：数据热更（免重装）+ APK 更新
 - 红线：时间走 `KbClock`、写盘原子化、登录链路谨慎
 
+
+## 鸿蒙线（harmony/）
+
+安卓版的 HarmonyOS NEXT 移植，与安卓线并行维护、共用仓库数据（`data/`）与发版口径。要点：
+
+- **纯逻辑层（`entry/src/main/ets/common/`）**是 Kotlin 核心的 ArkTS 直译：数据模型/编解码/数据集解析/Merger/UserEdits/周次/今日状态/大节槽位，**不依赖 ohos API**，用 Node 直跑单测（`harmony/tests/`，`npm test`），语义对齐安卓 junit
+- **ohos 依赖层（`data/`）**：文件原子写（tmp+rename 同款规范）、Preferences 偏好（键名与安卓一致）、RCP 网络层（`autoRedirect:false` 手动逐跳 302 + 内存 CookieJar，登录链路逐行移植 `CasClient.kt`）、数据热更（同一份 GitHub `data/latest.json` 清单 + sha256）
+- **UI（ArkUI 声明式）**：单 UIAbility + 页面状态机（对应安卓无导航库的布尔状态机），Swiper 周翻页对应 HorizontalPager，bindSheet 对应 ModalBottomSheet
+- **版本独立线**：`AppScope/app.json5` versionCode 从 1 起，不与安卓 versionCode 混用
+- 首期未做：小组件（→ArkTS 服务卡片）、提醒（→reminderAgentManager）、应用内更新页（HAP 无法自装）、背景图取色/主题包
+- 工具链与构建：见 `harmony/README.md`（CLT/hvigorw/rsync 中文路径桥接、签名待华为账号）
+
 ## 延伸阅读
 
 - 接口与登录链路细节：因敏感因素，暂不提供相关的文档说明

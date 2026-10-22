@@ -112,6 +112,7 @@ cd ccsut-kb/android
 | 把项目跑起来、配环境、过一遍开发工作流 | [docs/上手教程/getting-started.md](docs/上手教程/getting-started.md) |
 | 理解代码架构与数据流，准备动手改 | [docs/原理与接口/architecture.md](docs/原理与接口/architecture.md) |
 | 查某个功能的入口与实现细节 | [docs/上手教程/features.md](docs/上手教程/features.md) |
+| 数据链路与登录链路的技术细节 | 接口调用细节不在文档中展开 |
 | 查术语 / 行话定义（覆盖层、双链、CAS…） | [docs/glossary.md](docs/glossary.md) |
 | 发布新版本 / 更新课表数据 | [docs/开发者/release.md](docs/开发者/release.md) |
 | 看每个版本改了什么 | [docs/CHANGELOG.md](docs/CHANGELOG.md) · [docs/release-notes/](docs/release-notes/) |
@@ -120,10 +121,10 @@ cd ccsut-kb/android
 
 ### 数据来源与质量保障
 
-- **班级课表数据集**：`scripts/scrape.py` 从学校教务系统公开接口抓取（228 个班），打包进应用并可通过更新通道热更新；`scripts/publish.sh` 一条龙发布
-- **单元测试**：解析、周次计算、合并、编辑覆盖层等纯函数 54 个用例（`android/app/src/test/`）
+- **班级课表数据集**：`scripts/scrape.py` 从学校教务系统公开接口整理（228 个班），打包进应用并可通过更新通道热更新；`scripts/publish.sh` 一条龙发布
+- **单元测试**：解析、周次计算、合并、编辑覆盖层等纯函数 99 个用例（`android/app/src/test/`）
 - **CI**：每次推送自动跑版本双写校验 + 测试 + 构建冒烟；**发布门禁** `scripts/publish.sh` 拒绝在脏工作区发版，APK 版本号从产物本身读取
-- 数据获取与登录链路遵循「只读、仅本人数据、无中间服务器」原则（见 [PRIVACY.md](docs/PRIVACY.md)）；技术细节文档因敏感因素暂不提供，欢迎通过 Issue 交流
+- 数据获取与登录链路遵循「只读、仅本人数据、无中间服务器」原则（见 [PRIVACY.md](docs/PRIVACY.md)）；技术细节文档不在文档中展开，欢迎通过 Issue 交流
 
 ---
 
