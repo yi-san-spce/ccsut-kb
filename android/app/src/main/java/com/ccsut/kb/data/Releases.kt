@@ -211,13 +211,25 @@ object Releases {
         if (!url.startsWith("https://")) throw IllegalStateException("内测清单地址要以 https:// 开头")
         val o = JSONObject(String(Updater.httpGet(url), Charsets.UTF_8))
         val list = if (o.optJSONArray("versions") != null) {
-            parseVersionsEntries(o) { _, file ->
-                file?.let { runCatching { Updater.resolve(url.substringBeforeLast('/'), it) }.getOrNull() }
+            val arr = o.getJSONArray("versions")
+            val base = url.substringBeforeLast('/')
+            (0 until arr.length()).mapNotNull { i ->
+                val v = arr.getJSONObject(i)
+                val name = v.optString("versionName").trim()
+                if (name.isBlank()) null else entryToRelease(v, betaUrlOf(base, v))
             }
         } else {
             listOfNotNull(manifestToRelease(url, Updater.parseManifest(o)))
         }
         return list.filter { Channels.visible(it.channel, Channels.BETA) }
+    }
+
+    /** 内测条目的下载地址: fileUrl 绝对直链优先 (可带镜像前缀), 缺省再把 file 相对清单目录解析。
+     *  回归: 旧实现忽略 fileUrl 把相对文件名拼到清单目录 (raw 数据路径下没有 APK) → 下载必 404 */
+    internal fun betaUrlOf(base: String, v: JSONObject): String? {
+        v.optString("fileUrl").takeIf { it.startsWith("https://") }?.let { return it }
+        val file = v.optString("file").takeIf { it.isNotBlank() } ?: return null
+        return runCatching { Updater.resolve(base, file) }.getOrNull()
     }
 
     /** 清单 apk 段 → ReleaseInfo (内测 latest.json 兼容) */

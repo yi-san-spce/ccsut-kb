@@ -113,6 +113,36 @@ class ReleasesTest {
     // ---- GitHub Releases 解析 ----
 
     @Test
+    fun `内测条目下载地址_fileUrl绝对直链优先_缺省回退相对解析`() {
+        val base = "https://raw.githubusercontent.com/yi-san-spce/ccsut-kb/master/data"
+        // fileUrl 绝对直链 (可带镜像前缀) 优先 —— 相对 file 即使也在也不覆盖它
+        assertEquals(
+            "https://ghfast.top/https://github.com/yi-san-spce/ccsut-kb/releases/download/v1.2.0-beta.2/ccsut-kb-1.2.0-beta.2.apk",
+            Releases.betaUrlOf(
+                base,
+                JSONObject(
+                    """{"versionName":"1.2.0-beta.2","file":"ccsut-kb-1.2.0-beta.2.apk",
+                        "fileUrl":"https://ghfast.top/https://github.com/yi-san-spce/ccsut-kb/releases/download/v1.2.0-beta.2/ccsut-kb-1.2.0-beta.2.apk"}""",
+                ),
+            ),
+        )
+        // 无 fileUrl: file 相对清单目录解析
+        assertEquals(
+            "$base/ccsut-kb-1.2.0-beta.1.apk",
+            Releases.betaUrlOf(base, JSONObject("""{"versionName":"1.2.0-beta.1","file":"ccsut-kb-1.2.0-beta.1.apk"}""")),
+        )
+        // file 是绝对直链: resolve 直接放行
+        assertEquals(
+            "https://example.com/a.apk",
+            Releases.betaUrlOf(base, JSONObject("""{"versionName":"1.2.0-beta.1","file":"https://example.com/a.apk"}""")),
+        )
+        // file 是明文 http: 拒绝 (resolve 抛错) → null, 不产生不安全下载
+        assertEquals(null, Releases.betaUrlOf(base, JSONObject("""{"versionName":"1.2.0-beta.1","file":"http://example.com/a.apk"}""")))
+        // 两者都缺: null
+        assertEquals(null, Releases.betaUrlOf(base, JSONObject("""{"versionName":"1.2.0-beta.1"}""")))
+    }
+
+    @Test
     fun `GitHubRelease解析_tag资产日期与下载量`() {
         val r = Releases.parseGitHubRelease(
             JSONObject(

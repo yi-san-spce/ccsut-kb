@@ -4,7 +4,7 @@
       "versionCode": 102005002,
       "versionName": "1.2.0-beta.2",
       "date": "2026-10-22",
-      "file": "ccsut-kb-1.2.0-beta.2.apk",
+      "file": "https://ghfast.top/https://github.com/yi-san-spce/ccsut-kb/releases/download/v1.2.0-beta.2/ccsut-kb-1.2.0-beta.2.apk",
       "sha256": "05992e40e48097981548731ee25e7511d7d6ca684fac48b436ebf5c3af5b1a17",
       "bytes": 3162728,
       "channel": "beta",
@@ -50,13 +50,13 @@
         "注意：课前提醒总开关需开启，闹钟模式才生效",
         "关机状态下任何应用都无法响铃（只有系统时钟的「关机闹钟」例外）"
       ],
-      "fileUrl": "https://github.com/yi-san-spce/ccsut-kb/releases/download/v1.2.0-beta.2/ccsut-kb-1.2.0-beta.2.apk"
+      "fileUrl": "https://ghfast.top/https://github.com/yi-san-spce/ccsut-kb/releases/download/v1.2.0-beta.2/ccsut-kb-1.2.0-beta.2.apk"
     },
     {
       "versionCode": 102005001,
       "versionName": "1.2.0-beta.1",
       "date": "2026-10-22",
-      "file": "ccsut-kb-1.2.0-beta.1.apk",
+      "file": "https://ghfast.top/https://github.com/yi-san-spce/ccsut-kb/releases/download/v1.2.0-beta.1/ccsut-kb-1.2.0-beta.1.apk",
       "sha256": "d7bd2178a2714517a456db37371a39afb29c7d4f184c5e78137ed615ef56ecc0",
       "bytes": 3162436,
       "channel": "beta",
@@ -112,7 +112,7 @@
         "请先完成：更多 → 提醒 → 「后台响铃保障」允许后台运行，并在最近任务里锁定本应用，否则划掉应用后系统会清掉闹钟",
         "内测版本号独立于稳定版计数，正式发布 v1.2.0 后会正常覆盖升级"
       ],
-      "fileUrl": "https://github.com/yi-san-spce/ccsut-kb/releases/download/v1.2.0-beta.1/ccsut-kb-1.2.0-beta.1.apk"
+      "fileUrl": "https://ghfast.top/https://github.com/yi-san-spce/ccsut-kb/releases/download/v1.2.0-beta.1/ccsut-kb-1.2.0-beta.1.apk"
     }
   ]
 }
