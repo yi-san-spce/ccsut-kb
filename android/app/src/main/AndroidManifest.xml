@@ -15,6 +15,9 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- 后台响铃保障: 申请电池优化白名单 (划掉应用被 ROM 强制停止时已排闹钟会被一并清空) -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- 常驻保活前台服务: 上滑划掉卡片时进程与已排闹钟不被一并清掉 (代码侧最后的防线) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:name=".KbApp"
@@ -78,6 +81,17 @@
             android:turnScreenOn="true"
             android:excludeFromRecents="true"
             android:configChanges="orientation|screenSize|keyboardHidden" />
+
+        <!-- 课表提醒保活: 常驻低优先通知, 上滑划掉应用时进程与闹钟存活;
+             specialUse = 闹钟类应用保活的合规 FGS 类型 (34+ 必须声明 subtype) -->
+        <service
+            android:name=".reminder.KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Course timetable alarm keep-alive: alarms must survive task removal on aggressive OEM ROMs" />
+        </service>
 
         <provider
             android:name="androidx.core.content.FileProvider"

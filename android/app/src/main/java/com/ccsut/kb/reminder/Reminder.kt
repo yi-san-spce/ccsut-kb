@@ -235,6 +235,7 @@ object ReminderScheduler {
         am?.cancel(pi(ctx))
         cancelAlarmChain(ctx)
         Prefs.setNextReminderAt(ctx, 0L)
+        KeepAliveService.sync(ctx)   // 全关时同步停掉保活服务
     }
 
     /** 某一天会发生的提醒事件; classOn=false 时不算课前事件 (放学/早八照常) */
@@ -357,6 +358,9 @@ object ReminderScheduler {
         }
         val next = listOfNotNull(millisNotify, millisAlarm).minOrNull() ?: 0L
         Prefs.setNextReminderAt(ctx, next)
+        // 保活同步: 前台/开机路径拉起常驻服务 (防止退后台被冻结后广播投递被推迟),
+        // 后台路径启动受限会静默跳过 —— 服务本就应在更早的前台时刻已拉起
+        KeepAliveService.sync(ctx)
         bestNotify?.let { DebugLog.log("remind", "通知链下次 ${it.at} (type=${it.type})") }
         bestAlarm?.let { DebugLog.log("remind", "闹钟链下次 ${it.at} 课程=${it.block?.course?.kc}") }
     }
