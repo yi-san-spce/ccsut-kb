@@ -16,6 +16,17 @@
 - 版本号**双写**在 `android/app/build.gradle` 与 `data/Updater.kt` 的 `BuildVersion`；`./gradlew checkVersionSync` 校验一致性（历史上失同步过一次差点发错版）
 - 发版提交固定 `chore(release): vX.Y.Z <主题>`；稳定版 tag 恒为 `v<versionName>`（annotated，publish.sh 自动打），预发布 tag 由 GitHub 从远端 master 创建
 
+## 发版流程总则：内测先行（2026-10-22 起，团队约定）
+
+所有对用户可见的更新**一律先发内测版**，内测验证通过后再按情况上更高通道：
+
+1. **常规迭代**：内测版 → 验证通过 → 稳定版；想提前放量收集反馈，先发抢先版再转稳定
+2. **恶性 bug（崩溃 / 数据错误 / 必须立刻止血）**：内测版 → 验证通过 → **立即上稳定版**，不等抢先节奏
+3. **内测清单托管在本仓** `data/versions-beta.json`，raw 直链永久不变（内测同学在 App 里填一次即可长期收内测推送）：
+   `https://raw.githubusercontent.com/yi-san-spce/ccsut-kb/master/data/versions-beta.json`
+   每发一个内测版：把 publish.sh 结尾打印的条目 JSON 插到 `versions` 数组**最前** → commit → `git push github master`
+4. ⚠️ **一旦发过某基线的内测版，同基线稳定版的 versionCode 必须走分段方案**（如 `1.2.0-beta.1`=102005001 → `1.2.0` 稳定=102009000），绝不能回退旧的顺序计数，否则内测用户会被判降级、永远升不上正式版
+
 ## 发布通道
 
 | 通道 | 用途 | 机制 |
@@ -73,7 +84,9 @@
    scripts/publish.sh --skip --beta --apk android/app/build/outputs/apk/release/app-release.apk
    ```
    自动：创建 prerelease（不碰 versions.json / versions-preview.json / latest.json，稳定用户零感知），结尾**打印内测清单条目 JSON + APK 直链**
-4. **维护内测清单**：把打印的条目 JSON 追加到团队的 `versions-beta.json`（`versions` 数组最前），托管在任意 https 静态地址（OSS / 自有服务器均可），把清单链接发给内测用户。文件格式：
+4. **维护内测清单**：把打印的条目 JSON 追加到本仓 `data/versions-beta.json`（`versions` 数组最前）→ commit → 推送。清单 raw 直链（发给内测用户，填一次长期有效）：
+   `https://raw.githubusercontent.com/yi-san-spce/ccsut-kb/master/data/versions-beta.json`
+   文件格式：
    ```json
    {
      "versions": [
