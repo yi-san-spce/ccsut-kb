@@ -93,7 +93,7 @@ class ReleasesTest {
     }
 
     @Test
-    fun `可见性_稳定只看稳定_抢先看稳定加抢先_内测条目不走公开渠道`() {
+    fun `可见性_稳定只看稳定_抢先看稳定加抢先_内测看自己的清单`() {
         // 稳定通道: 只看稳定
         assertEquals(true, Channels.visible(Channels.TAG_STABLE, Channels.STABLE))
         assertEquals(false, Channels.visible(Channels.TAG_PREVIEW, Channels.STABLE))
@@ -102,6 +102,12 @@ class ReleasesTest {
         assertEquals(true, Channels.visible(Channels.TAG_STABLE, Channels.PREVIEW))
         assertEquals(true, Channels.visible(Channels.TAG_PREVIEW, Channels.PREVIEW))
         assertEquals(false, Channels.visible(Channels.TAG_BETA, Channels.PREVIEW))
+        // 内测通道: 看自己清单里的 beta 条目 + stable 条目 (回归: 缺 BETA 分支时
+        // fetchBetaIndex 会把 beta 条目全过滤光, 内测通道永远为空 —— v1.2.0-beta.1 实测踩中)
+        assertEquals(true, Channels.visible(Channels.TAG_BETA, Channels.BETA))
+        assertEquals(true, Channels.visible(Channels.TAG_STABLE, Channels.BETA))
+        assertEquals(false, Channels.visible(Channels.TAG_PREVIEW, Channels.BETA))
+        assertEquals(false, Channels.visible(Channels.TAG_DEV, Channels.BETA))
     }
 
     // ---- GitHub Releases 解析 ----

@@ -102,11 +102,12 @@ object Channels {
         }
     }
 
-    /** 公开通道可见性: 稳定只看稳定, 抢先看稳定+抢先; 内测条目永不走公开渠道 (仅私发清单里出现);
-     *  dev 条目在任何通道都不显示 —— 开发者版本只存在于版本号里 */
+    /** 公开通道可见性: 稳定只看稳定, 抢先看稳定+抢先; 内测只看自己的清单 (beta+stable 条目,
+     *  公开渠道拉取不到内测条目); dev 条目在任何通道都不显示 —— 开发者版本只存在于版本号里 */
     fun visible(releaseChannel: String, channel: Int): Boolean = when {
         releaseChannel == TAG_DEV -> false
         channel == PREVIEW -> releaseChannel == TAG_STABLE || releaseChannel == TAG_PREVIEW
+        channel == BETA -> releaseChannel == TAG_BETA || releaseChannel == TAG_STABLE
         else -> releaseChannel == TAG_STABLE
     }
 
