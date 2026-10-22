@@ -61,6 +61,7 @@ import androidx.compose.material3.ripple
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
@@ -89,6 +90,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
@@ -911,6 +913,12 @@ private fun WeekGrid(
                 Row(Modifier.fillMaxSize()) {
                     // 左侧时间轴: 开始时间贴槽顶, 节次居中, 结束时间贴槽底
                     Box(Modifier.width(LEFT_W).fillMaxHeight()) {
+                        // 苹果日历同款: 被时刻胶囊压住的档位标签直接不画, 胶囊让开后自动恢复。
+                        // 胶囊纵带 ≈ nowY ± 11dp; 标签文字高按 14dp 近似
+                        val pillTop = nowY?.minus(11.dp)
+                        val pillBottom = nowY?.plus(11.dp)
+                        fun occluded(labelTop: Dp): Boolean =
+                            pillTop != null && labelTop < pillBottom!! && (labelTop + 14.dp) > pillTop
                         for (k in 0 until model.slots) {
                             val (j1, j2) = model.jcRange[k]
                             val tsStr = dataset.periods.first { it.jc == j1 }.start
@@ -923,30 +931,45 @@ private fun WeekGrid(
                             ) {
                                 if (slotH(k) < 40.dp) {
                                     // 收窄的空末节细条放不下三行时刻, 只显示居中节次号
-                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text(
-                                            "$j1-$j2",
-                                            fontSize = 10.sp,
-                                            fontWeight = if (k == activeSlot) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (k == activeSlot) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
+                                    if (!occluded(yTop[k] + (slotH(k) - 14.dp) / 2)) {
+                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                "$j1-$j2",
+                                                fontSize = 10.sp,
+                                                fontWeight = if (k == activeSlot) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (k == activeSlot) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
                                     }
                                 } else {
-                                    Column(
-                                        Modifier.fillMaxSize(),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.SpaceBetween,
-                                    ) {
-                                        Text(tsStr, fontSize = 10.sp, color = MaterialTheme.colorScheme.outline)
+                                    // 三行标签各自绝对定位 (顶/中/底): 某一档被胶囊压住时
+                                    // 其余两档位置不动, 不因 SpaceBetween 重排
+                                    if (!occluded(yTop[k])) {
+                                        Text(
+                                            tsStr,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.outline,
+                                            modifier = Modifier.align(Alignment.TopCenter),
+                                        )
+                                    }
+                                    if (!occluded(yTop[k] + (slotH(k) - 14.dp) / 2)) {
                                         Text(
                                             "$j1-$j2",
                                             fontSize = 10.sp,
                                             fontWeight = if (k == activeSlot) FontWeight.Bold else FontWeight.Medium,
                                             color = if (k == activeSlot) MaterialTheme.colorScheme.primary
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.align(Alignment.Center),
                                         )
-                                        Text(teStr, fontSize = 10.sp, color = MaterialTheme.colorScheme.outline)
+                                    }
+                                    if (!occluded(yTop[k] + slotH(k) - 14.dp)) {
+                                        Text(
+                                            teStr,
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.outline,
+                                            modifier = Modifier.align(Alignment.BottomCenter),
+                                        )
                                     }
                                 }
                             }
@@ -1013,18 +1036,26 @@ private fun WeekGrid(
                                 .padding(start = 2.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            // 时刻胶囊: 主题色底白字时刻 (苹果日历同款)
+                            // 时刻胶囊: 主题色底白字时刻 (苹果日历同款)。
+                            // 固定高 + 居中对齐 + 关字体补白: 数字不随字体度量上下偏
                             Box(
                                 Modifier
                                     .clip(RoundedCornerShape(9.dp))
                                     .background(MaterialTheme.colorScheme.primary)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    .padding(horizontal = 7.dp)
+                                    .height(16.dp),
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     "${nowMin / 60}:${(nowMin % 60).toString().padStart(2, '0')}",
                                     fontSize = 10.sp,
+                                    lineHeight = 10.sp,   // 压平行盒: LocalTextStyle 自带 24sp 行高会把数字坠底
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimary,
+                                    maxLines = 1,
+                                    style = LocalTextStyle.current.copy(
+                                        platformStyle = PlatformTextStyle(includeFontPadding = false),
+                                    ),
                                 )
                             }
                             Spacer(Modifier.width(4.dp))
