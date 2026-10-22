@@ -182,15 +182,27 @@ object WidgetRenderer {
         renderExec.execute { render(ctx, mgr, ids) }
     }
 
-    /** 小组件越高给的行数越多 (OPTION_APPWIDGET_MAX_HEIGHT 单位是 dp) */
+    /** 小组件越高给的行数越多 (OPTION_APPWIDGET_MAX_HEIGHT 单位是 dp);
+     *  高度档位延后按同比例放宽, 拉高的小组件能一屏铺开全天课程, 超出仍有「还有 N 门课」提示 */
     private fun maxRows(opts: Bundle?): Int {
         val h = opts?.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0) ?: 0
         return when {
+            h >= 460 -> 12
+            h >= 360 -> 9
             h >= 260 -> 6
             h >= 180 -> 5
             else -> 4
         }
     }
+
+    /** 带起止时刻的课块: 起止文本取 periods (结束取末节的 end), 缺数据为空串 */
+    private data class Slot(
+        val b: Block,
+        val startMin: Int,
+        val endMin: Int,
+        val tStart: String,
+        val tEnd: String,
+    )
 
     private fun build(ctx: Context, mgr: AppWidgetManager, id: Int, snapIn: ClassCache.Snapshot?): RemoteViews {
         val rv = RemoteViews(ctx.packageName, R.layout.widget_today)
@@ -242,18 +254,23 @@ object WidgetRenderer {
 
         val now = LocalTime.now()
         val nowMin = now.hour * 60 + now.minute
-        // (课块, 起止分钟, 起始时间文本)
-        val timeline = blocks.map { b ->
+        val timeline: List<Slot> = blocks.map { b ->
             val s = snapIn.periods.firstOrNull { it.jc == b.startJc }
             val e = snapIn.periods.firstOrNull { it.jc == b.startJc + b.span - 1 }
-            Triple(b, (s?.let { ClassCache.minutesOf(it.start) } ?: 0) to (e?.let { ClassCache.minutesOf(it.end) } ?: 1440), s?.start ?: "")
+            Slot(
+                b,
+                s?.let { ClassCache.minutesOf(it.start) } ?: 0,
+                e?.let { ClassCache.minutesOf(it.end) } ?: 1440,
+                s?.start ?: "",
+                e?.end ?: "",
+            )
         }
-        val ongoing = timeline.filter { nowMin >= it.second.first && nowMin < it.second.second }
-        val next = timeline.firstOrNull { it.second.first > nowMin }
+        val ongoing = timeline.filter { nowMin >= it.startMin && nowMin < it.endMin }
+        val next = timeline.firstOrNull { it.startMin > nowMin }
         when {
             next != null -> {
                 rv.setViewVisibility(R.id.w_next, View.VISIBLE)
-                rv.setTextViewText(R.id.w_next, "下节课 ${next.third} · ${next.first.course.kc}")
+                rv.setTextViewText(R.id.w_next, "下节课 ${next.tStart} · ${next.b.course.kc}")
             }
             ongoing.isNotEmpty() -> {
                 rv.setViewVisibility(R.id.w_next, View.VISIBLE)
@@ -269,31 +286,8 @@ object WidgetRenderer {
         val rows = maxRows(mgr.getAppWidgetOptions(id))
         // 与主界面同一套成对取色: 容器色直接烤进药丸背景 (tint 保圆角), 同一门课两端必同色
         val scheme = schemeFor(ctx, dark)
-        timeline.take(rows).forEach { (b, span, _) ->
-            val item = RemoteViews(ctx.packageName, R.layout.widget_item)
-            val seed = CourseColors.seedOf(b.course.kc, b.course.fx)
-            val (container, on) = CourseColors.pair(scheme, seed, colors[seed])
-            item.setInt(R.id.w_item, "setBackgroundResource", if (dark) PILL_D[0] else PILL[0])
-            item.setColorStateList(
-                R.id.w_item, "setBackgroundTintList",
-                android.content.res.ColorStateList.valueOf(container.toArgb()),
-            )
-            item.setTextColor(R.id.w_name, on.toArgb())
-            item.setTextColor(R.id.w_meta, ColorUtils.setAlphaComponent(on.toArgb(), 214))
-            item.setTextViewText(R.id.w_name, b.course.kc)
-            val jcs = "第${b.startJc}-${b.startJc + b.span - 1}节"
-            val room = b.course.room.ifBlank { null } ?: b.rooms.ifBlank { null }
-            val isOngoing = ongoing.any { it.first == b }
-            item.setTextViewText(
-                R.id.w_meta,
-                when {
-                    isOngoing && room != null -> "进行中 · $room"
-                    isOngoing -> "进行中 · $jcs"
-                    room != null -> "$jcs · $room"
-                    else -> jcs
-                },
-            )
-            rv.addView(R.id.w_rows, item)
+        timeline.take(rows).forEach { s ->
+            rv.addView(R.id.w_rows, pill(ctx, dark, scheme, colors, s, ongoing.any { it.b == s.b }))
         }
         if (timeline.size > rows) {
             rv.setViewVisibility(R.id.w_more, View.VISIBLE)
@@ -302,6 +296,47 @@ object WidgetRenderer {
             rv.setViewVisibility(R.id.w_more, View.GONE)
         }
         return rv
+    }
+
+    /** 单条课程药丸: 右侧时刻列展示起止时刻, periods 缺失时隐藏 */
+    private fun pill(
+        ctx: Context,
+        dark: Boolean,
+        scheme: ColorScheme,
+        colors: Map<String, Int>,
+        s: Slot,
+        ongoing: Boolean,
+    ): RemoteViews {
+        val item = RemoteViews(ctx.packageName, R.layout.widget_item)
+        val seed = CourseColors.seedOf(s.b.course.kc, s.b.course.fx)
+        val (container, on) = CourseColors.pair(scheme, seed, colors[seed])
+        item.setInt(R.id.w_item, "setBackgroundResource", if (dark) PILL_D[0] else PILL[0])
+        item.setColorStateList(
+            R.id.w_item, "setBackgroundTintList",
+            android.content.res.ColorStateList.valueOf(container.toArgb()),
+        )
+        item.setTextColor(R.id.w_name, on.toArgb())
+        val onSec = ColorUtils.setAlphaComponent(on.toArgb(), 214)
+        item.setTextColor(R.id.w_meta, onSec)
+        item.setTextColor(R.id.w_time, onSec)
+        item.setTextViewText(R.id.w_name, s.b.course.kc)
+        val jcs = "第${s.b.startJc}-${s.b.startJc + s.b.span - 1}节"
+        val room = s.b.course.room.ifBlank { null } ?: s.b.rooms.ifBlank { null }
+        item.setTextViewText(
+            R.id.w_meta,
+            when {
+                ongoing && room != null -> "进行中 · $room"
+                ongoing -> "进行中 · $jcs"
+                room != null -> "$jcs · $room"
+                else -> jcs
+            },
+        )
+        if (s.tStart.isNotBlank() && s.tEnd.isNotBlank()) {
+            item.setTextViewText(R.id.w_time, "${s.tStart}\n${s.tEnd}")
+        } else {
+            item.setViewVisibility(R.id.w_time, View.GONE)
+        }
+        return item
     }
 
     /** 无课日预告明天课程数, 学期外不显示 */

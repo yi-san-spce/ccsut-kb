@@ -5,33 +5,54 @@
     android:id="@+id/w_item"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
     android:background="@drawable/widget_pill_0"
     android:paddingStart="11dp"
     android:paddingEnd="11dp"
     android:paddingTop="7dp"
     android:paddingBottom="7dp">
 
-    <TextView
-        android:id="@+id/w_name"
-        android:layout_width="match_parent"
+    <LinearLayout
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="课程名称"
-        android:textSize="14sp"
-        android:fontFamily="sans-serif-medium"
-        android:textStyle="bold"
-        android:textColor="@android:color/system_neutral1_900"
-        android:maxLines="1"
-        android:ellipsize="end" />
+        android:layout_weight="1"
+        android:orientation="vertical">
 
+        <TextView
+            android:id="@+id/w_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="课程名称"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium"
+            android:textStyle="bold"
+            android:textColor="@android:color/system_neutral1_900"
+            android:maxLines="1"
+            android:ellipsize="end" />
+
+        <TextView
+            android:id="@+id/w_meta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="1dp"
+            android:text="第1-2节 · 教学楼"
+            android:textSize="11.5sp"
+            android:textColor="@android:color/system_neutral2_700"
+            android:maxLines="1"
+            android:ellipsize="end" />
+    </LinearLayout>
+
+    <!-- 右侧时刻列: 上下两行起止时刻(如 8:20 / 9:50), 缺 periods 数据时运行时隐藏 -->
     <TextView
-        android:id="@+id/w_meta"
-        android:layout_width="match_parent"
+        android:id="@+id/w_time"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="1dp"
-        android:text="第1-2节 · 教学楼"
-        android:textSize="11.5sp"
-        android:textColor="@android:color/system_neutral2_700"
-        android:maxLines="1"
-        android:ellipsize="end" />
+        android:layout_marginStart="8dp"
+        android:gravity="end"
+        android:text="8:20\n9:50"
+        android:textSize="11sp"
+        android:lineSpacingExtra="1dp"
+        android:fontFamily="sans-serif"
+        android:textColor="@android:color/system_neutral2_700" />
 </LinearLayout>

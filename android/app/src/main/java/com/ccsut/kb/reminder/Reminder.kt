@@ -362,7 +362,7 @@ object ReminderScheduler {
         DebugLog.log("remind", "测试闹钟已排: +${delayMs}ms")
     }
 
-    /** 开发者模式: 10 秒后全链路试响 (setAlarmClock→广播→全屏意图通知/直启, 与生产路径一致) */
+    /** 开发者模式: 10 秒后全链路试响 (setAlarmClock→广播→全屏意图通知/直启, 与生产路径一致, 含 EXTRA_AT) */
     fun scheduleTestRing(ctx: Context, delayMs: Long = 10_000L) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val it = Intent(ctx, ReminderReceiver::class.java).setAction(ACTION_ALARM_RING)
@@ -370,6 +370,7 @@ object ReminderScheduler {
             .putExtra(EXTRA_ROOM, "7-南206")
             .putExtra(EXTRA_START, "8:20")
             .putExtra(EXTRA_LEAD, 15)
+            .putExtra(EXTRA_AT, System.currentTimeMillis() + delayMs)   // 与生产同源: 响铃页/迟到守卫走同一条计算
             .putExtra(EXTRA_TEST, true)
         val pi = PendingIntent.getBroadcast(
             ctx, 3, it,
