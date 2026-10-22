@@ -17,7 +17,6 @@ import com.ccsut.kb.R
 import com.ccsut.kb.data.ClassCache
 import com.ccsut.kb.util.Block
 import com.ccsut.kb.util.DebugLog
-import com.ccsut.kb.util.KbClock
 import com.ccsut.kb.util.Merger
 import com.ccsut.kb.util.TimeParse
 import com.ccsut.kb.widget.WidgetRenderer
@@ -58,17 +57,26 @@ object ReminderScheduler {
     /** 早八前夜提醒时刻 */
     private val EARLY_AT: LocalTime = LocalTime.of(21, 30)
 
-    /** 响铃迟到容忍线(毫秒): 上课时刻已过这条线就不再响 (排定时刻之后的迟到投递/迟点通知都靠它拦) */
-    internal const val RING_LATE_TOLERANCE_MS = 60_000L
+    /** 响铃页拉起容忍(毫秒): 全屏意图从投递到页面真正起来有秒级延迟, 这条线只吸收拉起延迟;
+     *  更晚打开的响铃页 (迟到投递/托盘滞留通知被点开) 一律静默退出 —— 上课之后绝不重新炸铃 */
+    internal const val RING_PAGE_GRACE_MS = 30_000L
 
     /** 上课时刻(毫秒) = 排定响铃时刻 + 提前量; atMillis<=0 (测试链路) 返回 0 表示未知 */
     internal fun classStartMillis(atMillis: Long, leadMin: Int?): Long =
         if (atMillis <= 0L) 0L else atMillis + (leadMin?.coerceAtLeast(0) ?: 0) * 60_000L
 
-    /** 响铃是否已过点: 投递晚于 上课时刻+容忍线 就静默放弃, 别在课堂上炸 "还有 N 分钟" */
+    /** 响铃页侧过点: 打开时晚于 上课时刻+拉起容忍 就静默放弃 */
     internal fun ringExpired(atMillis: Long, leadMin: Int?, nowMillis: Long): Boolean {
         val start = classStartMillis(atMillis, leadMin)
-        return start > 0L && nowMillis > start + RING_LATE_TOLERANCE_MS
+        return start > 0L && nowMillis > start + RING_PAGE_GRACE_MS
+    }
+
+    /** 投递侧过点(最严): 已到上课时刻就整条放弃 —— 不发通知不直启, 上课后零响铃。
+     *  排程时也用它校验触发点: 过了上课时刻的时刻绝不交给 setAlarmClock,
+     *  系统闹钟 UI 不受我们过点守卫控制, 过去的触发点会被系统立即补响 (上课后炸系统闹钟的根因) */
+    internal fun ringDeliveryExpired(atMillis: Long, leadMin: Int?, nowMillis: Long): Boolean {
+        val start = classStartMillis(atMillis, leadMin)
+        return start > 0L && nowMillis >= start
     }
 
     /** 距上课的剩余分钟(向上取整): 无排定时刻时退回提前量原值, 与旧文案兼容 */
@@ -160,12 +168,12 @@ object ReminderScheduler {
      * ② 尽力直启 —— BAL opt-in 生效的平台立即全屏, 不依赖通知权限
      *
      * 迟到投递防护: setAlarmClock 定点准, 但广播投递到被杀进程可能被系统推迟几分钟到几十分钟,
-     * 上课后再响 "还有 N 分钟上课" 纯属惊扰 —— 上课时刻已过容忍线就静默放弃, 只留痕。
+     * 投递时已到上课时刻就整条放弃 (不发通知不直启) —— 上课后响 "快上课啦" 纯属惊扰, 只留痕。
      */
     fun fireAlarmRing(ctx: Context, kc: String?, room: String?, start: String?, lead: Int?, at: Long = 0L) {
         runCatching {
-            if (ringExpired(at, lead, System.currentTimeMillis())) {
-                DebugLog.log("remind", "响铃投递迟到且已过上课时刻, 静默放弃 (排定=$at)")
+            if (ringDeliveryExpired(at, lead, System.currentTimeMillis())) {
+                DebugLog.log("remind", "响铃投递已到/过上课时刻, 整条放弃不响 (排定=$at)")
                 runCatching {
                     ctx.getSystemService(android.app.NotificationManager::class.java)
                         ?.cancel(NOTIF_ALARM_RING)
@@ -298,7 +306,9 @@ object ReminderScheduler {
         val start = runCatching { LocalDate.parse(snap.startDate) }.getOrNull()
             ?: return@withContext
         val lead = Prefs.reminderLead(ctx)
-        val now = KbClock.now()
+        // 真实时钟: 闹钟由系统按真实时间触发, 时间旅行 (Dev.offsetDays) 只属于界面语义,
+        // 不得参与排程 —— 否则会把「假未来、真过去」的时刻交给系统闹钟, 立刻补响
+        val now = LocalDateTime.now()
 
         var day = now.toLocalDate()
         var bestNotify: Ev? = null
@@ -324,7 +334,8 @@ object ReminderScheduler {
 
         val millisNotify = bestNotify?.let { it.at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
         val millisAlarm = bestAlarm?.let { it.at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
-        if (millisNotify == null) {
+        val realNowMs = System.currentTimeMillis()
+        if (millisNotify == null || millisNotify <= realNowMs) {
             am.cancel(pi(ctx))
         } else if (am.canScheduleExactAlarms()) {
             am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millisNotify, pi(ctx))
@@ -334,6 +345,11 @@ object ReminderScheduler {
         }
         if (!alarmMode || millisAlarm == null) {
             cancelAlarmChain(ctx)
+        } else if (ringDeliveryExpired(millisAlarm, lead, realNowMs)) {
+            // 触发点对应的上课时刻已到/已过: 绝不交给系统 —— setAlarmClock 对过去触发点会立即补响,
+            // 厂商系统闹钟 UI 一旦响起来我们无法叫停, 只能从源头不排
+            cancelAlarmChain(ctx)
+            DebugLog.log("remind", "闹钟触发点对应课程已开始, 拒绝排给系统 (防立即补响, 下一场照排)")
         } else {
             // setAlarmClock: 系统闹钟语义 (状态栏闹钟图标, 厂商省电策略最尊重)
             // 操作=广播 (无 BAL 限制), 由 ReminderReceiver 再拉起全屏意图通知/直启响铃页
@@ -429,7 +445,8 @@ object ReminderScheduler {
         }
         val snap = ClassCache.load(ctx) ?: return@withContext
         val start = runCatching { LocalDate.parse(snap.startDate) }.getOrNull() ?: return@withContext
-        val now = KbClock.now()
+        // 与排程同源用真实时钟: 投递窗口按闹钟的真实触发时刻结算, 时间旅行不参与
+        val now = LocalDateTime.now()
         val today = now.toLocalDate()
         val lead = Prefs.reminderLead(ctx)
         val classOn = Prefs.reminderOn(ctx)

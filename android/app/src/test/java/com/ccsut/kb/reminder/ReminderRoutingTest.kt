@@ -36,6 +36,7 @@ class ReminderRoutingTest {
     fun `无排定时刻的测试响铃永不过期`() {
         // scheduleTestRing 等 dev 链路不带 EXTRA_AT, 按新鲜处理保持旧行为
         assertFalse(ReminderScheduler.ringExpired(0L, 15, System.currentTimeMillis()))
+        assertFalse(ReminderScheduler.ringDeliveryExpired(0L, 15, System.currentTimeMillis()))
     }
 
     @Test
@@ -44,15 +45,28 @@ class ReminderRoutingTest {
         assertFalse(ReminderScheduler.ringExpired(at, 15, at))                    // 排定时刻准点
         assertFalse(ReminderScheduler.ringExpired(at - 60_000, 15, at))          // 早到 1 分钟
         assertFalse(ReminderScheduler.ringExpired(at, 0, at))                     // 0 提前量=上课时刻准点
+        assertFalse(ReminderScheduler.ringDeliveryExpired(at, 15, at))           // 投递侧: 课前 15 分钟照常
     }
 
     @Test
-    fun `上课时刻已过容忍线不再响`() {
+    fun `投递侧_已到上课时刻就整条放弃_上课后零响铃`() {
         val at = 1_780_000_000_000L
         val classStart = at + 15 * 60_000
-        assertFalse(ReminderScheduler.ringExpired(at, 15, classStart + ReminderScheduler.RING_LATE_TOLERANCE_MS))
-        assertTrue(ReminderScheduler.ringExpired(at, 15, classStart + ReminderScheduler.RING_LATE_TOLERANCE_MS + 1))
-        assertTrue(ReminderScheduler.ringExpired(at, 15, classStart + 15 * 60_000))   // 上课 15 分钟后 = 用户报的 bug
+        assertFalse(ReminderScheduler.ringDeliveryExpired(at, 15, classStart - 1))   // 差 1 毫秒上课, 照常拉响
+        assertTrue(ReminderScheduler.ringDeliveryExpired(at, 15, classStart))        // 已上课 0 分钟 = 用户报的 bug
+        assertTrue(ReminderScheduler.ringDeliveryExpired(at, 15, classStart + 30_000))   // 上课 30 秒后投递
+        assertTrue(ReminderScheduler.ringDeliveryExpired(at, 15, classStart + 15 * 60_000))  // 上课 15 分钟后投递
+    }
+
+    @Test
+    fun `响铃页侧_拉起容忍线内照响_过线静默`() {
+        val at = 1_780_000_000_000L
+        val classStart = at + 15 * 60_000
+        // 容忍线只吸收全屏意图的秒级拉起延迟: 投递准点 (课前三五分钟) 时页面打开晚了几秒仍要响
+        assertFalse(ReminderScheduler.ringExpired(at, 15, classStart - 1))
+        assertFalse(ReminderScheduler.ringExpired(at, 15, classStart + ReminderScheduler.RING_PAGE_GRACE_MS))
+        assertTrue(ReminderScheduler.ringExpired(at, 15, classStart + ReminderScheduler.RING_PAGE_GRACE_MS + 1))
+        assertTrue(ReminderScheduler.ringExpired(at, 15, classStart + 15 * 60_000))   // 上课 15 分钟后打开 = 静默退出
     }
 
     @Test
