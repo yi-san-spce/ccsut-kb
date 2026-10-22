@@ -10,6 +10,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,6 +46,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.Alarm
+import androidx.compose.material.icons.rounded.BatterySaver
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.Celebration
@@ -52,6 +54,7 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.ManageAccounts
 import androidx.compose.material.icons.rounded.PrivacyTip
 import androidx.compose.material.icons.rounded.Notifications
@@ -178,13 +181,19 @@ fun MoreSheet(
     // 「禁止后不再询问」: 再 launch 也静默无弹窗, 红行跳系统应用通知设置
     var permDeniedForever by remember { mutableStateOf(false) }
     var exactOk by remember { mutableStateOf(false) }
+    // 电池优化白名单: 划掉应用若被 ROM 按「强制停止」清理, 已排闹钟会被一并清空, 自启动也无从生效
+    var battOk by remember { mutableStateOf(false) }
+    var showKeepAliveGuide by remember { mutableStateOf(false) }
     DisposableEffect(ctx) {
         val am = ctx.getSystemService(AlarmManager::class.java)
+        val pm = ctx.getSystemService(PowerManager::class.java)
         val refresh = {
             notifGranted = Build.VERSION.SDK_INT < 33 ||
                 ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) ==
                 PackageManager.PERMISSION_GRANTED
             exactOk = am?.canScheduleExactAlarms() ?: false
+            battOk = runCatching { pm?.isIgnoringBatteryOptimizations(ctx.packageName) ?: false }
+                .getOrDefault(false)
         }
         refresh()
         val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_RESUME) refresh() }
@@ -216,6 +225,30 @@ fun MoreSheet(
             },
             dismissButton = {
                 TextButton(onClick = { showBgDialog = false; onRemoveBg() }) { Text("移除") }
+            },
+        )
+    }
+
+    // 后台保活指引: 划掉应用卡片在多数国产 ROM 上 = 强制停止, 已排的系统闹钟会被一并清空,
+    // 自启动随之无从生效 —— 白名单申请解决不了的部分靠这几步手动设置兜住
+    if (showKeepAliveGuide) {
+        AlertDialog(
+            onDismissRequest = { showKeepAliveGuide = false },
+            title = { Text("退出后也照常响铃") },
+            text = {
+                Text(
+                    "上滑划掉应用时，部分系统会连同闹钟一起清掉。做完这两步就不会了：\n\n" +
+                        "1. 后台权限：系统设置 → 电池 → 长工课表通 → 允许后台高耗电（或「不限制」）\n" +
+                        "2. 锁定卡片：最近任务里下拉本应用，点 🔒 锁定\n\n" +
+                        "vivo / iQOO：i管家 → 应用管理 → 自启动保持开启\n" +
+                        "小米 / 红米：省电策略选「无限制」\n" +
+                        "OPPO / 一加 / 真我：最近任务下拉锁定\n" +
+                        "华为 / 荣耀：启动管理改「手动管理」，三个开关全开\n\n" +
+                        "小习惯：退出时按 Home 键回桌面，别上滑划掉卡片。",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showKeepAliveGuide = false }) { Text("知道了") }
             },
         )
     }
@@ -594,6 +627,32 @@ fun MoreSheet(
                             title = "闹钟模式",
                             subtitle = "到点全屏响铃，早八不怕睡过头（不依赖通知权限）",
                             trailing = { KbSwitch(checked = alarmMode, onCheckedChange = onAlarmModeChange) },
+                        )
+                        // 划掉应用在多数国产 ROM 上按强制停止清理, 闹钟被清后自启动也无从生效:
+                        // 白名单在这里一键申请, 其余厂商差异走指引
+                        SettingRow(
+                            icon = Icons.Rounded.BatterySaver,
+                            title = "后台响铃保障",
+                            subtitle = if (battOk) "已允许后台运行，退出后闹钟不会被清除"
+                            else "点这里允许后台运行，否则划掉应用后闹钟会被系统清掉",
+                            subtitleColor = if (battOk) MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.error,
+                            onClick = if (battOk) null else {
+                                {
+                                    runCatching {
+                                        ctx.startActivity(
+                                            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                                .setData(Uri.parse("package:${ctx.packageName}")),
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                        SettingRow(
+                            icon = Icons.Rounded.Lock,
+                            title = "锁定后台教程",
+                            subtitle = "vivo / 小米 / OPPO 等防清理设置指引",
+                            onClick = { showKeepAliveGuide = true },
                         )
                     }
                 }

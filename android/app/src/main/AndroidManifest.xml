@@ -13,6 +13,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- 闹钟模式: 全屏意图通知, 闹钟类应用默认授予 (Android 14+ 按应用类别自动判) -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- 后台响铃保障: 申请电池优化白名单 (划掉应用被 ROM 强制停止时已排闹钟会被一并清空) -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".KbApp"
