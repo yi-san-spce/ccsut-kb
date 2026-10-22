@@ -999,8 +999,8 @@ private fun WeekGrid(
                         )
                         // lambda 版 offset: 动画值只在放置期读取, 400ms 滑动每帧不再重组本作用域
                         // (组合期读值曾让滑动逐帧重跑时间线并重建渐变 Brush, 跨今天边界翻周卡顿的主源)
-                        // 外层盒 20dp 高给胶囊容身, 线段垂直居中其中; 顶部钳位保证胶囊不出网格
-                        Box(
+                        // 外层盒 20dp 高给胶囊容身; 顶部钳位保证胶囊不出网格
+                        Row(
                             Modifier
                                 .fillMaxWidth()
                                 .offset {
@@ -1009,30 +1009,13 @@ private fun WeekGrid(
                                         (animY - 9.dp).coerceIn(0.dp, (totalH - 20.dp).coerceAtLeast(0.dp)).roundToPx(),
                                     )
                                 }
-                                .height(20.dp),
+                                .height(20.dp)
+                                .padding(start = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            // 横线: 自时间轴右缘延伸到最右, 垂直居中于胶囊
+                            // 时刻胶囊: 主题色底白字时刻 (苹果日历同款)
                             Box(
                                 Modifier
-                                    .align(Alignment.CenterStart)
-                                    .padding(start = LEFT_W)
-                                    .fillMaxWidth()
-                                    .height(2.dp)
-                                    .background(
-                                        Brush.horizontalGradient(
-                                            listOf(
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.95f),
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
-                                            ),
-                                        ),
-                                        RoundedCornerShape(2.dp),
-                                    ),
-                            )
-                            // 时刻胶囊: 白字时刻, 左缘压进时间轴少许盖住横线起点
-                            Box(
-                                Modifier
-                                    .align(Alignment.CenterStart)
-                                    .offset(x = (-6).dp)
                                     .clip(RoundedCornerShape(9.dp))
                                     .background(MaterialTheme.colorScheme.primary)
                                     .padding(horizontal = 6.dp, vertical = 2.dp),
@@ -1044,6 +1027,22 @@ private fun WeekGrid(
                                     color = MaterialTheme.colorScheme.onPrimary,
                                 )
                             }
+                            Spacer(Modifier.width(4.dp))
+                            // 横线: 自胶囊右缘向右延伸到最右
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .height(2.dp)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.95f),
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
+                                            ),
+                                        ),
+                                        RoundedCornerShape(2.dp),
+                                    ),
+                            )
                         }
                     }
                 }
