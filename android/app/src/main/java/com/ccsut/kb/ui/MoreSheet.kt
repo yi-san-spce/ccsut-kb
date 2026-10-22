@@ -127,8 +127,7 @@ fun MoreSheet(
     onBgSaved: () -> Unit,
     onRemoveBg: () -> Unit,
     onBgAlpha: (Int) -> Unit,
-    todayBarAlpha: Int = 100,
-    onTodayBarAlpha: (Int) -> Unit = {},
+    onOpenAppearance: () -> Unit = {},
     onColorSource: (Int) -> Unit,
     onStyleTheme: (Int) -> Unit,
     onReminderToggle: (Boolean) -> Unit,
@@ -504,31 +503,14 @@ fun MoreSheet(
                     title = "课程颜色",
                     subtitle = "在课程详情里为单门课自定义颜色",
                 )
-                // ---- 自定义外观: 主页「今天」状态条的透明度 (回到本周药丸同族跟随) ----
+                // ---- 自定义外观: 独立面板 (状态条透明度等, 之后的新自定义选项都进那个面板) ----
                 SettingRow(
                     icon = Icons.Rounded.Tune,
                     title = "自定义外观",
-                    subtitle = "主页「今天」状态条的透明度",
+                    subtitle = "状态条透明度等主页个性化",
+                    trailing = { RowTrailing("调整") },
+                    onClick = onOpenAppearance,
                 )
-                Column(Modifier.padding(start = 62.dp, end = 14.dp, bottom = 12.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "状态条透明度",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            "$todayBarAlpha%",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Slider(
-                        value = todayBarAlpha / 100f,
-                        onValueChange = { onTodayBarAlpha((it * 100).toInt().coerceIn(10, 100)) },
-                    )
-                }
             }
 
             // ---- 提醒 ----

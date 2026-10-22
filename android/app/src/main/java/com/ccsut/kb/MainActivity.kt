@@ -60,6 +60,7 @@ import com.ccsut.kb.ui.AboutScreen
 import com.ccsut.kb.ui.ChooseClassScreen
 import com.ccsut.kb.ui.CourseColors
 import com.ccsut.kb.ui.CourseFormSheet
+import com.ccsut.kb.ui.CustomAppearanceSheet
 import com.ccsut.kb.ui.DemoShowcaseSheet
 import com.ccsut.kb.ui.DemoStep
 import com.ccsut.kb.ui.DemoSteps
@@ -193,6 +194,8 @@ fun App() {
     var undoVisible by remember { mutableStateOf(false) }
     // 功能演示: 非空时弹出演示弹层 (首次编辑触发 / 进表整组 / 更多面板手动入口)
     var showDemo by remember { mutableStateOf<List<DemoStep>?>(null) }
+    // 自定义外观面板 (更多 → 自定义外观)
+    var showAppearance by remember { mutableStateOf(false) }
 
     // ---- 开发者模式 ----
     var devMode by remember { mutableStateOf(Prefs.devMode(ctx)) }
@@ -908,6 +911,18 @@ fun App() {
             )
         }
 
+        // ---- 自定义外观 (更多 → 自定义外观) ----
+        if (showAppearance) {
+            CustomAppearanceSheet(
+                todayBarAlpha = todayBarAlpha,
+                onTodayBarAlpha = {
+                    Prefs.setTodayBarAlpha(ctx, it)
+                    todayBarAlpha = it
+                },
+                onDismiss = { showAppearance = false },
+            )
+        }
+
         // ---- 教务登录 ----
         if (showLogin) {
             LoginScreen(
@@ -983,10 +998,9 @@ fun App() {
                     Prefs.setBgAlpha(ctx, it)
                     bgAlpha = it
                 },
-                todayBarAlpha = todayBarAlpha,
-                onTodayBarAlpha = {
-                    Prefs.setTodayBarAlpha(ctx, it)
-                    todayBarAlpha = it
+                onOpenAppearance = {
+                    showMore = false
+                    showAppearance = true
                 },
                 onColorSource = { v ->
                     Prefs.setColorSource(ctx, v)
