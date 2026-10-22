@@ -71,7 +71,7 @@
             </intent-filter>
         </receiver>
 
-        <!-- 闹钟模式的全屏响铃页: setAlarmClock 直启 (USE_EXACT_ALARM 授予时豁免后台启动限制),
+        <!-- 闹钟模式的全屏响铃页: 精确闹钟广播 → 全屏意图通知拉起,
              锁屏之上显示并点亮屏幕; 不经过通知, 无通知权限也能响 -->
         <activity
             android:name=".reminder.AlarmActivity"

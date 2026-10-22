@@ -156,18 +156,12 @@ object ReminderScheduler {
         am.cancel(alarmBroadcastPi(ctx, null))
     }
 
-    /** 系统闹钟图标点击后打开的界面 (AlarmClockInfo.showIntent 必须是 Activity) */
-    private fun showPi(ctx: Context): PendingIntent = PendingIntent.getActivity(
-        ctx, 5, Intent(ctx, MainActivity::class.java),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
-
     /**
      * 闹钟到点 (由 ReminderReceiver 调起): 双通道拉起响铃页
      * ① 全屏意图通知 —— 平台保障路径, 锁屏/后台直接全屏 (USE_FULL_SCREEN_INTENT, 闹钟类应用默认授予)
      * ② 尽力直启 —— BAL opt-in 生效的平台立即全屏, 不依赖通知权限
      *
-     * 迟到投递防护: setAlarmClock 定点准, 但广播投递到被杀进程可能被系统推迟几分钟到几十分钟,
+     * 迟到投递防护: 精确闹钟定点准, 但广播投递到被杀进程可能被系统推迟几分钟到几十分钟,
      * 投递时已到上课时刻就整条放弃 (不发通知不直启) —— 上课后响 "快上课啦" 纯属惊扰, 只留痕。
      */
     fun fireAlarmRing(ctx: Context, kc: String?, room: String?, start: String?, lead: Int?, at: Long = 0L) {
@@ -347,14 +341,20 @@ object ReminderScheduler {
         if (!alarmMode || millisAlarm == null) {
             cancelAlarmChain(ctx)
         } else if (ringDeliveryExpired(millisAlarm, lead, realNowMs)) {
-            // 触发点对应的上课时刻已到/已过: 绝不交给系统 —— setAlarmClock 对过去触发点会立即补响,
-            // 厂商系统闹钟 UI 一旦响起来我们无法叫停, 只能从源头不排
+            // 触发点对应的上课时刻已到/已过: 绝不排出去 —— 过去的触发点会被系统立即补响
             cancelAlarmChain(ctx)
-            DebugLog.log("remind", "闹钟触发点对应课程已开始, 拒绝排给系统 (防立即补响, 下一场照排)")
+            DebugLog.log("remind", "闹钟触发点对应课程已开始, 拒绝排 (防立即补响, 下一场照排)")
         } else {
-            // setAlarmClock: 系统闹钟语义 (状态栏闹钟图标, 厂商省电策略最尊重)
-            // 操作=广播 (无 BAL 限制), 由 ReminderReceiver 再拉起全屏意图通知/直启响铃页
-            am.setAlarmClock(AlarmManager.AlarmClockInfo(millisAlarm, showPi(ctx)), alarmBroadcastPi(ctx, bestAlarm))
+            // 精确闹钟 (不用 setAlarmClock): 国产 ROM 会把 setAlarmClock 交给系统时钟接管响铃,
+            // 用户侧变成双响 —— 我们的响铃页 + 系统闹钟 UI 同时炸, 停掉一个另一个还在响
+            // (v1.2.0-beta.2 实测)。USE_EXACT_ALARM 保证精确; 进程有常驻保活, 广播投递不再依赖
+            // setAlarmClock 的厂商优待
+            val pi = alarmBroadcastPi(ctx, bestAlarm)
+            if (am.canScheduleExactAlarms()) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millisAlarm, pi)
+            } else {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millisAlarm, pi)
+            }
         }
         val next = listOfNotNull(millisNotify, millisAlarm).minOrNull() ?: 0L
         Prefs.setNextReminderAt(ctx, next)
@@ -382,7 +382,7 @@ object ReminderScheduler {
         DebugLog.log("remind", "测试闹钟已排: +${delayMs}ms")
     }
 
-    /** 开发者模式: 10 秒后全链路试响 (setAlarmClock→广播→全屏意图通知/直启, 与生产路径一致, 含 EXTRA_AT) */
+    /** 开发者模式: 10 秒后全链路试响 (精确闹钟→广播→全屏意图通知/直启, 与生产路径一致, 含 EXTRA_AT) */
     fun scheduleTestRing(ctx: Context, delayMs: Long = 10_000L) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val it = Intent(ctx, ReminderReceiver::class.java).setAction(ACTION_ALARM_RING)
@@ -398,11 +398,11 @@ object ReminderScheduler {
         )
         val at = System.currentTimeMillis() + delayMs
         if (am.canScheduleExactAlarms()) {
-            am.setAlarmClock(AlarmManager.AlarmClockInfo(at, showPi(ctx)), pi)
+            am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
         } else {
             am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
         }
-        DebugLog.log("remind", "测试响铃已排: +${delayMs}ms (setAlarmClock)")
+        DebugLog.log("remind", "测试响铃已排: +${delayMs}ms (精确闹钟)")
     }
 
     /** 发一条测试通知; 无通知权限时返回 false */

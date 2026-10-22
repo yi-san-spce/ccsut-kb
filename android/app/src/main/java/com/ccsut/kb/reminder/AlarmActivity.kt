@@ -66,7 +66,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * 闹钟模式全屏响铃页: setAlarmClock 直启 (USE_EXACT_ALARM 已授予时豁免后台启动限制), 锁屏之上点亮屏幕;
+ * 闹钟模式全屏响铃页: 精确闹钟广播 → 全屏意图通知拉起, 锁屏之上点亮屏幕;
  * 循环播放系统默认闹钟铃声 (USAGE_ALARM 走闹钟音量) + 波形震动。响铃不依赖通知权限 —— 通知被关/被撤销时的保底通路。
  * 「停止响铃」或返回键结束; 结束时重排下一场事件并刷小组件 (不经过 ReminderReceiver, 需自理)。
  */
