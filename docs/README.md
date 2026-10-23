@@ -10,9 +10,7 @@ docs/
 │   ├── getting-started.md
 │   └── features.md
 ├── 原理与接口/        # 应用架构与数据链路说明
-│   ├── architecture.md
-│   ├── api.md
-│   └── api-personal.md
+│   └── architecture.md
 ├── glossary.md        # 术语表：CAS、覆盖层、双链这些词第一次见，来这查
 ├── 开发者/            # 贡献 / 发布 / 社区治理
 │   ├── CONTRIBUTING.md

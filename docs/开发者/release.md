@@ -32,7 +32,7 @@
 | 通道 | 用途 | 机制 |
 |---|---|---|
 | **GitHub Releases** `yi-san-spce/ccsut-kb` | 新版 App 更新主通道（App 内镜像加速/官方直连都从这里取数） | publish.sh 打 tag + `gh release create`；稳定版 Release 附带 `versions.json`（稳定索引）与 `versions-preview.json`（稳定+抢先全通道索引，每次发版回填到最新稳定 Release） |
-| **内测清单** `versions-beta.json` | 内测版专用（不公开） | 团队自管的 https 静态文件（OSS / 自有服务器均可），链接私发给内测用户填入 App；内容格式见下文内测版一节 |
+| **内测清单** `versions-beta.json` | 内测版分发 | 托管在本仓 `data/versions-beta.json`（raw 直链固定，随 commit+push 更新）；**未接入 App 公开索引**（versions*.json / latest.json 均不含内测条目），常规用户不可见，但公开仓库可浏览发现——内测隔离靠通道而非访问控制，别当保密渠道用 |
 | **源码备份** | GitHub 主站 | `scripts/push.sh` 推送 master |
 
 ## 前置条件
@@ -75,7 +75,7 @@
 
 ## 推送更新 · 场景三：内测版（团队私发，App「内测版」通道需填链接）
 
-内测版**不进任何公开索引**——GitHub 上只有一个知道链接才能访问的 prerelease，App 里必须填入团队派发的清单链接才能更新。
+内测版**不进任何 App 公开索引**（versions.json / versions-preview.json / latest.json 均不含内测条目，App 公开通道刷不到）；prerelease 与内测清单托管在公开仓库，理论上可被浏览发现，隔离靠通道而非访问控制。App 里必须填入团队派发的清单链接才能更新。
 
 1. **升版本双写**：`build.gradle` 设 `versionName "1.4.0-beta.1"`、`versionCode = base + 5000 + 1` + `Updater.kt` 的 `BuildVersion`
 2. 构建签名 APK（同上）
@@ -102,7 +102,15 @@
 
 ## 推送更新 · 场景四：只更课表数据（不发版）
 
+App 的数据清单托管在主仓 raw（`data/latest.json`），publish.sh 只负责抓取与组装 dist/ ——**必须 commit + push 才能到用户**：
+
 ```bash
-# 先按维护者内部流程准备 .session/cookie.txt（细节暂不公开）
-scripts/publish.sh            # 抓取 + 发布数据，用户下次启动自动拿到
+# 方式一：脚本代做 commit + push（推荐）
+scripts/publish.sh --push-data     # 抓取 + 组装 + 自动提交推送 data/
+
+# 方式二：手动收尾
+scripts/publish.sh                 # 抓取 + 发布数据（脚本结尾会提示下一步）
+git add data/ && git commit -m "chore(data): 课表数据更新" && scripts/push.sh
 ```
+
+漏掉最后一步的后果：本地数据集已更新但从未推送，用户端永远拉不到（清单读的是 raw.githubusercontent master）。

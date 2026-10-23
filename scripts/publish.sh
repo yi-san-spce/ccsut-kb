@@ -5,8 +5,10 @@
 #   - 稳定版 (默认): GitHub Releases + versions.json / versions-preview.json
 #   - 抢先版 (--pre): GitHub prerelease (tag vX.Y.Z-pre.YYYYMMDD), 并把全通道索引 versions-preview.json
 #     回填到最新稳定 Release —— App 抢先通道读 releases/latest/download/versions-preview.json
-#   - 内测版 (--beta): 仅创建 GitHub prerelease, **不进任何公开索引**; 脚本末尾打印可直接粘贴进
-#     团队内测清单 (versions-beta.json) 的条目 JSON, 内测清单链接由团队私发给内测用户填入 App
+#   - 内测版 (--beta): 仅创建 GitHub prerelease, **不进任何 App 公开索引** (versions*.json /
+#     latest.json 都不含它); 脚本末尾打印可直接粘贴进内测清单 (versions-beta.json) 的条目 JSON。
+#     注意: 公开仓库的 Release 列表与本仓内测清单本身可被浏览发现, 内测隔离 = 不接入 App
+#     公开索引 (常规用户不可见), 不是访问控制 —— 别把内测当保密渠道用
 #
 # versionCode 分段 (三通道防倒挂, 发预发布前由脚本强校验):
 #   versionCode = 主版本×10⁸ + 次版本×10⁶ + 修订×10⁴ + 段位
@@ -40,6 +42,7 @@ GH_MIRRORS="https://ghproxy.link https://gh.llkk.cc https://ghfast.top https://g
 SKIP_SCRAPE=""
 APK_PATH=""
 ALLOW_DIRTY=""
+PUSH_DATA=""
 PRERELEASE=""
 FORCE=""
 KIND=stable
@@ -48,6 +51,7 @@ while [ $# -gt 0 ]; do
     --skip) SKIP_SCRAPE=1 ;;
     --apk)  APK_PATH="$2"; shift ;;
     --allow-dirty) ALLOW_DIRTY=1 ;;
+    --push-data) PUSH_DATA=1 ;;
     --force) FORCE=1 ;;
     --beta) PRERELEASE=1; KIND=beta ;;
     --pre)  PRERELEASE=1; KIND=preview ;;
@@ -257,7 +261,7 @@ print("把下面这条 JSON 追加到内测清单 versions-beta.json 的 version
 print(json.dumps(entry, ensure_ascii=False))
 print(f"内测版直链: https://github.com/yi-san-spce/ccsut-kb/releases/download/v{vname}/{name}")
 PYEOF
-    echo "ℹ️ 内测版不进任何公开索引, 仅通过上面链接/条目由团队私发"
+    echo "ℹ️ 内测版不进任何 App 公开索引 (versions*.json / latest.json 均不含), 常规用户不可见; 但公开仓库的 Release 列表与本仓清单可被浏览发现, 隔离靠通道而非访问控制"
   fi
   exit 0
 fi
@@ -444,5 +448,25 @@ if [ -n "$APK_NAME" ] && [ -n "$VNAME" ]; then
       echo "⚠️ GitHub Release 创建失败 (tag 已推送, 可在 GitHub 手动补建并上传 $APK_NAME / versions.json)"
     fi
     rm -f "$BODY"
+  fi
+fi
+
+# ---------- 7. 数据-only 发布收尾: 清单在主仓 raw, 不 commit+push 永远到不了用户 ----------
+# App 的数据清单从 raw.githubusercontent master data/latest.json 拉取, publish.sh 只组装 dist/,
+# 数据集/清单的变更必须提交并推送 master 才对用户生效 (教训: 照旧文档只跑脚本, 用户永远拿不到)
+if [ -z "$APK_NAME" ]; then
+  if [ -n "$(git status --porcelain -- data/)" ]; then
+    XNXQ=$(python3 -c 'import json;print(json.load(open("data/latest.json"))["xnxq"])')
+    DVER=$(python3 -c 'import json;print(json.load(open("data/latest.json"))["version"])')
+    if [ -n "$PUSH_DATA" ]; then
+      git add data/
+      git commit -m "chore(data): 课表数据 ${XNXQ} v${DVER}"
+      scripts/push.sh
+      echo "✅ 数据清单已提交并推送, 用户下次启动拉到 v${DVER}"
+    else
+      echo "⚠️ 数据-only 发版还差最后一步 (清单托管在主仓 raw, 必须 commit + push):"
+      echo "   git add data/ && git commit -m 'chore(data): 课表数据 ${XNXQ} v${DVER}' && scripts/push.sh"
+      echo "   (下次可直接 scripts/publish.sh --push-data 由脚本代做)"
+    fi
   fi
 fi
