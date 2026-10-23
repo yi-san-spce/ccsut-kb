@@ -126,6 +126,15 @@ object Repo {
                 fromUpdate = true
                 com.ccsut.kb.util.DebugLog.log("data", "载入更新数据 v${dataset?.version} (${f.length()}B)")
                 return
+            }.onFailure {
+                // 损坏的热更数据不自愈会每次冷启动重复失败、更新永远白下: 改名隔离 (参照 UserEdits 同款),
+                // 本次回退内置数据, 下次启动可重新热更
+                val bak = ctx.getFileStreamPath("dataset.json.broken")
+                if (bak != null) {
+                    bak.delete()
+                    runCatching { f.renameTo(bak) }
+                }
+                com.ccsut.kb.util.DebugLog.log("data", "更新数据损坏, 已备份为 dataset.json.broken: ${it.message}")
             }
         }
         ctx.assets.open("data/dataset.json").bufferedReader().use { text ->
@@ -138,6 +147,12 @@ object Repo {
     fun applyUpdate(ctx: Context, bytes: ByteArray): Dataset? {
         val text = bytes.toString(Charsets.UTF_8)
         val parsed = runCatching { DatasetParser.parse(text) }.getOrNull() ?: return null
+        // 渲染层对 periods 的最低要求: 至少一个节次时间可解析。全脏作息的数据包会让课表页
+        // 排版塌掉, 宁可拒绝套用回退现有数据 (内置/已装数据都满足该要求)
+        if (!periodsUsable(parsed)) {
+            com.ccsut.kb.util.DebugLog.log("update", "数据包作息(periods)全部不可解析, 拒绝应用")
+            return null
+        }
         // tmp+rename 原子落盘: 写一半崩溃不会留下半截 dataset.json (load 有 runCatching
         // 兜底, 但损坏即静默回退内置数据, 用户的更新白下了)
         val dst = java.io.File(ctx.filesDir, "dataset.json")
@@ -158,6 +173,13 @@ object Repo {
         com.ccsut.kb.util.DebugLog.log("data", "应用更新数据 v${parsed.version} (${bytes.size}B)")
         return parsed
     }
+
+    /** 数据包可渲染性校验: 至少一个节次的 start/end 时间可解析 (internal 仅为单测可及) */
+    internal fun periodsUsable(d: Dataset): Boolean =
+        d.periods.any { p ->
+            com.ccsut.kb.util.TimeParse.minutesOf(p.start) != null &&
+                com.ccsut.kb.util.TimeParse.minutesOf(p.end) != null
+        }
 
     /**
      * 生效班级 = 学校原始数据 + 用户本地修改 ([UserEdits] 覆盖层)。

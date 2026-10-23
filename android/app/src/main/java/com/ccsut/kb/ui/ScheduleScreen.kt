@@ -866,8 +866,11 @@ private fun WeekGrid(
             Box(Modifier.fillMaxWidth().height(totalH)) {
                 // 空周表态: 假期/调休周整周无课时给明确文案
                 if (!weekHasCourse) {
+                    // 作息极端缺失时 yTop 可能为空表: 兜底取 0dp 保证不崩 (正常数据走不到, 与 yOfJc 同款防御)
+                    val top = yTop.firstOrNull() ?: 0.dp
+                    val bottom = yTop.lastOrNull() ?: top
                     Column(
-                        Modifier.align(Alignment.TopCenter).offset(y = yTop[0] + ((yTop.last() - yTop[0]).coerceAtLeast(160.dp)) / 3),
+                        Modifier.align(Alignment.TopCenter).offset(y = top + ((bottom - top).coerceAtLeast(160.dp)) / 3),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(

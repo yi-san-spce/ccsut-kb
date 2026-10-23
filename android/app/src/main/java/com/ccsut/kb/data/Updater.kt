@@ -10,7 +10,8 @@ import java.security.MessageDigest
 
 /**
  * 更新清单, 对应 latest.json (自定义源 / GitHub 主仓 data/)。
- * 数据集段必填; apk 段由 scripts/publish.sh 发版时注入。
+ * 数据集段必填; apk 段仅私有托管的内测清单 (latest.json 格式) 使用 ——
+ * publish.sh 的稳定/抢先发版走 Release 资产 versions*.json 索引, 主仓 data/latest.json 恒不含 apk 段。
  */
 data class Manifest(
     val version: Int,
@@ -51,8 +52,22 @@ object Updater {
             com.ccsut.kb.util.DebugLog.log("update", "数据包下载失败: ${it.message}")
             return null
         }
-        if (m.sha256.isNotBlank() && sha256Hex(bytes) != m.sha256) return null
+        dataSha256Error(m, bytes)?.let {
+            com.ccsut.kb.util.DebugLog.log("update", it)
+            return null
+        }
         return Repo.applyUpdate(ctx, bytes)
+    }
+
+    /**
+     * 数据包完整性检查 (fail-closed): 清单缺 sha256 或校验不符一律拒绝应用。
+     * 清单与数据包同源同通道, 校验值缺失时唯一防线只剩 TLS —— 清单由自己发布, 没有理由缺字段。
+     * 返回 null = 通过, 否则为错误说明; internal 仅为单测可及。
+     */
+    internal fun dataSha256Error(m: Manifest, bytes: ByteArray): String? = when {
+        m.sha256.isBlank() -> "清单缺少 sha256, 拒绝应用数据更新"
+        sha256Hex(bytes) != m.sha256 -> "数据包 sha256 校验不符"
+        else -> null
     }
 
     /** 下载目录里的版本化文件名: 通道+版本 (稳定/内测/抢先各存各的, 同版本号跨通道互不覆盖; 只保留文件名安全字符) */

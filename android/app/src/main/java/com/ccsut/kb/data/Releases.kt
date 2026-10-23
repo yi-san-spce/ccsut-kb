@@ -130,7 +130,7 @@ data class ReleaseInfo(
     val date: String = "",           // ISO yyyy-MM-dd, 可能为空
     val fileUrl: String? = null,     // APK 绝对 https 直链 (可能已带镜像前缀); null = 该版本没有安装包
     val bytes: Long? = null,
-    val sha256: String? = null,      // versions.json 有 sha256; 纯 API 通道没有, 为 null 时跳过校验
+    val sha256: String? = null,      // versions.json 有 sha256; GitHub API 资产 digest 字段可提取; 为 null 时跳过校验
     val downloadCount: Long? = null, // GitHub Releases 资产下载量 (发布时快照 / API 实时)
     val channel: String = Channels.TAG_STABLE,
     val sections: List<NoteSection> = emptyList(),
@@ -346,11 +346,17 @@ object Releases {
                 .map { arr.getJSONObject(it) }
                 .firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) }
         }
+        // GitHub 资产 2024+ 带 digest 字段 ("sha256:<hex>"): 提取后 APK 下载即可校验; 旧响应无此字段则维持跳过校验
+        val digest = asset?.optString("digest")
+            ?.takeIf { it.startsWith("sha256:") }
+            ?.substringAfter(':')
+            ?.takeIf { hex -> hex.length == 64 && hex.all { ch -> ch in '0'..'9' || ch in 'a'..'f' || ch in 'A'..'F' } }
         return ReleaseInfo(
             versionName = name,
             date = o.optString("published_at").take(10),
             fileUrl = asset?.optString("browser_download_url")?.takeIf { it.startsWith("https://") },
             bytes = asset?.optLong("size")?.takeIf { it > 0 },
+            sha256 = digest,
             downloadCount = asset?.optLong("download_count")?.takeIf { it > 0 },
             channel = Channels.ofVersion(name),
             sections = parseMarkdownSections(o.optString("body")),

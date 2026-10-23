@@ -15,6 +15,9 @@ object PersonalCache {
 
     private const val FILE = "personal_cache.json"
 
+    // 多处在途并发写缓存 (登录链路与手动同步可能竞态): 互斥防两份 tmp 交错写坏文件 (与 ClassCache 同款)
+    private val writeLock = Any()
+
     fun save(ctx: Context, d: PersonalRepo.PersonalData) {
         val root = JSONObject()
             .put("account", d.account)
@@ -31,18 +34,20 @@ object PersonalCache {
                 put(CourseCodec.toJson(c))
             }
         })
-        // tmp+rename 原子写 (与 UserEdits/ClassCache 同款), 写一半崩溃不留损坏缓存
+        // tmp+rename 原子写 (与 UserEdits/ClassCache 同款), 写一半崩溃不留损坏缓存; 全程持锁防并发交错
         val dst = File(ctx.filesDir, FILE)
         val tmp = File(ctx.filesDir, "$FILE.tmp")
-        runCatching {
-            tmp.writeText(root.toString())
-            if (!tmp.renameTo(dst)) {
-                dst.writeText(root.toString())
+        synchronized(writeLock) {
+            runCatching {
+                tmp.writeText(root.toString())
+                if (!tmp.renameTo(dst)) {
+                    dst.writeText(root.toString())
+                    tmp.delete()
+                }
+            }.onFailure {
                 tmp.delete()
+                throw it
             }
-        }.onFailure {
-            tmp.delete()
-            throw it
         }
     }
 
