@@ -1365,7 +1365,11 @@ fun App() {
                     dismissText = item.notice.dismissText,
                     onConfirm = {
                         finish()
-                        item.notice.url?.let { com.ccsut.kb.ui.openUrl(ctx, it) }
+                        when (item.notice.link) {
+                            // App 内跳转优先 (link 仅新版认识, 旧版本回退 url 开浏览器)
+                            "personal-login" -> showLogin = true
+                            else -> item.notice.url?.let { com.ccsut.kb.ui.openUrl(ctx, it) }
+                        }
                     },
                     onDismiss = { finish() },
                 )

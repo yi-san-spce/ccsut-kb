@@ -22,6 +22,8 @@ import java.time.ZoneId
  *       "title": "通知标题",
  *       "message": "通知正文",
  *       "url": "https://...",        // 可选: 点「确认」用浏览器打开
+ *       "link": "personal-login",    // 可选: 点「确认」在 App 内跳转 (1.2.0-beta.4+ 支持; 旧版本
+ *                                    //  忽略此字段回退 url)。现支持: personal-login = 打开教务登录/同步页
  *       "confirmText": "去频道看看",  // 可选: 主按钮文案, 缺省「确认」
  *       "dismissText": "知道了",      // 可选: 次按钮文案, 缺省「取消」 (critical 无次按钮)
  *       "once": true,                // 默认 true: 用户点过按钮后不再弹; false: 每次打开都弹
@@ -43,6 +45,7 @@ data class RemoteNotice(
     val title: String,
     val message: String,
     val url: String? = null,
+    val link: String? = null,
     val once: Boolean = true,
     val critical: Boolean = false,
     val confirmText: String = "确认",
@@ -137,6 +140,7 @@ object RemoteNotices {
             message = msg,
             url = o.optString("url").trim()
                 .takeIf { it.startsWith("https://") || it.startsWith("http://") },
+            link = o.optString("link").trim().takeIf { it.isNotBlank() },
             once = o.optBoolean("once", true),
             critical = o.optString("priority").trim().equals("critical", ignoreCase = true),
             confirmText = o.optString("confirmText").trim().ifBlank { "确认" },

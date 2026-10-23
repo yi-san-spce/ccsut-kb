@@ -106,6 +106,14 @@ class NoticeTest {
     }
 
     @Test
+    fun `link字段解析_缺省为null_url回退不受影响`() {
+        val n = parse("""{"notices":[{"id":"a","message":"m","link":"personal-login","url":"https://e.com/x"}]}""").single()
+        assertEquals("personal-login", n.link)
+        assertEquals("https://e.com/x", n.url)   // 新版跳转失败/旧版本忽略 link 时走 url
+        assertNull(parse("""{"notices":[{"message":"m"}]}""").single().link)
+    }
+
+    @Test
     fun `按钮文案可自定义且缺省确认取消`() {
         val n = parse("""{"notices":[{"message":"m","confirmText":"去频道看看","dismissText":"知道了"}]}""").single()
         assertEquals("去频道看看", n.confirmText)

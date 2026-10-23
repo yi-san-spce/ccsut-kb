@@ -39,6 +39,7 @@ https://raw.githubusercontent.com/yi-san-spce/ccsut-kb/master/data/notice.json
 | `id` | 否 | 去重键。缺省由内容自动派生，改文案即换 id，`once` 类会重新弹一次 |
 | `title` | 否 | 标题，缺省「通知」 |
 | `url` | 否 | 用户点主按钮时用浏览器打开，只接受 http/https |
+| `link` | 否 | 点主按钮后在 App 内跳转，不开浏览器。现支持 `personal-login`：直达教务登录/同步页（打开即自动探测 CAS 会话，仍有效就免验证码直接拉课表，失效才要求短信验证码登录）。`1.2.0-beta.4` 起支持；旧版本忽略此字段并回退 `url`，两者都没写时按钮只关闭弹窗 |
 | `confirmText` | 否 | 主按钮文案，缺省「确认」 |
 | `dismissText` | 否 | 次按钮文案，缺省「取消」；critical 弹窗没有次按钮，此字段无效 |
 | `once` | 否 | 默认 true：点过弹窗按钮（取消也算）后不再弹；false 则每次打开都弹 |
@@ -47,6 +48,8 @@ https://raw.githubusercontent.com/yi-san-spce/ccsut-kb/master/data/notice.json
 | `minVersion` / `maxVersion` | 否 | 版本定向，只弹给版本号落在区间内的安装 |
 
 时间字段三种写法都认：`"2026-10-15 09:00:00"`（推荐，按设备本地时间）、ISO 带时区（`"2026-10-15T09:00:00+08:00"`，换算到用户时区比较）、纯日期（作 `startAt` 是当天 0 点，作 `endAt` 是当天 23:59:59，含全天）。写错格式不会杀死整条通知，该字段按缺省处理——所以日期写错的表现是排期悄悄失效，推送前最好本地跑一遍 `python3 scripts/check_notice.py` 预检。
+
+带 `link` 的通知建议同时给旧版本留退路：要么用 `minVersion` 定向到支持跳转的版本（如 `1.2.0-beta.4`），要么同时写 `url` 让旧版本开浏览器。都没有时，旧版本用户点主按钮只会关闭弹窗，正文里的文字路径就是唯一指引。
 
 ## 客户端怎么决定弹哪一条
 

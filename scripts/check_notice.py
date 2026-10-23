@@ -19,6 +19,7 @@ DATE_ONLY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$")
 ISO_OFFSET = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:\d{2})$")
 VERSION = re.compile(r"^\d+(\.\d+)*(?:-(beta|pre|stable|dev)\.?(\d*))?$")
+KNOWN_LINKS = ("personal-login",)
 
 errors = []
 warnings = []
@@ -81,6 +82,13 @@ def check_notice(n, where, ids):
     url = n.get("url")
     if url is not None and (not isinstance(url, str) or not url.strip().startswith(("http://", "https://"))):
         errors.append(f"{where}: url 必须以 http(s):// 开头 (否则客户端直接丢弃)")
+    link = n.get("link")
+    if link is not None:
+        if not isinstance(link, str) or not link.strip():
+            errors.append(f"{where}: link 必须是非空字符串")
+        elif link.strip() not in KNOWN_LINKS:
+            warnings.append(f"{where}: link 「{link}」不在已知跳转 {list(KNOWN_LINKS)} 中"
+                            f" (旧版本与不认识的版本会静默忽略, 按钮只关闭弹窗)")
     if "once" in n and not isinstance(n["once"], bool):
         errors.append(f"{where}: once 必须是 true/false")
     prio = n.get("priority")
