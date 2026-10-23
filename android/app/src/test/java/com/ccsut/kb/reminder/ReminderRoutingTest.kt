@@ -4,25 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
-/** 调度路由纯函数: 事件进哪条链 / 迟到投递容差 */
+/** 通知链纯函数: 投递容差 / 周次计算（学期开始前不误发） */
 class ReminderRoutingTest {
-
-    @Test
-    fun `闹钟模式开启时课前事件走响铃链`() {
-        assertTrue(ReminderScheduler.goesToAlarmChain(0, alarmMode = true))
-    }
-
-    @Test
-    fun `闹钟模式关闭时课前事件走通知链`() {
-        assertFalse(ReminderScheduler.goesToAlarmChain(0, alarmMode = false))
-    }
-
-    @Test
-    fun `放学与早八永远走通知链`() {
-        assertFalse(ReminderScheduler.goesToAlarmChain(1, alarmMode = true))
-        assertFalse(ReminderScheduler.goesToAlarmChain(2, alarmMode = true))
-    }
 
     @Test
     fun `迟到投递容差_精确30分钟_降级60分钟`() {
@@ -30,60 +15,32 @@ class ReminderRoutingTest {
         assertEquals(60L, ReminderScheduler.dueWindowMin(exact = false))
     }
 
-    // ---- 响铃迟到投递防护: setAlarmClock 定点准, 但广播投递可能被系统推迟 ----
+    // ---- 周次计算: 学期开始前不得误发「假期提醒」 ----
+    // 真实 bug: Int 除法向零截断, 开学前 1-6 天 between=-1..-6 除以 7 得 0, +1 后=第 1 周,
+    // 会用第 1 周课表在开学前的日期上误排提醒 (用户假期里收到「还有 15 分钟上课」)
 
     @Test
-    fun `无排定时刻的测试响铃永不过期`() {
-        // scheduleTestRing 等 dev 链路不带 EXTRA_AT, 按新鲜处理保持旧行为
-        assertFalse(ReminderScheduler.ringExpired(0L, 15, System.currentTimeMillis()))
-        assertFalse(ReminderScheduler.ringDeliveryExpired(0L, 15, System.currentTimeMillis()))
+    fun `学期开始当天与当周内算第1周`() {
+        val start = LocalDate.of(2026, 9, 7)  // 周一
+        assertEquals(1, ReminderScheduler.weekOf(start, start))
+        assertEquals(1, ReminderScheduler.weekOf(start, LocalDate.of(2026, 9, 13)))  // 周日
+        assertEquals(2, ReminderScheduler.weekOf(start, LocalDate.of(2026, 9, 14)))
     }
 
     @Test
-    fun `准点与提前投递不过期`() {
-        val at = 1_780_000_000_000L
-        assertFalse(ReminderScheduler.ringExpired(at, 15, at))                    // 排定时刻准点
-        assertFalse(ReminderScheduler.ringExpired(at - 60_000, 15, at))          // 早到 1 分钟
-        assertFalse(ReminderScheduler.ringExpired(at, 0, at))                     // 0 提前量=上课时刻准点
-        assertFalse(ReminderScheduler.ringDeliveryExpired(at, 15, at))           // 投递侧: 课前 15 分钟照常
+    fun `学期开始前6天返回0_修复负数截断`() {
+        val start = LocalDate.of(2026, 9, 7)  // 周一
+        assertEquals(0, ReminderScheduler.weekOf(start, LocalDate.of(2026, 9, 6)))   // 前一天
+        assertEquals(0, ReminderScheduler.weekOf(start, LocalDate.of(2026, 9, 1)))   // 前 6 天
+        assertEquals(0, ReminderScheduler.weekOf(start, LocalDate.of(2026, 8, 31)))  // 前 7 天
     }
 
-    @Test
-    fun `投递侧_已到上课时刻就整条放弃_上课后零响铃`() {
-        val at = 1_780_000_000_000L
-        val classStart = at + 15 * 60_000
-        assertFalse(ReminderScheduler.ringDeliveryExpired(at, 15, classStart - 1))   // 差 1 毫秒上课, 照常拉响
-        assertTrue(ReminderScheduler.ringDeliveryExpired(at, 15, classStart))        // 已上课 0 分钟 = 用户报的 bug
-        assertTrue(ReminderScheduler.ringDeliveryExpired(at, 15, classStart + 30_000))   // 上课 30 秒后投递
-        assertTrue(ReminderScheduler.ringDeliveryExpired(at, 15, classStart + 15 * 60_000))  // 上课 15 分钟后投递
-    }
+    // ---- 多事件前视 / watchdog 常量 ----
 
     @Test
-    fun `响铃页侧_拉起容忍线内照响_过线静默`() {
-        val at = 1_780_000_000_000L
-        val classStart = at + 15 * 60_000
-        // 容忍线只吸收全屏意图的秒级拉起延迟: 投递准点 (课前三五分钟) 时页面打开晚了几秒仍要响
-        assertFalse(ReminderScheduler.ringExpired(at, 15, classStart - 1))
-        assertFalse(ReminderScheduler.ringExpired(at, 15, classStart + ReminderScheduler.RING_PAGE_GRACE_MS))
-        assertTrue(ReminderScheduler.ringExpired(at, 15, classStart + ReminderScheduler.RING_PAGE_GRACE_MS + 1))
-        assertTrue(ReminderScheduler.ringExpired(at, 15, classStart + 15 * 60_000))   // 上课 15 分钟后打开 = 静默退出
-    }
-
-    @Test
-    fun `上课时刻等于排定时刻加提前量`() {
-        val at = 1_780_000_000_000L
-        assertEquals(at + 15 * 60_000, ReminderScheduler.classStartMillis(at, 15))
-        assertEquals(at, ReminderScheduler.classStartMillis(at, 0))
-        assertEquals(0L, ReminderScheduler.classStartMillis(0L, 15))
-    }
-
-    @Test
-    fun `剩余分钟随投递时刻实时修正`() {
-        val at = 1_780_000_000_000L
-        assertEquals(15, ReminderScheduler.remainingMinutes(at, 15, at))
-        assertEquals(5, ReminderScheduler.remainingMinutes(at, 15, at + 10 * 60_000))    // 迟到 10 分钟投递
-        assertEquals(1, ReminderScheduler.remainingMinutes(at, 15, at + 14 * 60_000 + 1)) // 差 59 秒, 向上取整
-        assertEquals(0, ReminderScheduler.remainingMinutes(at, 15, at + 15 * 60_000))
-        assertEquals(15, ReminderScheduler.remainingMinutes(0L, 15, 0L))                 // 无排定时刻退回提前量
+    fun `前视排程与watchdog阈值`() {
+        assertEquals(3, ReminderScheduler.LOOKAHEAD)
+        assertTrue(ReminderScheduler.WATCHDOG_STALE_MS > 0)
+        assertTrue(ReminderScheduler.WATCHDOG_CHECK_MS < ReminderScheduler.WATCHDOG_STALE_MS)
     }
 }

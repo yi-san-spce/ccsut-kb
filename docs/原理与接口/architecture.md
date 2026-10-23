@@ -21,7 +21,7 @@
           │                    │ 免解析共享
 ┌─────────▼──────┐   ┌─────────▼─────────┐   ┌──────────────────┐
 │ widget/小组件   │   │ reminder/课前提醒  │   │ data/Updater 更新 │
-│ RemoteViews    │   │ 通知链 + 闹钟链    │   │ 数据热更 + APK    │
+│ RemoteViews    │   │ 通知链(多事件前视) │   │ 数据热更 + APK    │
 └────────────────┘   └───────────────────┘   └──────────────────┘
 ```
 
@@ -44,8 +44,8 @@ android/app/src/main/java/com/ccsut/kb/
 │   ├── PersonalCache.kt     # 个人课表缓存 (personal_cache.json, 不含凭据)
 │   ├── UserEdits.kt         # 本机编辑覆盖层 (add/modify/hide 三类记录)
 │   └── BgStore.kt           # 课表背景图 (Photo Picker 压缩转存/种子色提取)
-├── reminder/Reminder.kt     # 提醒调度器 (通知链+闹钟链双链) + ReminderReceiver
-├── reminder/AlarmActivity.kt# 闹钟模式全屏响铃页
+├── reminder/Reminder.kt     # 提醒调度器 (通知链: 多事件前视+自愈重排) + ReminderReceiver
+├── reminder/KeepAliveService.kt # 提醒保活前台服务 (防冻结清闹钟 + watchdog 断链自愈)
 ├── widget/WidgetProvider.kt # 今日课程小组件 (RemoteViews, Material You 动态取色)
 └── ui/                      # Compose 界面 (课表/引导/选班/登录/弹层/主题/Links)
 ```
@@ -93,18 +93,20 @@ App 和小组件共用同一套渲染逻辑（连堂合并 `Merger`），所以�
 - 冷启动时用 `hasPersonal` 校验缓存里的个人课表（节次数 ≥4 且节次从 1 连续）才敢切换；不达标就回退班级课表——防止坏缓存把渲染层搞崩。
 - 登录链路细节因敏感因素，暂不提供相关的文档说明。隐私约束：Cookie 只存内存，缓存文件不含凭据。
 
-## 提醒双链
+## 提醒通知链
 
-「双链」指两条各自独立维护的闹钟队列，由 `ReminderScheduler.reschedule()` 统一重排。三个开关（课前提醒 / 放学小结 / 早八前夜）各自独立生效，互不连坐。
+提醒只有一条通知链（闹钟模式已在 v1.2.0-beta.6 移除——国产 ROM 对 `setAlarmClock` 的接管、冻结清理等行为不可控，通知链 + 分级通道是可维护的唯一路径）。三个开关（课前提醒 / 放学小结 / 早八前夜）各自独立生效，互不连坐；分别对应独立的通知通道，用户可在系统设置里按类控制声音与横幅。
 
-**为什么是两条链**：两种提醒的「送达强度」需求不同。
+**可靠性设计**（单一链路意味着任何一环被 ROM 干扰即静默死亡，因此加固优先）：
 
-- **通知链**（requestCode 0，轻量）：负责放学小结、早八前夜，以及没开闹钟模式时的课前提醒。用 `setExactAndAllowWhileIdle` 定时（系统拒绝精确闹钟时自动降级为非精确）。触发 → 发通知 → 重排下一条，链式接力。
-- **闹钟链**（requestCode 4，强力）：开闹钟模式时的课前提醒走这条。用系统闹钟语义 `setAlarmClock`（状态栏出现闹钟图标），触发后广播 → `ReminderReceiver` 发**全屏意图通知**，并尽力直接启动 [AlarmActivity](../../android/app/src/main/java/com/ccsut/kb/reminder/AlarmActivity.kt)——锁屏点亮、循环闹钟铃声、2 分钟自动停。
+- **多事件前视**：`reschedule()` 一次排接下来至多 3 条事件（各自独立 PendingIntent，requestCode 1000+slot），单条广播被吞，后续接力闹钟仍会把链续上。
+- **系统自愈入口**：`ReminderReceiver` 挂 `BOOT_COMPLETED` / `QUICKBOOT_POWERON` / `TIME_SET` / `TIMEZONE_CHANGED` / `DATE_CHANGED` / `MY_PACKAGE_REPLACED`（应用内自更新会清光已排闹钟，这条尤其关键）/ `SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED`，全部走「补发容差内已到期事件 + 重排」。
+- **FGS watchdog**：`KeepAliveService` 存活期间每 60 秒校验 `Prefs.nextReminderAt`——已过点超过 5 分钟仍未消费即判定断链，立即补发 + 重排。
+- **全路径留痕**：权限缺失 / 已上课丢弃 / 窗口外丢弃均有 DebugLog 与 `Prefs.notifDrops` 计数，开发者面板可诊断「为什么没提醒」。
 
-> ⚠️ **为什么要「广播 + 通知」绕一道**（Android 后台启动限制 BAL 的教训）：`setAlarmClock` 的 PendingIntent 如果直接指向 Activity，会被系统的后台启动限制拦截；而且直启模式的 opt-in 只能由 PendingIntent 的创建方（creator 侧）设置——放在发送方（sender 侧）会被系统重置并抛异常。所以闹钟触发点必须是广播，再由广播发全屏通知、尽力直启页面。
+投递容差：精确闹钟允许 30 分钟、降级后允许 60 分钟的投递延迟——Doze 或厂商省电策略推迟投递时，提醒不会丢（已上课的课前提醒除外，那属于惊扰）。`setExactAndAllowWhileIdle` 定时（系统拒绝精确闹钟时自动降级为非精确）。
 
-投递容差：精确闹钟允许 30 分钟、降级后允许 60 分钟的投递延迟——Doze 或厂商省电策略推迟投递时，提醒不会丢。缺通知权限时 `fire()` 会往 DebugLog 留痕，方便诊断「为什么没提醒」。
+> ℹ️ 历史：闹钟模式曾走 `setAlarmClock` 系统闹钟语义 + 全屏响铃页，后因「国产 ROM 系统时钟接管导致双响」「冻结清理」等问题在 beta.6 移除；其 BAL 教训（直启 opt-in 只能由 PendingIntent creator 侧设置）见 glossary。
 
 ## 更新双通道
 

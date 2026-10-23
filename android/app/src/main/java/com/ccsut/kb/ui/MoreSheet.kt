@@ -45,7 +45,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Logout
-import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.BatterySaver
 import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.BugReport
@@ -96,6 +95,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.ccsut.kb.data.BgStore
 import com.ccsut.kb.data.Cls
+import com.ccsut.kb.reminder.ReminderScheduler
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -121,7 +121,6 @@ fun MoreSheet(
     nextReminderAt: Long,
     afterClassOn: Boolean,
     earlyOn: Boolean,
-    alarmMode: Boolean,
     devMode: Boolean,
     personalActive: Boolean,
     personalName: String,
@@ -137,7 +136,6 @@ fun MoreSheet(
     onLeadChange: (Int) -> Unit,
     onAfterClassChange: (Boolean) -> Unit,
     onEarlyChange: (Boolean) -> Unit,
-    onAlarmModeChange: (Boolean) -> Unit,
     onSelectClass: () -> Unit,
     onResetClassEdits: () -> Unit,
     onResetPersonalEdits: () -> Unit,
@@ -234,10 +232,10 @@ fun MoreSheet(
     if (showKeepAliveGuide) {
         AlertDialog(
             onDismissRequest = { showKeepAliveGuide = false },
-            title = { Text("退出后也照常响铃") },
+            title = { Text("退到桌面也照常提醒") },
             text = {
                 Text(
-                    "上滑划掉应用时，部分系统会连同闹钟一起清掉。做完这两步就不会了：\n\n" +
+                    "上滑划掉应用时，部分系统会连同已排的提醒一起清掉。做完这两步就不会了：\n\n" +
                         "1. 后台权限：系统设置 → 电池 → 长工课表通 → 允许后台高耗电（或「不限制」）\n" +
                         "2. 锁定卡片：最近任务里下拉本应用，点 🔒 锁定\n\n" +
                         "vivo / iQOO：i管家 → 应用管理 → 自启动保持开启\n" +
@@ -549,6 +547,16 @@ fun MoreSheet(
             // ---- 提醒 ----
             SectionHeader("提醒")
             SettingCard {
+                // 跳系统里对应通道的设置页 (声音/横幅由用户在通道级控制)
+                fun openChannel(id: String) {
+                    runCatching {
+                        ctx.startActivity(
+                            Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                                .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+                                .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, id),
+                        )
+                    }
+                }
                 data class RemState(val sub: String, val err: Boolean, val click: (() -> Unit)?)
                 val rem = when {
                     !reminderOn -> RemState("每节课开始前按时提醒", false, null)
@@ -577,10 +585,13 @@ fun MoreSheet(
                     }
                     nextReminderAt > 0 -> RemState(
                         "下次 " + DateTimeFormatter.ofPattern("M月d日 HH:mm")
-                            .format(Instant.ofEpochMilli(nextReminderAt).atZone(ZoneId.systemDefault())),
-                        false, null,
-                    )
-                    else -> RemState("已开启", false, null)
+                            .format(Instant.ofEpochMilli(nextReminderAt).atZone(ZoneId.systemDefault())) +
+                            " · 点按调通知样式",
+                        false,
+                    ) { openChannel(ReminderScheduler.CHANNEL_CLASS) }
+                    else -> RemState("已开启 · 点按调通知样式", false) {
+                        openChannel(ReminderScheduler.CHANNEL_CLASS)
+                    }
                 }
                 SettingRow(
                     icon = Icons.Rounded.Notifications,
@@ -622,19 +633,13 @@ fun MoreSheet(
                                 ) { Text("$v", fontSize = 12.sp) }
                             }
                         }
-                        SettingRow(
-                            icon = Icons.Rounded.Alarm,
-                            title = "闹钟模式",
-                            subtitle = "到点全屏响铃，早八不怕睡过头（不依赖通知权限）",
-                            trailing = { KbSwitch(checked = alarmMode, onCheckedChange = onAlarmModeChange) },
-                        )
-                        // 划掉应用在多数国产 ROM 上按强制停止清理, 闹钟被清后自启动也无从生效:
+                        // 划掉应用在多数国产 ROM 上按强制停止清理, 已排提醒会被清后无从接力:
                         // 白名单在这里一键申请, 其余厂商差异走指引
                         SettingRow(
                             icon = Icons.Rounded.BatterySaver,
-                            title = "后台响铃保障",
-                            subtitle = if (battOk) "已允许后台运行，退出后闹钟不会被清除"
-                            else "点这里允许后台运行，否则划掉应用后闹钟会被系统清掉",
+                            title = "后台提醒保障",
+                            subtitle = if (battOk) "已允许后台运行，退到桌面后提醒照常送达"
+                            else "点这里允许后台运行，否则退到桌面后提醒可能被系统推迟或丢弃",
                             subtitleColor = if (battOk) MaterialTheme.colorScheme.onSurfaceVariant
                             else MaterialTheme.colorScheme.error,
                             onClick = if (battOk) null else {
@@ -656,11 +661,12 @@ fun MoreSheet(
                         )
                     }
                 }
-                // 与课前提醒各自独立: 关掉课前提醒不影响这两项
+                // 与课前提醒各自独立: 关掉课前提醒不影响这两项; 点行进对应通道的设置页
                 SettingRow(
                     icon = Icons.Rounded.Celebration,
                     title = "下课后小结",
-                    subtitle = "最后一节下课后推送今日课程小结",
+                    subtitle = "最后一节下课后推送今日课程小结 · 静音通知",
+                    onClick = { openChannel(ReminderScheduler.CHANNEL_AFTER) },
                     trailing = {
                         KbSwitch(checked = afterClassOn, onCheckedChange = {
                             if (it) requestNotifPerm()
@@ -671,7 +677,8 @@ fun MoreSheet(
                 SettingRow(
                     icon = Icons.Rounded.Bedtime,
                     title = "早八前夜",
-                    subtitle = "前一晚 21:30，明天真有早八才提醒",
+                    subtitle = "前一晚 21:30，明天真有早八才提醒 · 点按调通知样式",
+                    onClick = { openChannel(ReminderScheduler.CHANNEL_EARLY) },
                     trailing = {
                         KbSwitch(checked = earlyOn, onCheckedChange = {
                             if (it) requestNotifPerm()

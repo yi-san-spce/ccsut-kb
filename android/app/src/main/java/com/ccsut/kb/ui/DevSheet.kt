@@ -75,7 +75,6 @@ fun DevSheet(
     onReschedule: () -> Unit,
     onTestNotification: () -> Unit,
     onTestAlarm: () -> Unit,
-    onTestRing: () -> Unit,
     onTestUpdateNotify: () -> Unit,
     onTestUpdateDialog: () -> Unit,
     onVersionOverride: (String?, Int?) -> Unit,
@@ -212,7 +211,8 @@ fun DevSheet(
                     DetailRow(
                         "提醒",
                         "下次 " + (if (nextReminderAt > 0) fmtTime(nextReminderAt) else "未安排") +
-                            " · 精确闹钟${if (exactOk) "✓" else "✗"} · 通知${if (notifOk) "✓" else "✗"}",
+                            " · 精确闹钟${if (exactOk) "✓" else "✗"} · 通知${if (notifOk) "✓" else "✗"}" +
+                            (if (Prefs.notifDrops(ctx) > 0) " · 丢弃${Prefs.notifDrops(ctx)}" else ""),
                     )
                     DetailRow("小组件", "$widgetCount 个已添加")
                 }
@@ -252,10 +252,9 @@ fun DevSheet(
             SettingCard {
                 DevActionRow("重建班级快照", "重写 widget / 提醒共用的快照") { onRebuildCache(); tick++ }
                 DevActionRow("强制刷新小组件", "马上重画桌面组件") { onRefreshWidget(); tick++ }
-                DevActionRow("重排提醒闹钟", "重算下一次事件，结果见上方速览") { onReschedule(); tick++ }
+                DevActionRow("重排提醒", "重算接下来的提醒排程，结果见上方速览") { onReschedule(); tick++ }
                 DevActionRow("发送测试通知", "验证渠道 / 图标 / 权限") { onTestNotification(); tick++ }
-                DevActionRow("10 秒后测试闹钟", "验证 闹钟→接收器→通知 全链路") { onTestAlarm(); tick++ }
-                DevActionRow("10 秒测试响铃", "验证 闹钟→全屏响铃页 链路（闹钟模式）") { onTestRing(); tick++ }
+                DevActionRow("10 秒后测试提醒链路", "验证 精确闹钟→接收器→通知 全链路") { onTestAlarm(); tick++ }
                 DevActionRow("10 秒后测试更新通知", "固定测试数据 · 验证通知的更新/修复性质文案") { onTestUpdateNotify(); tick++ }
                 DevActionRow("10 秒后测试更新弹窗", "固定测试数据 · 回到课表主界面后弹出") { onTestUpdateDialog(); tick++ }
                 DevActionRow("重载数据", "重新解析内置 / 已下载的数据集") { onReloadData(); tick++ }

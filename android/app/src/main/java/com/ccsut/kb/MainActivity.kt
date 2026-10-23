@@ -183,7 +183,6 @@ fun App() {
     var nextReminderAt by remember { mutableLongStateOf(Prefs.nextReminderAt(ctx)) }
     var afterClassOn by remember { mutableStateOf(Prefs.afterClassOn(ctx)) }
     var earlyOn by remember { mutableStateOf(Prefs.earlyOn(ctx)) }
-    var alarmMode by remember { mutableStateOf(Prefs.alarmMode(ctx)) }
 
     // ---- 编辑会话: 回退栈 + 虚影 (内存态; 换班级/重置修改即整场作废) ----
     var undoStack by remember { mutableStateOf(listOf<UndoEntry>()) }
@@ -336,8 +335,9 @@ fun App() {
         }
     }
 
-    /** 下载 APK 并在落盘后自动拉起安装; onReady 在安装意图发出前回调 (更新弹窗用它收掉自己) */
-    fun startDownload(r: ReleaseInfo, onReady: (() -> Unit)? = null) {
+    /** 下载 APK 并在落盘后自动拉起安装; onReady 在安装意图发出前回调 (更新弹窗用它收掉自己);
+     *  onFailed 在下载失败时回调 (force 弹窗用它收掉自己并入会话已处理集, 防失败后每次回前台无限重弹) */
+    fun startDownload(r: ReleaseInfo, onReady: (() -> Unit)? = null, onFailed: (() -> Unit)? = null) {
         val url = r.fileUrl ?: return
         if (downloadingVer != null) return   // 同一时间只允许一个下载任务
         scope.launch {
@@ -369,6 +369,7 @@ fun App() {
                 // 镜像可能中途挂了: 清掉缓存让下次更新重新测速
                 if (UpdateChannels.source(ctx) == UpdateChannels.SOURCE_MIRROR) Mirrors.invalidate(ctx)
                 Toast.makeText(ctx, "下载失败，请检查网络后再试", Toast.LENGTH_SHORT).show()
+                onFailed?.invoke()
             }
         }
     }
@@ -957,7 +958,6 @@ fun App() {
                 nextReminderAt = nextReminderAt,
                 afterClassOn = afterClassOn,
                 earlyOn = earlyOn,
-                alarmMode = alarmMode,
                 devMode = devMode,
                 personalActive = usePersonal,
                 personalName = studentName,
@@ -1044,16 +1044,6 @@ fun App() {
                 onEarlyChange = { v ->
                     Prefs.setEarlyOn(ctx, v)
                     earlyOn = v
-                    scope.launch {
-                        withContext(Dispatchers.IO) {
-                            runCatching { ReminderScheduler.reschedule(ctx) }
-                        }
-                        nextReminderAt = Prefs.nextReminderAt(ctx)
-                    }
-                },
-                onAlarmModeChange = { v ->
-                    Prefs.setAlarmMode(ctx, v)
-                    alarmMode = v
                     scope.launch {
                         withContext(Dispatchers.IO) {
                             runCatching { ReminderScheduler.reschedule(ctx) }
@@ -1217,12 +1207,8 @@ fun App() {
                     if (!ok) Toast.makeText(ctx, "没有通知权限，先到提醒里打开开关", Toast.LENGTH_SHORT).show()
                 },
                 onTestAlarm = {
-                    ReminderScheduler.scheduleTestAlarm(ctx)
-                    Toast.makeText(ctx, "已排测试闹钟，10 秒后应弹出通知", Toast.LENGTH_SHORT).show()
-                },
-                onTestRing = {
-                    ReminderScheduler.scheduleTestRing(ctx)
-                    Toast.makeText(ctx, "已排测试响铃，10 秒后应全屏响铃（可锁屏验证）", Toast.LENGTH_SHORT).show()
+                    ReminderScheduler.scheduleTestNotify(ctx)
+                    Toast.makeText(ctx, "已排测试提醒，10 秒后应弹出通知", Toast.LENGTH_SHORT).show()
                 },
                 onTestUpdateNotify = {
                     Toast.makeText(ctx, "已排测试更新通知，10 秒后发出（固定测试数据）", Toast.LENGTH_SHORT).show()
@@ -1347,12 +1333,17 @@ fun App() {
                     downloading = downloadingVer,
                     progress = apkProgress,
                     // 立即更新/立即安装统一走 startDownload (内部自带缓存命中直装); 安装意图发出后收掉弹窗。
-                    // 测试数据 (fileUrl 为空) 不会真实下载, 点按钮只提示
+                    // 测试数据 (fileUrl 为空) 不会真实下载, 点按钮只提示。
+                    // 下载失败也收掉弹窗并入会话已处理集: force 弹窗无取消按钮, 否则失败后每次回前台都重弹
                     onInstall = {
                         if (item.release.fileUrl == null) {
                             Toast.makeText(ctx, "测试数据没有真实安装包，仅供预览", Toast.LENGTH_SHORT).show()
                         } else {
-                            startDownload(item.release) { finish() }
+                            startDownload(
+                                item.release,
+                                onReady = { finish() },
+                                onFailed = { finish() },
+                            )
                         }
                     },
                     onCancel = { finish() },

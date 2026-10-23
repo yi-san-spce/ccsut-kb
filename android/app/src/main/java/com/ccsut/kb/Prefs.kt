@@ -96,25 +96,18 @@ object Prefs {
         sp(ctx).edit().putInt("reminder_lead", v).apply()
     }
 
-    /** 下课后小结提醒(最后一节下课时) */
-    fun afterClassOn(ctx: Context): Boolean = sp(ctx).getBoolean("after_class_on", true)
+    /** 下课后小结提醒(最后一节下课时)。默认关: 没碰过设置的用户不默认收通知/挂保活 */
+    fun afterClassOn(ctx: Context): Boolean = sp(ctx).getBoolean("after_class_on", false)
 
     fun setAfterClassOn(ctx: Context, v: Boolean) {
         sp(ctx).edit().putBoolean("after_class_on", v).apply()
     }
 
-    /** 早八前夜提醒(前一晚 21:30) */
-    fun earlyOn(ctx: Context): Boolean = sp(ctx).getBoolean("early_on", true)
+    /** 早八前夜提醒(前一晚 21:30)。默认关: 同上 */
+    fun earlyOn(ctx: Context): Boolean = sp(ctx).getBoolean("early_on", false)
 
     fun setEarlyOn(ctx: Context, v: Boolean) {
         sp(ctx).edit().putBoolean("early_on", v).apply()
-    }
-
-    /** 闹钟模式: 课前提醒走全屏响铃 (setAlarmClock + 响铃页), 不依赖通知权限 */
-    fun alarmMode(ctx: Context): Boolean = sp(ctx).getBoolean("alarm_mode", false)
-
-    fun setAlarmMode(ctx: Context, v: Boolean) {
-        sp(ctx).edit().putBoolean("alarm_mode", v).apply()
     }
 
     /** 下次提醒的时间戳(毫秒), 0=未安排 */
@@ -124,11 +117,11 @@ object Prefs {
         sp(ctx).edit().putLong("next_reminder_at", at).apply()
     }
 
-    /** 托盘里响铃通知对应事件的排定时刻(毫秒), 0=托盘无响铃通知 —— 供过点后自动清理 */
-    fun alarmNotifAt(ctx: Context): Long = sp(ctx).getLong("alarm_notif_at", 0L)
+    /** 通知丢弃计数(诊断): 权限缺失/已上课丢弃等, 开发者面板可见 */
+    fun notifDrops(ctx: Context): Int = sp(ctx).getInt("notif_drops", 0)
 
-    fun setAlarmNotifAt(ctx: Context, at: Long) {
-        sp(ctx).edit().putLong("alarm_notif_at", at).apply()
+    fun incNotifDrops(ctx: Context, n: Int = 1) {
+        sp(ctx).edit().putInt("notif_drops", notifDrops(ctx) + n).apply()
     }
 
     // ---- 自定义外观 ----

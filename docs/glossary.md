@@ -29,8 +29,8 @@
 - **Compose / Jetpack Compose**：Android 的声明式 UI 框架，本项目全部界面用它写。
 - **RemoteViews**：桌面小组件用的受限渲染 API（不能用 Compose），所以小组件的取色要预烘焙 drawable。
 - **Material You 动态取色**：Android 12+ 的特性，从系统壁纸提取配色应用到 App 和小组件。
-- **BAL**：Background Activity Launch，Android 对「后台直接弹出页面」的限制。闹钟直启响铃页被它拦过，所以改成「广播 → 全屏通知 → 尽力直启」。
+- **BAL**：Background Activity Launch，Android 对「后台直接弹出页面」的限制。闹钟模式的直启响铃页曾被它拦过（当时改为「广播 → 全屏通知 → 尽力直启」绕行；闹钟模式已移除）。
 - **Doze**：Android 深度省电模式，会推迟闹钟和网络。提醒系统为此设计了投递容差（精确 30 分钟 / 降级 60 分钟）。
-- **PendingIntent**：交给系统代为执行的意图（intent），闹钟、通知都用它。
+- **PendingIntent**：交给系统代为执行的意图（intent），提醒排程与通知点击都用它。
 - **HCT**：一种感知均匀色彩空间，materialkolor 用它从背景图提取主题种子色，取色结果更符合人眼感受。
 - **sha256**：一种哈希校验。更新通道下载数据包后校验它，确认文件没被篡改或下坏。
