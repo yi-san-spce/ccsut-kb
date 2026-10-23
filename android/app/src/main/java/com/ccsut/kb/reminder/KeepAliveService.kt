@@ -33,13 +33,24 @@ class KeepAliveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        alive = true
         enterForeground()
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        alive = false
+        fgShown = false
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        enterForeground()   // reschedule 后重进: 刷新「下次提醒」文案
+        // 已在前台展示过就不再重发通知: 用户清除/划掉后保持消失 (直到进程重建),
+        // 否则每次打开 APP 都会重新冒出来
+        if (!fgShown) enterForeground()
         return START_STICKY
     }
+
+    private var fgShown = false
 
     private fun enterForeground() {
         val ctx = applicationContext
@@ -62,7 +73,9 @@ class KeepAliveService : Service() {
                 .setSmallIcon(R.drawable.ic_stat_bell)
                 .setContentTitle("课表提醒已就绪")
                 .setContentText(whenText)
-                .setOngoing(true)
+                // ongoing=false: 允许通知中心一键清除/左滑划掉 (13+); 清除不影响服务运行,
+                // 且本服务存活期间不再重发 (见 onStartCommand)
+                .setOngoing(false)
                 .setPriority(NotificationCompat.PRIORITY_MIN)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
                 .build()
@@ -70,6 +83,7 @@ class KeepAliveService : Service() {
             // (29-33 传 0 = 无类型, 平台不校验)
             val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
             ServiceCompat.startForeground(this, NOTIF_ID, notif, type)
+            fgShown = true
         }.onFailure {
             DebugLog.log("remind", "保活服务进前台失败: ${it.javaClass.simpleName}: ${it.message}")
             runCatching { stopSelf() }
@@ -80,12 +94,19 @@ class KeepAliveService : Service() {
         const val CHANNEL_ID = "keep_alive"
         const val NOTIF_ID = 3001
 
-        /** 按三开关状态同步服务: 任一开启→运行(刷新通知), 全关→停 */
+        /** 服务是否存活 (进程内): 决定 sync 用哪种启动方式 */
+        private var alive = false
+
+        /** 按三开关状态同步服务: 任一开启→运行, 全关→停。
+         *  已存活时用普通 startService 送达 (不背 startForeground 义务, 已展示的通知不重发);
+         *  冷启动才用 startForegroundService (onCreate 会立即进前台)。 */
         fun sync(ctx: Context) {
             val on = Prefs.reminderOn(ctx) || Prefs.afterClassOn(ctx) || Prefs.earlyOn(ctx)
             runCatching {
-                if (on) ContextCompat.startForegroundService(ctx, Intent(ctx, KeepAliveService::class.java))
-                else ctx.stopService(Intent(ctx, KeepAliveService::class.java))
+                if (on) {
+                    if (alive) ctx.startService(Intent(ctx, KeepAliveService::class.java))
+                    else ContextCompat.startForegroundService(ctx, Intent(ctx, KeepAliveService::class.java))
+                } else ctx.stopService(Intent(ctx, KeepAliveService::class.java))
             }.onFailure {
                 // 后台路径启动 FGS 受 31+ 限制: 静默跳过, 服务应在更早的前台时刻已拉起
                 DebugLog.log("remind", "保活服务同步跳过: ${it.javaClass.simpleName}")

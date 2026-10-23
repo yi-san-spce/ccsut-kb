@@ -75,6 +75,8 @@ class AlarmActivity : ComponentActivity() {
     private var player: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private val ringTimeout = Runnable { stopAndFinish() }
+    private var eventAt = 0L
+    private var eventLead: Int? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,12 +90,21 @@ class AlarmActivity : ComponentActivity() {
         }
         val lead = intent.getIntExtra(ReminderScheduler.EXTRA_LEAD, -1)
         val at = intent.getLongExtra(ReminderScheduler.EXTRA_AT, 0L)
+        eventAt = at
+        eventLead = lead.takeIf { it > 0 }
+        // 已被用户停止过的同一场闹钟: 重拉 (托盘滞留通知/延迟启动) 不允许再响
+        if (at > 0 && at == lastStoppedAt) {
+            DebugLog.log("remind", "本场响铃已停止过, 重拉不重响 (排定=$at)")
+            finish()
+            return
+        }
         // 过点不响: 迟到的投递 / 通知栏里滞留的旧铃通知被点开, 都别在课堂上重新炸铃
-        if (ReminderScheduler.ringExpired(at, lead.takeIf { it > 0 }, System.currentTimeMillis())) {
+        if (ReminderScheduler.ringExpired(at, eventLead, System.currentTimeMillis())) {
             DebugLog.log("remind", "响铃页过点打开, 静默退出 (排定=$at)")
             finish()
             return
         }
+        ringingAt = at
         startRinging()
         setContent {
             // 响铃场景恒用深色: 早八的闹钟大概率在暗环境里炸响, 不随系统浅色主题
@@ -103,19 +114,33 @@ class AlarmActivity : ComponentActivity() {
                     room = intent.getStringExtra(ReminderScheduler.EXTRA_ROOM).orEmpty(),
                     start = intent.getStringExtra(ReminderScheduler.EXTRA_START).orEmpty(),
                     remainMin = ReminderScheduler.remainingMinutes(
-                        at, lead.takeIf { it > 0 }, System.currentTimeMillis(),
+                        eventAt, eventLead, System.currentTimeMillis(),
                     ),
                     onStop = { stopAndFinish() },
                 )
             }
         }
-        // 兜底: 用户始终不处理 (手机在包里/教室里来不及看) 最多响 2 分钟自动停
-        Handler(Looper.getMainLooper()).postDelayed(ringTimeout, RING_TIMEOUT_MS)
+        // 自动停铃双上限: 最长 2 分钟; 且绝不越过上课时刻 (容忍线 30 秒) —— 响铃不进课堂
+        val startMs = ReminderScheduler.classStartMillis(eventAt, eventLead)
+        val capMs = if (startMs > 0)
+            (startMs + ReminderScheduler.RING_PAGE_GRACE_MS - System.currentTimeMillis())
+                .coerceIn(0L, RING_TIMEOUT_MS)
+        else RING_TIMEOUT_MS
+        Handler(Looper.getMainLooper()).postDelayed(ringTimeout, capMs)
     }
 
     // singleTop: 响铃中又到期一条闹钟不重放, 保持当前响铃即可
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // 冻结唤醒 / 后台回切: 回到前台时已过上课时刻就立即静音退出, 不残留铃声
+        if (ReminderScheduler.ringExpired(ringingAt, eventLead, System.currentTimeMillis())) {
+            DebugLog.log("remind", "响铃页回前台已过点, 静音退出 (排定=$ringingAt)")
+            stopAndFinish()
+        }
     }
 
     private fun startRinging() {
@@ -151,6 +176,8 @@ class AlarmActivity : ComponentActivity() {
         player = null
         runCatching { vibrator?.cancel() }
         vibrator = null
+        // 本场已停止: 任何延迟拉起/托盘重开都不允许再响
+        if (eventAt > 0) lastStoppedAt = eventAt
         // 响铃已结束: 收掉可能滞留托盘的全屏意图通知, 避免事后被点开又走一遍响铃页
         runCatching {
             getSystemService(android.app.NotificationManager::class.java)
@@ -166,6 +193,7 @@ class AlarmActivity : ComponentActivity() {
         runCatching { vibrator?.cancel() }
         player = null
         vibrator = null
+        ringingAt = -1L
         // 响铃页不走 ReminderReceiver: 下一场闹钟/通知在这里重排, 上下课边界顺带刷小组件
         val appCtx = applicationContext
         lifecycleScope.launch(Dispatchers.IO) {
@@ -181,6 +209,14 @@ class AlarmActivity : ComponentActivity() {
     companion object {
         /** 最长响铃时长: 到点无人处理也自动停, 避免上课后在包里一直响 */
         private const val RING_TIMEOUT_MS = 2 * 60_000L
+
+        /** 当前正在响的事件排定时刻, -1=无 (fireAlarmRing 同场去重用) */
+        private var ringingAt: Long = -1L
+
+        /** 最近一次被停止的事件排定时刻 (停止后重拉不重响) */
+        private var lastStoppedAt: Long = -1L
+
+        fun isRinging(at: Long): Boolean = ringingAt == at
     }
 }
 

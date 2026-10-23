@@ -124,6 +124,13 @@ object Prefs {
         sp(ctx).edit().putLong("next_reminder_at", at).apply()
     }
 
+    /** 托盘里响铃通知对应事件的排定时刻(毫秒), 0=托盘无响铃通知 —— 供过点后自动清理 */
+    fun alarmNotifAt(ctx: Context): Long = sp(ctx).getLong("alarm_notif_at", 0L)
+
+    fun setAlarmNotifAt(ctx: Context, at: Long) {
+        sp(ctx).edit().putLong("alarm_notif_at", at).apply()
+    }
+
     // ---- 自定义外观 ----
 
     /** 「今天」状态条底色透明度百分比 (10-100, 100=不透明); 「回到本周」药丸同族跟随 */

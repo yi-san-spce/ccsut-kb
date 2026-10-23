@@ -40,6 +40,9 @@ object ReminderScheduler {
     const val ACTION_ALARM_RING = "com.ccsut.kb.ACTION_ALARM_RING"
     const val CHANNEL_ID = "class_reminder"
     const val CHANNEL_ALARM = "alarm_ring"
+
+    /** 亮屏后台用的响铃提醒通道: 系统此时不会自动拉响铃页 (仅 heads-up), 通知自带闹钟铃声先出声 */
+    const val CHANNEL_ALARM_HEADSUP = "alarm_ring_headsup"
     const val NOTIF_ALARM_RING = 2002
 
     /** 响铃页的 extras: 直接带上课程信息, 页面不必重新推导 */
@@ -169,14 +172,18 @@ object ReminderScheduler {
             if (ringDeliveryExpired(at, lead, System.currentTimeMillis())) {
                 DebugLog.log("remind", "响铃投递已到/过上课时刻, 整条放弃不响 (排定=$at)")
                 runCatching {
+                    Prefs.setAlarmNotifAt(ctx, 0L)
                     ctx.getSystemService(android.app.NotificationManager::class.java)
                         ?.cancel(NOTIF_ALARM_RING)
                 }
                 return
             }
+            if (AlarmActivity.isRinging(at)) {
+                DebugLog.log("remind", "同一场响铃已在进行, 不重复发通知/拉页 (排定=$at)")
+                return
+            }
             val remain = remainingMinutes(at, lead, System.currentTimeMillis())
             val title = if (remain > 0) "还有 $remain 分钟上课" else "快上课啦"
-            ensureAlarmChannel(ctx)
             val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
                 ?: return
             val fullText = buildString {
@@ -184,20 +191,28 @@ object ReminderScheduler {
                 append(kc?.takeIf { it.isNotBlank() } ?: "该去上课啦")
                 if (!room.isNullOrBlank()) append(" · $room")
             }
-            val notif = NotificationCompat.Builder(ctx, CHANNEL_ALARM)
-                .setSmallIcon(R.drawable.ic_stat_bell)
-                .setContentTitle(title)
-                .setContentText(fullText)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(fullText))
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setOngoing(true)
-                .setAutoCancel(true)
-                .setFullScreenIntent(alarmActivityPi(ctx, kc, room, start, lead, at), true)
-                .build()
-            nm.notify(NOTIF_ALARM_RING, notif)
-            // 尽力直启: BAL opt-in 生效的平台立即弹全屏 (FSI 也可能被系统转成 heads-up, 双保险)
+            if (!appInForeground(ctx)) {
+                ensureAlarmChannel(ctx)
+                // 亮屏后台: 系统不会自动拉响铃页 (BAL 拦直启 / FSI 只挂 heads-up), 通知自带闹钟铃声先出声;
+                // 熄屏锁屏: 静音通道 + 全屏意图, 由系统直接全屏拉起响铃页 (页内循环铃声, 免两声源叠加)
+                val channel = if (ctx.getSystemService(android.os.PowerManager::class.java)?.isInteractive == true)
+                    CHANNEL_ALARM_HEADSUP else CHANNEL_ALARM
+                val notif = NotificationCompat.Builder(ctx, channel)
+                    .setSmallIcon(R.drawable.ic_stat_bell)
+                    .setContentTitle(title)
+                    .setContentText(fullText)
+                    .setStyle(NotificationCompat.BigTextStyle().bigText(fullText))
+                    .setPriority(NotificationCompat.PRIORITY_MAX)
+                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .setOngoing(true)
+                    .setAutoCancel(true)
+                    .setFullScreenIntent(alarmActivityPi(ctx, kc, room, start, lead, at), true)
+                    .build()
+                nm.notify(NOTIF_ALARM_RING, notif)
+                Prefs.setAlarmNotifAt(ctx, at)
+            }
+            // 尽力直启: BAL opt-in 生效的平台立即全屏 (FSI 也可能被系统转成 heads-up, 双保险)
             val intent = Intent(ctx, AlarmActivity::class.java).setAction(ACTION_ALARM_RING)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             if (kc != null) intent.putExtra(EXTRA_KC, kc)
@@ -214,15 +229,41 @@ object ReminderScheduler {
 
     fun ensureAlarmChannel(ctx: Context) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
-        if (nm.getNotificationChannel(CHANNEL_ALARM) != null) return
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ALARM, "闹钟响铃", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "闹钟模式的课前响铃"
-                enableVibration(true)
-                setBypassDnd(true)
-            },
-        )
+        if (nm.getNotificationChannel(CHANNEL_ALARM) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ALARM, "闹钟响铃", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "闹钟模式的课前响铃（锁屏全屏拉起用，无声）"
+                    enableVibration(true)
+                    setBypassDnd(true)
+                },
+            )
+        }
+        if (nm.getNotificationChannel(CHANNEL_ALARM_HEADSUP) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL_ALARM_HEADSUP, "闹钟提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "亮屏在后台时到点先出声提醒，点按进入响铃页"
+                    enableVibration(true)
+                    setBypassDnd(true)
+                    // 通知自带闹钟铃声 (USAGE_ALARM 走闹钟音量): 亮屏后台时这是唯一的出声来源
+                    setSound(
+                        android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM),
+                        android.media.AudioAttributes.Builder()
+                            .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build(),
+                    )
+                },
+            )
+        }
     }
+
+    /** 本进程是否在前台 (前后台分流: 前台直接拉页, 不发通知免得两个声源叠加) */
+    private fun appInForeground(ctx: Context): Boolean =
+        ctx.getSystemService(android.app.ActivityManager::class.java)?.runningAppProcesses
+            ?.any {
+                it.pid == android.os.Process.myPid() &&
+                    it.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+            } == true
 
     fun cancel(ctx: Context) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
@@ -358,6 +399,16 @@ object ReminderScheduler {
         }
         val next = listOfNotNull(millisNotify, millisAlarm).minOrNull() ?: 0L
         Prefs.setNextReminderAt(ctx, next)
+        // 托盘滞留的响铃通知: 事件已过点就收掉 —— 滞留通知被点开/延迟拉起时会按其现存的排定
+        // 时刻走响铃判定, 不清理就可能「上课中打开 APP 立刻铃响」
+        val notifAt = Prefs.alarmNotifAt(ctx)
+        if (notifAt > 0L && ringDeliveryExpired(notifAt, lead, realNowMs)) {
+            runCatching {
+                ctx.getSystemService(android.app.NotificationManager::class.java)?.cancel(NOTIF_ALARM_RING)
+            }
+            Prefs.setAlarmNotifAt(ctx, 0L)
+            DebugLog.log("remind", "过点响铃通知已清理 (排定=$notifAt)")
+        }
         // 保活同步: 前台/开机路径拉起常驻服务 (防止退后台被冻结后广播投递被推迟),
         // 后台路径启动受限会静默跳过 —— 服务本就应在更早的前台时刻已拉起
         KeepAliveService.sync(ctx)
