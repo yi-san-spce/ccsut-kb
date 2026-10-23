@@ -261,8 +261,8 @@ object Updater {
  * 内测 X.Y.Z-beta.N 由发版时的 NAME 携带; 开发者版 X.Y.Z-dev 由 debug 构建自动挂载。
  */
 object BuildVersion {
-    const val CODE = 102005005
-    const val NAME = "1.2.0-beta.5"
+    const val CODE = 102005006
+    const val NAME = "1.2.0-beta.6"
 
     /** DevSheet「临时版本」覆盖: 只影响更新比较与展示, 仅本进程有效, 重启或「还原」即失效 */
     var displayOverride: String? = null
