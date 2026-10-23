@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.Celebration
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.ManageAccounts
@@ -63,6 +64,7 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Slideshow
 import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.AlertDialog
@@ -130,6 +132,7 @@ fun MoreSheet(
     onRemoveBg: () -> Unit,
     onBgAlpha: (Int) -> Unit,
     onOpenAppearance: () -> Unit = {},
+    onOpenShare: () -> Unit = {},
     onColorSource: (Int) -> Unit,
     onStyleTheme: (Int) -> Unit,
     onReminderToggle: (Boolean) -> Unit,
@@ -302,12 +305,11 @@ fun MoreSheet(
                         onClick = { resetConfirmFor = "class" },
                     )
                 } else {
+                    // 纯展示行: 同步动作在下方「个人课表」账号卡的身份行上, 不在这里重复 (两处曾各自一个「同步」入口)
                     SettingRow(
                         icon = Icons.Rounded.Person,
                         title = "个人课表",
                         subtitle = "上次同步 " + formatSynced(personalSyncedAt),
-                        trailing = { RowTrailing("同步") },
-                        onClick = onRefreshPersonal,
                     )
                     // 与班级课表同一套重置: 拉取到的原课表只读, 本地修改是覆盖层, 重置即清空覆盖层
                     SettingRow(
@@ -369,6 +371,7 @@ fun MoreSheet(
                             icon = Icons.Rounded.ManageAccounts,
                             title = personalName,
                             subtitle = "已登录 · 上次同步 " + formatSynced(personalSyncedAt),
+                            // 同步的唯一入口 (「当前课表」卡的个人行已改为纯展示): 刷新 = 重新验证码登录
                             trailing = { RowTrailing("同步") },
                             onClick = onRefreshPersonal,
                         )
@@ -380,6 +383,18 @@ fun MoreSheet(
                         )
                     }
                 }
+            }
+
+            // ---- 分享课表: 导出 .ics 给 iPhone 日历 / 帮朋友导出 ----
+            SectionHeader("分享课表")
+            SettingCard {
+                SettingRow(
+                    icon = Icons.Rounded.IosShare,
+                    title = "导出日历文件 (.ics)",
+                    subtitle = "发给 iPhone 同学导入 Apple 日历；也可帮朋友导出",
+                    trailing = { RowTrailing("分享") },
+                    onClick = onOpenShare,
+                )
             }
 
             // ---- 外观 ----

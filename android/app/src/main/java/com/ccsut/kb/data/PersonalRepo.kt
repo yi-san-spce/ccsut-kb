@@ -75,8 +75,11 @@ object PersonalRepo {
     /**
      * 登录成功后调用: 教务会话 → 课表页(取 xhid/姓名/学期) → 周次作息 → 全量课表。
      * 任一步会话失效都会抛 [CasClient.CasException](NOT_LOGGED_IN)。
+     *
+     * persist=false: 临时拉取(帮朋友导出课表), 结果只返回不落盘、不覆盖 [current] ——
+     * 当前用户的 PersonalCache/Prefs/内存态零写入, 生成 ICS 后即丢弃。
      */
-    fun fetchAll(ctx: Context, account: String): PersonalData {
+    fun fetchAll(ctx: Context, account: String, persist: Boolean = true): PersonalData {
         CasClient.establishTls()
 
         // 1) 课表页: 先带推算学期参数 (与网页行为一致), 不行再试无参(服务端默认当前学期)
@@ -138,12 +141,14 @@ object PersonalRepo {
             courses = courses,
             syncedAt = System.currentTimeMillis(),
         )
-        current = data
-        // 缓存写盘失败不阻断登录流程 (内存态已生效), 只记日志 —— 下次启动仍可用旧缓存
-        runCatching { PersonalCache.save(ctx, data) }
-            .onFailure { DebugLog.log("personal", "个人课表缓存写盘失败: ${it.message}") }
+        if (persist) {
+            current = data
+            // 缓存写盘失败不阻断登录流程 (内存态已生效), 只记日志 —— 下次启动仍可用旧缓存
+            runCatching { PersonalCache.save(ctx, data) }
+                .onFailure { DebugLog.log("personal", "个人课表缓存写盘失败: ${it.message}") }
+        }
         // 日志会进 logcat 与诊断报告(可被分享), 姓名打码不留实名
-        DebugLog.log("personal", "拉取个人课表成功: ${courses.size} 条 / $xnxq / ${maskName(studentName)}")
+        DebugLog.log("personal", "拉取个人课表成功: ${courses.size} 条 / $xnxq / ${maskName(studentName)}${if (persist) "" else " (临时, 不落盘)"}")
         return data
     }
 

@@ -23,6 +23,16 @@
 | 刷新/退出 | 更多 → 个人课表 | 单会话策略：刷新 = 重新验证码登录；退出清 Cookie（仅内存） |
 | 课表切换 | 顶栏徽标「班级课表 ⇄」或更多面板 chips | `setActiveTimetable` 统一收口；`ClassCache` 按当前模式刷写，小组件/提醒跟随 |
 
+## 分享课表（ICS 导出）
+
+| 功能 | 入口 | 实现 |
+|---|---|---|
+| 分享当前课表 | 更多 → 分享课表 → 分享当前课表 | 当前生效课表（个人含本地修改 / 班级）导出 RFC 5545 `.ics`：`data/Ics.kt` 纯函数，逐周走 `Merger` 合并（与渲染层同一套连堂语义）→ 连续周折叠成 `RRULE:FREQ=WEEKLY;COUNT=n`，Asia/Shanghai 时区；`FileProvider` + `ACTION_SEND text/calendar` 弹系统分享 |
+| 帮朋友导出 | 更多 → 分享课表 → 帮朋友导出 | 临时登录对方教务账号：`PersonalRepo.fetchAll(persist=false)` 只拉不存——PersonalCache / Prefs / 内存态零写入，生成 ICS 分享后清会话；注意自己的登录会话会被让出（下次同步需重新验证码登录），登录页内有「已获对方同意」提示 |
+| iPhone 导入 | 对方手机 | 把收到的 .ics 存到「文件」→ 点开 → Apple 日历「添加全部」（Google 日历等同样支持） |
+
+> 已知限制：单周调休（如周日补上周一的课）是周循环（RRULE）表达不了的，事件落在课表标注的星期上，以学校校历为准。
+
 ## 提醒
 
 | 功能 | 入口 | 实现 |

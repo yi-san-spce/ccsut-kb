@@ -81,8 +81,9 @@ private fun looksLikeBadAccount(s: String): Boolean =
 @Composable
 fun LoginScreen(
     initialAccount: String,
+    friendMode: Boolean = false,
     onDismiss: () -> Unit,
-    onSuccess: (studentName: String) -> Unit,
+    onSuccess: (data: PersonalRepo.PersonalData) -> Unit,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -117,11 +118,14 @@ fun LoginScreen(
             busy = "正在拉取个人课表…"
             error = null
             try {
-                val data = withContext(Dispatchers.IO) { PersonalRepo.fetchAll(ctx, acct) }
-                Prefs.setCasAccount(ctx, acct)
-                Prefs.setStudentName(ctx, data.studentName)
-                Prefs.setLastSyncAt(ctx, data.syncedAt)
-                onSuccess(data.studentName)
+                // 朋友模式: 只拉不存 (persist=false) —— 对方的课表不落盘、不覆盖自己的缓存与偏好
+                val data = withContext(Dispatchers.IO) { PersonalRepo.fetchAll(ctx, acct, persist = !friendMode) }
+                if (!friendMode) {
+                    Prefs.setCasAccount(ctx, acct)
+                    Prefs.setStudentName(ctx, data.studentName)
+                    Prefs.setLastSyncAt(ctx, data.syncedAt)
+                }
+                onSuccess(data)
             } catch (e: Throwable) {
                 error = friendly(e)
             } finally {
@@ -135,11 +139,13 @@ fun LoginScreen(
         busy = "正在检查登录状态…"
         try {
             val exec = withContext(Dispatchers.IO) { CasClient.openLoginPage() }
-            if (exec == null) {
-                fetchAndFinish(account.trim().ifBlank { Prefs.casAccount(ctx) })
-            } else {
+            if (exec != null) {
                 execution = exec
+            } else if (!friendMode) {
+                fetchAndFinish(account.trim().ifBlank { Prefs.casAccount(ctx) })
             }
+            // friendMode 且 exec==null 理论不可达 (入口已 clearCookies, 无会话必返回 execution);
+            // 真到达也不自动拉取 —— 防止拿当前用户的会话误当成对方的课表
         } catch (e: Throwable) {
             error = friendly(e)
         } finally {
@@ -164,7 +170,10 @@ fun LoginScreen(
             IconButton(onClick = { if (busy == null) onDismiss() }, enabled = busy == null) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = cs.onSurfaceVariant)
             }
-            Text("登录教务账号", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface)
+            Text(
+                if (friendMode) "帮朋友导出课表" else "登录教务账号",
+                fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface,
+            )
         }
 
         Column(
@@ -182,9 +191,17 @@ fun LoginScreen(
             }
             Spacer(Modifier.height(14.dp))
             Text(
-                "用统一身份认证的手机号或学号登录，\n拉取你的选课、重修等完整个人课表。",
+                if (friendMode) "用对方的手机号或学号登录，\n拉取 TA 的完整个人课表生成为日历文件。"
+                else "用统一身份认证的手机号或学号登录，\n拉取你的选课、重修等完整个人课表。",
                 fontSize = 14.sp, color = cs.onSurfaceVariant, lineHeight = 21.sp,
             )
+            if (friendMode) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "课表只在内存中生成为 .ics 文件用于分享，不保存在本机、不影响你自己的课表；导出后你自己的登录会话会被让出。请确保已获得对方同意。",
+                    fontSize = 12.sp, color = cs.primary, lineHeight = 18.sp,
+                )
+            }
             Spacer(Modifier.height(22.dp))
 
             OutlinedTextField(
@@ -346,7 +363,8 @@ fun LoginScreen(
 
             Spacer(Modifier.height(22.dp))
             Text(
-                "验证码只用于本次登录；登录后立即拉取并保存在你手机上，账号密码不经手、不存储。",
+                if (friendMode) "验证码只用于本次登录；对方课表不落盘、账号密码不经手不存储，导出完成即清除会话。"
+                else "验证码只用于本次登录；登录后立即拉取并保存在你手机上，账号密码不经手、不存储。",
                 fontSize = 12.sp, color = cs.onSurfaceVariant, lineHeight = 18.sp,
             )
             Spacer(Modifier.height(14.dp))

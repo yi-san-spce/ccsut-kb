@@ -41,6 +41,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.ccsut.kb.data.BgStore
 import com.ccsut.kb.data.BuildVersion
 import com.ccsut.kb.data.CasClient
+import com.ccsut.kb.data.Ics
 import com.ccsut.kb.data.Cls
 import com.ccsut.kb.data.Channels
 import com.ccsut.kb.data.ClassCache
@@ -73,6 +74,7 @@ import com.ccsut.kb.ui.LoginScreen
 import com.ccsut.kb.ui.MoreSheet
 import com.ccsut.kb.ui.NoticeDialog
 import com.ccsut.kb.ui.ScheduleScreen
+import com.ccsut.kb.ui.ShareSheet
 import com.ccsut.kb.ui.UndoEntry
 import com.ccsut.kb.ui.UpdateScreen
 import com.ccsut.kb.ui.WelcomeScreen
@@ -195,6 +197,9 @@ fun App() {
     var showDemo by remember { mutableStateOf<List<DemoStep>?>(null) }
     // 自定义外观面板 (更多 → 自定义外观)
     var showAppearance by remember { mutableStateOf(false) }
+    // 分享课表面板 + 登录页「帮朋友导出」模式 (更多 → 分享课表)
+    var showShare by remember { mutableStateOf(false) }
+    var loginFriendMode by remember { mutableStateOf(false) }
 
     // ---- 开发者模式 ----
     var devMode by remember { mutableStateOf(Prefs.devMode(ctx)) }
@@ -924,20 +929,83 @@ fun App() {
             )
         }
 
-        // ---- 教务登录 ----
+        // ---- 分享课表 (更多 → 分享课表) ----
+        if (showShare) {
+            ShareSheet(
+                hasCurrent = cls != null,
+                activeLabel = if (usePersonal) "个人课表" else (cls?.bjmc ?: "班级课表"),
+                onShareCurrent = {
+                    showShare = false
+                    val src = icsSourceOf(usePersonal, cls, clsId) ?: run {
+                        Toast.makeText(ctx, "课表数据还没准备好，稍后再试", Toast.LENGTH_SHORT).show()
+                        return@ShareSheet
+                    }
+                    val hint = if (usePersonal) "课表-${studentName.ifBlank { "我" }}.ics" else "课表-${cls?.bjmc ?: "班级"}.ics"
+                    scope.launch {
+                        val file = withContext(Dispatchers.IO) {
+                            runCatching { writeIcsFile(ctx, src, hint) }.getOrNull()
+                        }
+                        if (file == null) {
+                            Toast.makeText(ctx, "生成日历文件失败，请稍后再试", Toast.LENGTH_SHORT).show()
+                        } else {
+                            shareCalendarFile(ctx, file)
+                        }
+                    }
+                },
+                onShareFriend = {
+                    showShare = false
+                    // 先清会话再进登录页: 防止登录页探测到自己仍有效的 CAS 会话, 免短信拉到自己的课表
+                    runCatching { CasClient.clearCookies() }
+                    loginFriendMode = true
+                    showLogin = true
+                },
+                onDismiss = { showShare = false },
+            )
+        }
+
+        // ---- 教务登录 (自用登录 / 朋友模式帮导出共用, loginFriendMode 区分) ----
         if (showLogin) {
             LoginScreen(
-                initialAccount = Prefs.casAccount(ctx),
-                onDismiss = { showLogin = false },
-                onSuccess = { name ->
-                    showLogin = false
-                    studentName = name
-                    lastSyncAt = Prefs.lastSyncAt(ctx)
-                    Prefs.setActiveTimetable(ctx, PersonalRepo.PERSONAL_KEY)
-                    active = PersonalRepo.PERSONAL_KEY
-                    dataTick++
-                    resync()
-                    Toast.makeText(ctx, "已切换到${name}的个人课表", Toast.LENGTH_SHORT).show()
+                initialAccount = if (loginFriendMode) "" else Prefs.casAccount(ctx),
+                friendMode = loginFriendMode,
+                onDismiss = { showLogin = false; loginFriendMode = false },
+                onSuccess = { data ->
+                    if (!loginFriendMode) {
+                        showLogin = false
+                        studentName = data.studentName
+                        lastSyncAt = Prefs.lastSyncAt(ctx)
+                        Prefs.setActiveTimetable(ctx, PersonalRepo.PERSONAL_KEY)
+                        active = PersonalRepo.PERSONAL_KEY
+                        dataTick++
+                        resync()
+                        Toast.makeText(ctx, "已切换到${data.studentName}的个人课表", Toast.LENGTH_SHORT).show()
+                    } else {
+                        // 帮朋友导出: 只用内存里的数据生成 ICS 分享, 落盘仅限 filesDir 下的 .ics 本身
+                        showLogin = false
+                        loginFriendMode = false
+                        scope.launch {
+                            val file = withContext(Dispatchers.IO) {
+                                runCatching {
+                                    writeIcsFile(
+                                        ctx, icsSourceOfFriend(data),
+                                        "课表-${data.studentName.ifBlank { "朋友" }}-${data.xnxq}.ics",
+                                    )
+                                }.getOrNull()
+                            }
+                            // 会话让出: 无论成败清掉对方的登录态 (A 下次同步自己的课表需重新验证码登录)
+                            runCatching { CasClient.clearCookies() }
+                            if (file == null) {
+                                Toast.makeText(ctx, "生成日历文件失败，请稍后再试", Toast.LENGTH_LONG).show()
+                            } else {
+                                shareCalendarFile(ctx, file)
+                                Toast.makeText(
+                                    ctx,
+                                    "已生成${data.studentName}的课表文件；你自己的登录已让出，同步需重新验证码登录",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
+                    }
                 },
             )
         }
@@ -1001,6 +1069,10 @@ fun App() {
                 onOpenAppearance = {
                     showMore = false
                     showAppearance = true
+                },
+                onOpenShare = {
+                    showMore = false
+                    showShare = true
                 },
                 onColorSource = { v ->
                     Prefs.setColorSource(ctx, v)
@@ -1319,7 +1391,7 @@ fun App() {
         // 只在课表主界面空闲时插入: 引导页/选班页/设置与关于等面板/登录/课程编辑流程中不弹。
         // 检查照常进行, 待弹条目留在队列里, 用户回到课表界面后自动出现。
         val mainIdle = !showWelcome && !screenChoose && !showMore && !showAbout && !showDev &&
-            !showUpdate && !showLogin && detailCourse == null && addAt == null &&
+            !showUpdate && !showLogin && !showShare && detailCourse == null && addAt == null &&
             editBlock == null && delBlock == null
         if (mainIdle) dialogQueue.firstOrNull()?.let { item ->
             fun finish() {
@@ -1416,6 +1488,57 @@ sealed interface PendingDialog {
         override val key: String = "notice:${notice.id}"
         override val priority: Int = if (notice.critical) 20 else 10
     }
+}
+
+// ---- ICS 日历分享 (更多 → 分享课表) ----
+
+/** 当前生效课表 → ICS 输入; 数据未就绪返回 null (个人走覆盖层生效视图, 班级同源) */
+private fun icsSourceOf(usePersonal: Boolean, cls: Cls?, @Suppress("UNUSED_PARAMETER") clsId: String?): Ics.Source? {
+    if (usePersonal) {
+        val d = PersonalRepo.current ?: return null
+        val eff = PersonalRepo.effectiveCls() ?: return null
+        return Ics.Source(
+            title = if (d.studentName.isNotBlank()) "${d.studentName}的课表" else "我的课表",
+            courses = eff.courses, periods = d.periods, startDate = d.startDate, weeks = d.weeks,
+            uidSeed = d.xnxq.ifBlank { "personal" },
+        )
+    }
+    val ds = Repo.dataset ?: return null
+    val c = cls ?: return null
+    return Ics.Source(
+        title = "${c.bjmc}课表",
+        courses = c.courses, periods = ds.periods, startDate = ds.startDate, weeks = ds.weeks,
+        uidSeed = ds.xnxq.ifBlank { "class" },
+    )
+}
+
+/** 朋友的临时课表 → ICS 输入 (persist=false 拉取的内存数据, 不含本地覆盖层) */
+private fun icsSourceOfFriend(d: PersonalRepo.PersonalData): Ics.Source = Ics.Source(
+    title = if (d.studentName.isNotBlank()) "${d.studentName}的课表" else "朋友的课表",
+    courses = d.courses, periods = d.periods, startDate = d.startDate, weeks = d.weeks,
+    uidSeed = d.xnxq.ifBlank { "personal" },
+)
+
+/** 生成 ICS 写入 filesDir (现有 FileProvider <files-path path="."/> 已覆盖), 返回文件或 null */
+private fun writeIcsFile(ctx: Context, src: Ics.Source, fileName: String): File? {
+    val text = Ics.build(src) ?: return null
+    val safe = fileName.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+    val f = File(ctx.filesDir, safe)
+    f.writeText(text, Charsets.UTF_8)
+    return f
+}
+
+/** 弹系统分享 (text/calendar): 微信/QQ 发文件, iPhone 端存下后用 Apple 日历打开导入 */
+private fun shareCalendarFile(ctx: Context, file: File) {
+    val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", file)
+    val send = Intent(Intent.ACTION_SEND)
+        .setType("text/calendar")
+        .putExtra(Intent.EXTRA_STREAM, uri)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    // ClipData 兜底授权: 部分目标应用只按 ClipData 授读权限
+    send.clipData = android.content.ClipData.newRawUri(file.name, uri)
+    runCatching { ctx.startActivity(Intent.createChooser(send, "分享课表")) }
+        .onFailure { Toast.makeText(ctx, "无法分享: ${it.message}", Toast.LENGTH_SHORT).show() }
 }
 
 private fun installApk(ctx: Context, file: File) {
