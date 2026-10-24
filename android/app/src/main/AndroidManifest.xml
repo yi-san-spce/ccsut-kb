@@ -46,6 +46,11 @@
             android:name=".UpdateDismissReceiver"
             android:exported="false" />
 
+        <!-- 划掉保活常驻通知 = 本进程内不再复活 (deleteIntent 回调) -->
+        <receiver
+            android:name=".reminder.KeepAliveDismissReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".widget.WidgetProvider"
             android:exported="false"

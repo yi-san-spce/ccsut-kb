@@ -56,6 +56,7 @@ import com.ccsut.kb.data.Repo
 import com.ccsut.kb.data.UpdateChannels
 import com.ccsut.kb.data.Updater
 import com.ccsut.kb.data.UserEdits
+import com.ccsut.kb.reminder.KeepAliveService
 import com.ccsut.kb.reminder.ReminderScheduler
 import com.ccsut.kb.ui.AboutScreen
 import com.ccsut.kb.ui.ChooseClassScreen
@@ -106,6 +107,19 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra(UpdateNotifier.EXTRA_OPEN_UPDATE, false)) openUpdateTick++
+    }
+
+    override fun onStart() {
+        super.onStart()
+        KbApp.activityDepth++
+        // 进前台不需要跑保活常驻通知: ON_START 的 reschedule→sync 会走前台分支自动收掉
+    }
+
+    override fun onStop() {
+        super.onStop()
+        KbApp.activityDepth--
+        // 回后台 = 保活通知的工作场景: 重新亮出 (前台期间被抑制, 用户划掉过的本进程内不复活)
+        runCatching { KeepAliveService.sync(applicationContext) }
     }
 }
 
