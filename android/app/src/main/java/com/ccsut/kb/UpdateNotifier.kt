@@ -23,15 +23,18 @@ object UpdateNotifier {
 
     const val EXTRA_OPEN_UPDATE = "open_update"
     const val EXTRA_VERSION = "version"
-    private const val CHANNEL_ID = "update_notify"
+    // v2: 渠道重要性建后不可改 —— 首版 DEFAULT 只进通知栏不弹横幅, 用户要求后台也弹窗, 换 ID 迁移
+    private const val CHANNEL_ID = "update_notify_v2"
+    private const val LEGACY_CHANNEL_ID = "update_notify"
     private const val NOTIFY_ID = 2001
 
     private fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
+        nm.deleteNotificationChannel(LEGACY_CHANNEL_ID)   // 一次性清掉旧 DEFAULT 渠道, 免设置页留僵尸项
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "更新提醒", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "发现新版本时在通知栏提醒"
+            NotificationChannel(CHANNEL_ID, "更新提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "发现新版本时横幅弹窗提醒"
             },
         )
     }
@@ -73,7 +76,7 @@ object UpdateNotifier {
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setOnlyAlertOnce(true)
                 .setAutoCancel(true)
                 .setContentIntent(tapPi)

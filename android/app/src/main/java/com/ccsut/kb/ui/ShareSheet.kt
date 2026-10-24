@@ -122,12 +122,13 @@ fun ShareSheet(
 /** 六步截图 + 序号要点 (高 230dp, 宽按各截图宽高比还原) */
 @Composable
 private fun GuideStepsRow() {
-    // (drawable, 宽高比 w/h = 720/原图高, 要点)
+    // (drawable, 宽高比 w/h = 720/原图高, 要点; 全部控制在一行内 —— 行数不一致会让横滑时
+    //  行高随可见项变化, 下方内容上下抽动)
     val steps = listOf(
-        Triple(R.drawable.ics_guide_1, 720f / 889f, "微信里点「用其他应用打开」"),
+        Triple(R.drawable.ics_guide_1, 720f / 889f, "微信点「用其他应用打开」"),
         Triple(R.drawable.ics_guide_2, 720f / 703f, "选「保存到“文件”」"),
         Triple(R.drawable.ics_guide_3, 720f / 999f, "「文件」里长按举起"),
-        Triple(R.drawable.ics_guide_4, 720f / 1019f, "按住回主屏，打开「日历」拖入"),
+        Triple(R.drawable.ics_guide_4, 720f / 1019f, "按住回主屏拖进日历"),
         Triple(R.drawable.ics_guide_5, 720f / 838f, "点「添加全部」"),
         Triple(R.drawable.ics_guide_6, 720f / 916f, "选一个日历确认"),
     )
@@ -153,6 +154,7 @@ private fun GuideStepsRow() {
                     fontSize = 11.sp, lineHeight = 15.sp,
                     color = cs.onSurfaceVariant,
                     fontWeight = FontWeight.Medium,
+                    maxLines = 1,
                 )
             }
         }

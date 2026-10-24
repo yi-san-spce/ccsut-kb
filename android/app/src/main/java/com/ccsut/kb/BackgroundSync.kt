@@ -50,8 +50,12 @@ object BackgroundSync {
     /** 消息检查循环周期 (setInexactRepeating; 对公告/数据更新 45 分钟粒度足够, Doze 下自动合并省电) */
     internal const val SYNC_INTERVAL_MS = 45 * 60_000L
 
-    /** 消息通知渠道 (与更新提醒 update_notify 分开, 便于用户分别管理) */
-    const val CHANNEL_MESSAGES = "bg_messages"
+    /** 消息通知渠道 (与更新提醒 update_notify 分开, 便于用户分别管理)。
+     *  v2: 渠道重要性建后不可改 —— 首版 DEFAULT 只进通知栏不弹横幅, 用户要求后台弹窗, 换 ID 迁移 */
+    const val CHANNEL_MESSAGES = "bg_messages_v2"
+
+    /** beta.8 首发的 DEFAULT 渠道: 升 v2 后清理防僵尸 */
+    const val LEGACY_CHANNEL_MESSAGES = "bg_messages"
 
     /** 已移除的保活前台服务的通知渠道 id: 升级后系统不会自动删, 启动时清理防僵尸渠道 */
     const val LEGACY_KEEP_ALIVE_CHANNEL = "keep_alive"
@@ -207,7 +211,7 @@ object BackgroundSync {
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
-                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(tapPi)
                 .build(),
@@ -218,9 +222,10 @@ object BackgroundSync {
     private fun ensureChannel(ctx: Context) {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         if (nm.getNotificationChannel(CHANNEL_MESSAGES) != null) return
+        nm.deleteNotificationChannel(LEGACY_CHANNEL_MESSAGES)   // 一次性清掉旧 DEFAULT 渠道
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL_MESSAGES, "消息提醒", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "远程通知与课表数据更新的后台提醒"
+            NotificationChannel(CHANNEL_MESSAGES, "消息提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "远程通知、课表数据与新版本的后台横幅提醒"
             },
         )
     }
