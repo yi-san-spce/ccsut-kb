@@ -117,6 +117,14 @@ object Prefs {
         sp(ctx).edit().putLong("next_reminder_at", at).apply()
     }
 
+    /** 最近一次提醒触发器完成投递尝试的时间戳(毫秒): 后台兜底用它区分「链路完好但账面未前移」
+     *  与「真断链被吞」—— nextReminderAt 在正常触发后要到下次 reschedule 才更新, 不能直接比 */
+    fun lastFiredAt(ctx: Context): Long = sp(ctx).getLong("last_fired_at", 0L)
+
+    fun setLastFiredAt(ctx: Context, at: Long) {
+        sp(ctx).edit().putLong("last_fired_at", at).apply()
+    }
+
     /** 通知丢弃计数(诊断): 权限缺失/已上课丢弃等, 开发者面板可见 */
     fun notifDrops(ctx: Context): Int = sp(ctx).getInt("notif_drops", 0)
 
@@ -277,6 +285,28 @@ object Prefs {
         val o = JSONObject()
         map.forEach { (k, v) -> o.put(k, v) }
         sp(ctx).edit().putString("notice_seen", o.toString()).apply()
+    }
+
+    // ---- 后台消息通道 (BackgroundSync) ----
+
+    private const val BG_SEP = ","
+
+    /** 后台消息通道已发过通知的远程通知 id 集合: 与弹窗已读(noticeSeen)独立,
+     *  保证每条 id 在后台只提醒一次, 弹窗「每次都弹」(once=false) 的也不会被后台反复骚扰 */
+    fun bgNotifiedIds(ctx: Context): Set<String> =
+        sp(ctx).getString("bg_notified_ids", null)?.split(BG_SEP)?.filter { it.isNotBlank() }?.toSet()
+            ?: emptySet()
+
+    fun markBgNotified(ctx: Context, id: String) {
+        val merged = (bgNotifiedIds(ctx) + id).toList().takeLast(64)
+        sp(ctx).edit().putString("bg_notified_ids", merged.joinToString(BG_SEP)).apply()
+    }
+
+    /** 后台消息通道已提醒过的课表数据版本 (清单版本, 0=未提醒过) */
+    fun bgDataNotifiedVersion(ctx: Context): Int = sp(ctx).getInt("bg_data_notified_version", 0)
+
+    fun setBgDataNotifiedVersion(ctx: Context, v: Int) {
+        sp(ctx).edit().putInt("bg_data_notified_version", v).apply()
     }
 
     /** 开发者: 无视版本关系, 更新页任意版本均可安装 (DevSheet 开关, 默认关) */

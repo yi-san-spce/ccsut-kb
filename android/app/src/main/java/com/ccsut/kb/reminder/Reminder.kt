@@ -33,7 +33,8 @@ import kotlin.concurrent.thread
  * 闹钟模式已移除（v1.2.0-beta.6 起），本链是唯一提醒路径 —— 可靠性优先：
  *  - 多事件前视: 一次排接下来至多 [LOOKAHEAD] 条（独立 requestCode），单条被 ROM 吞掉仍有接力
  *  - 系统自愈入口: 开机/包更新/时间变化/精确闹钟权限变化 → reschedule + 补发容差内已到期事件
- *  - KeepAliveService 内置 watchdog: 进程存活期间周期校验 nextReminderAt，断链自愈
+ *  - 后台兜底 (BackgroundSync): 每条已排提醒在到点 +5min 处多挂一枚精确兜底闹钟,
+ *    用投递时间戳区分「已投递」与「被吞」, 被吞的补发 + 重排（替代旧保活服务的 60s watchdog）
  *  - 全部丢弃/降级路径留痕（DebugLog + Prefs.notifDrops 计数），开发者面板可诊断
  */
 object ReminderScheduler {
@@ -50,10 +51,6 @@ object ReminderScheduler {
 
     /** 多事件前视条数: 一次排接下来 N 条，单条广播被吞仍接力 */
     internal const val LOOKAHEAD = 3
-
-    /** watchdog 校验间隔与断链判定阈值（nextReminderAt 过点超过阈值即自愈） */
-    internal const val WATCHDOG_CHECK_MS = 60_000L
-    internal const val WATCHDOG_STALE_MS = 5 * 60_000L
 
     private const val TYPE_CLASS = 0   // 课前提醒
     private const val TYPE_AFTER = 1   // 放学小结
@@ -168,7 +165,7 @@ object ReminderScheduler {
     /**
      * 重算并重排提醒。多事件前视: 一次排接下来至多 [LOOKAHEAD] 条（各自独立 PendingIntent）,
      * 最早一条触发后由 Receiver 接力补排 —— 单条广播被 ROM 吞掉, 后续仍会把链续上。
-     * reschedule 同时是所有自愈入口的汇聚点（开机/包更新/时间变化/回前台/开关变更/watchdog）。
+     * reschedule 同时是所有自愈入口的汇聚点（开机/包更新/时间变化/回前台/开关变更/后台兜底）。
      */
     suspend fun reschedule(ctx: Context) = withContext(Dispatchers.IO) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
@@ -212,31 +209,30 @@ object ReminderScheduler {
         val slots = (0 until LOOKAHEAD).map { firePi(ctx, it) }
         slots.forEach { am.cancel(it) }   // 幂等: 全清再按位重排
         val exact = am.canScheduleExactAlarms()
+        val pickMillis = picks.map { it.at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
         picks.forEachIndexed { i, ev ->
-            val millis = ev.at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
             if (exact) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, slots[i])
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, pickMillis[i], slots[i])
             } else {
                 // 未授予「闹钟和提醒」时的降级: 非精确闹钟, 可能晚几分钟
-                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, millis, slots[i])
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, pickMillis[i], slots[i])
             }
         }
-        val next = picks.firstOrNull()?.let {
-            it.at.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-        } ?: 0L
+        // 兜底闹钟跟着每条提醒重排 (到点 +5min 判断链, 见 BackgroundSync)
+        com.ccsut.kb.BackgroundSync.armHealAlarms(ctx, pickMillis)
+        val next = pickMillis.firstOrNull() ?: 0L
         Prefs.setNextReminderAt(ctx, next)
         picks.forEachIndexed { i, ev -> DebugLog.log("remind", "通知排程 #$i ${ev.at} (type=${ev.type})") }
         if (picks.isNotEmpty() && !exact) {
             DebugLog.log("remind", "精确闹钟未授予, 已降级非精确排程（提醒可能推迟数分钟）")
         }
-        KeepAliveService.sync(ctx)
     }
 
     fun cancel(ctx: Context) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
         (0 until LOOKAHEAD).forEach { am?.cancel(firePi(ctx, it)) }
+        com.ccsut.kb.BackgroundSync.armHealAlarms(ctx, emptyList())
         Prefs.setNextReminderAt(ctx, 0L)
-        KeepAliveService.sync(ctx)
     }
 
     /**
@@ -407,6 +403,8 @@ class ReminderReceiver : BroadcastReceiver() {
                     ReminderScheduler.ACTION_FIRE ->
                         runCatching { kotlinx.coroutines.runBlocking { ReminderScheduler.fire(ctx) } }
                             .onFailure { DebugLog.log("remind", "ACTION_FIRE 处理失败: ${it.message}") }
+                            // 无论窗口内是否真有件都记投递尝试: 后台兜底靠它区分「已触发」与「被吞断链」
+                            .also { Prefs.setLastFiredAt(ctx, System.currentTimeMillis()) }
                     ReminderScheduler.ACTION_DEV_TEST ->
                         runCatching { kotlinx.coroutines.runBlocking { ReminderScheduler.onDevTest(ctx) } }
                             .onFailure { DebugLog.log("remind", "ACTION_DEV_TEST 处理失败: ${it.message}") }

@@ -35,12 +35,11 @@ class ReminderRoutingTest {
         assertEquals(0, ReminderScheduler.weekOf(start, LocalDate.of(2026, 8, 31)))  // 前 7 天
     }
 
-    // ---- 多事件前视 / watchdog 常量 ----
+    // ---- 多事件前视 / 后台兜底阈值 ----
 
     @Test
-    fun `前视排程与watchdog阈值`() {
+    fun `前视排程与兜底阈值`() {
         assertEquals(3, ReminderScheduler.LOOKAHEAD)
-        assertTrue(ReminderScheduler.WATCHDOG_STALE_MS > 0)
-        assertTrue(ReminderScheduler.WATCHDOG_CHECK_MS < ReminderScheduler.WATCHDOG_STALE_MS)
+        assertTrue(com.ccsut.kb.BackgroundSync.HEAL_DELAY_MS > 0)
     }
 }
