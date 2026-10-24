@@ -103,8 +103,10 @@ if [ -n "$PRERELEASE" ]; then
   python3 - "$VNAME" "$VCODE" "$KIND" <<'PYEOF'
 import sys, re, datetime
 vname, vcode, kind = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+# KIND 是内部标识 (preview), 版本名后缀是 tag (pre): 两者必须先归一再比对, 否则抢先路径永远校验失败
+tag = {"beta": "beta", "preview": "pre"}[kind]
 m = re.match(r"^(\d+)\.(\d+)\.(\d+)-(beta|pre)\.?(\d*)$", vname)
-if not m or m.group(4) != kind:
+if not m or m.group(4) != tag:
     want = "X.Y.Z-beta.N" if kind == "beta" else "X.Y.Z-pre.YYYYMMDD"
     print(f"❌ versionName '{vname}' 不符合{kind}格式, 应为 {want} (改 build.gradle 后重新构建)")
     sys.exit(1)
