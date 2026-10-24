@@ -56,7 +56,6 @@ import com.ccsut.kb.data.Repo
 import com.ccsut.kb.data.UpdateChannels
 import com.ccsut.kb.data.Updater
 import com.ccsut.kb.data.UserEdits
-import com.ccsut.kb.reminder.KeepAliveService
 import com.ccsut.kb.reminder.ReminderScheduler
 import com.ccsut.kb.ui.AboutScreen
 import com.ccsut.kb.ui.ChooseClassScreen
@@ -77,6 +76,8 @@ import com.ccsut.kb.ui.NoticeDialog
 import com.ccsut.kb.ui.ScheduleScreen
 import com.ccsut.kb.ui.ShareSheet
 import com.ccsut.kb.ui.UndoEntry
+import com.ccsut.kb.ui.ICS_GUIDE_SHARE_TEXT
+import com.ccsut.kb.ui.copyText
 import com.ccsut.kb.ui.UpdateScreen
 import com.ccsut.kb.ui.WelcomeScreen
 import com.ccsut.kb.util.Block
@@ -107,19 +108,6 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra(UpdateNotifier.EXTRA_OPEN_UPDATE, false)) openUpdateTick++
-    }
-
-    override fun onStart() {
-        super.onStart()
-        KbApp.activityDepth++
-        // 进前台不需要跑保活常驻通知: ON_START 的 reschedule→sync 会走前台分支自动收掉
-    }
-
-    override fun onStop() {
-        super.onStop()
-        KbApp.activityDepth--
-        // 回后台 = 保活通知的工作场景: 重新亮出 (前台期间被抑制, 用户划掉过的本进程内不复活)
-        runCatching { KeepAliveService.sync(applicationContext) }
     }
 }
 
@@ -962,7 +950,7 @@ fun App() {
                         if (file == null) {
                             Toast.makeText(ctx, "生成日历文件失败，请稍后再试", Toast.LENGTH_SHORT).show()
                         } else {
-                            shareCalendarFile(ctx, file)
+                            shareCalendarFile(ctx, file, ICS_GUIDE_SHARE_TEXT)
                         }
                     }
                 },
@@ -1011,10 +999,12 @@ fun App() {
                             if (file == null) {
                                 Toast.makeText(ctx, "生成日历文件失败，请稍后再试", Toast.LENGTH_LONG).show()
                             } else {
-                                shareCalendarFile(ctx, file)
+                                shareCalendarFile(ctx, file, ICS_GUIDE_SHARE_TEXT)
+                                // 一键转交教程: 微信发文件时会忽略附带文本, 自动复制进剪贴板让用户粘贴发第二条
+                                copyText(ctx, ICS_GUIDE_SHARE_TEXT)
                                 Toast.makeText(
                                     ctx,
-                                    "已生成${data.studentName}的课表文件；你自己的登录已让出，同步需重新验证码登录",
+                                    "已复制导入教程，粘贴发给朋友即可；你自己的登录已让出，同步需重新验证码登录",
                                     Toast.LENGTH_LONG,
                                 ).show()
                             }
@@ -1542,13 +1532,15 @@ private fun writeIcsFile(ctx: Context, src: Ics.Source, fileName: String): File?
     return f
 }
 
-/** 弹系统分享 (text/calendar): 微信/QQ 发文件, iPhone 端存下后用 Apple 日历打开导入 */
-private fun shareCalendarFile(ctx: Context, file: File) {
+/** 弹系统分享 (text/calendar): 微信/QQ 发文件, iPhone 端存下后按导入指南拖进日历。
+ *  extraText: 随文件附带的说明文本 (QQ/邮件会展示; 微信忽略 —— 微信场景由调用方复制到剪贴板兜底) */
+private fun shareCalendarFile(ctx: Context, file: File, extraText: String? = null) {
     val uri = FileProvider.getUriForFile(ctx, "${ctx.packageName}.files", file)
     val send = Intent(Intent.ACTION_SEND)
         .setType("text/calendar")
         .putExtra(Intent.EXTRA_STREAM, uri)
         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    if (extraText != null) send.putExtra(Intent.EXTRA_TEXT, extraText)
     // ClipData 兜底授权: 部分目标应用只按 ClipData 授读权限
     send.clipData = android.content.ClipData.newRawUri(file.name, uri)
     runCatching { ctx.startActivity(Intent.createChooser(send, "分享课表")) }

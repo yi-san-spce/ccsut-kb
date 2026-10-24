@@ -32,10 +32,31 @@ const val ISSUES_URL = "$OPEN_SOURCE_URL/issues/new/choose"
 /** 隐私政策 */
 const val PRIVACY_URL = "$OPEN_SOURCE_URL/blob/master/docs/PRIVACY.md"
 
+// ---- 分享课表 · iPhone 导入教程 (分享面板) ----
+
+/** B 站视频教程:课程表 ICS 导入 iOS 系统日历 (6940 播放 / 6 分 23 秒,与 App 导出场景一致) */
+const val IOS_ICS_GUIDE_VIDEO_URL = "https://www.bilibili.com/video/BV1k84y1J7vL/"
+
+/** 可直接转发给朋友的导入教程文本 (文字步骤 + 视频链接;帮朋友导出后自动复制进剪贴板) */
+const val ICS_GUIDE_SHARE_TEXT = "【长工课表通】课表导入 iPhone 日历教程:\n" +
+    "微信收到 .ics 文件后 → 点「用其他应用打开」→ 选「保存到“文件”」→ 打开「文件」长按文件举起不动,\n" +
+    "另一只手回主屏打开「日历」,把文件拖到日历上松手 → 点「添加全部」→ 选一个日历确认。\n" +
+    "视频教程(B站):$IOS_ICS_GUIDE_VIDEO_URL"
+
 /** 用系统浏览器打开链接; 无浏览器等异常时静默忽略。 */
 fun openUrl(ctx: Context, url: String) {
     runCatching {
         ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
+
+/** 分享纯文本 (微信/QQ/邮件选择器)。失败静默 —— 调用方如有需要自行兜底提示。 */
+fun shareText(ctx: Context, chooserTitle: String, text: String) {
+    runCatching {
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text)
+        ctx.startActivity(Intent.createChooser(send, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 }
 
