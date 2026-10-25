@@ -6,10 +6,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -29,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -69,7 +73,16 @@ fun UpdateOfferDialog(
         onDismissRequest = { if (!release.force) onCancel() },
         title = { Text(dialogTitle(release)) },
         text = {
-            Column {
+            // M3 AlertDialog 的 text 槽不自带滚动: 「展开全部」后超高的内容会被弹窗窗口直接
+            // 裁掉, 摸不到也滚不动。自己挂 verticalScroll 并给高度上限(屏高 45%, 小屏/矮窗口
+            // 由弹窗自身约束再收紧), 收起态按内容自适应不占空。
+            val notesScroll = rememberScrollState()
+            val notesMaxH = LocalConfiguration.current.screenHeightDp
+            Column(
+                Modifier
+                    .heightIn(max = (notesMaxH * 0.45f).dp)
+                    .verticalScroll(notesScroll),
+            ) {
                 // 更新说明: 与软件更新页同构 —— 小节标题 (更新了什么/修复了什么) + 绿色对勾条目;
                 // 条目超过 2 条时默认只显示前 2 条, 可展开看全
                 var notesExpanded by remember(release.versionName) { mutableStateOf(false) }
