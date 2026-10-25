@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Bitmap
-import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.SizeF
@@ -139,7 +138,7 @@ object WidgetRenderer {
         val followBg: Boolean,
         val hue: Int,
         val glass: Bitmap?,          // null = 玻璃不可用/关闭, 回落实色卡片
-        val solidBg: Int,            // 实色回退的卡片底色 (followBg 桶色或默认底)
+        val solidBgRes: Int,         // 实色回退的卡片底 drawable (followBg 桶色或默认底; 兼供玻璃轮廓)
         val title: String,
         val date: String,
         val nextText: String?,       // 有课时的「下节课/进行中/结束」行; 空态 null
@@ -176,7 +175,7 @@ object WidgetRenderer {
         if (snapIn == null) {
             return Scene(
                 noSnap = true, dark = dark, followBg = followBg, hue = hue,
-                glass = glass, solidBg = solidBg,
+                glass = glass, solidBgRes = tintRes,
                 title = "长工课表通", date = "", nextText = null,
                 emptyTitle = "长工课表通", emptySub = "打开APP选择班级后展示今日课程",
                 bottomText = null, today = emptyList(), groups = emptyList(),
@@ -220,7 +219,7 @@ object WidgetRenderer {
 
         return Scene(
             noSnap = false, dark = dark, followBg = followBg, hue = hue,
-            glass = glass, solidBg = solidBg,
+            glass = glass, solidBgRes = tintRes,
             title = "第${week}周 · ${Weeks.cnDay(day)}",
             date = "${today.monthValue}/${today.dayOfMonth}",
             nextText = nextText,
@@ -254,12 +253,12 @@ object WidgetRenderer {
             ),
         )
         if (s.glass != null) {
+            // 玻璃模式: 位图画在背景之上; 背景保留 —— 它提供圆角轮廓与 elevation 投影 (官方: outline 由 background 决定)
             rv.setViewVisibility(R.id.w_glass, View.VISIBLE)
             rv.setImageViewBitmap(R.id.w_glass, s.glass)
-            rv.setInt(R.id.w_root, "setCardBackgroundColor", Color.TRANSPARENT)
         } else {
             rv.setViewVisibility(R.id.w_glass, View.GONE)
-            rv.setInt(R.id.w_root, "setCardBackgroundColor", s.solidBg)
+            rv.setInt(R.id.w_root, "setBackgroundResource", s.solidBgRes)
         }
         // 文字色: followBg 从同一色相派生, 否则常量; 只给本档存在的 id 上色 (RemoteViews 对缺失 id 静默跳过)
         val byId = mapOf(
@@ -425,10 +424,7 @@ object WidgetRenderer {
             R.id.w_item, "setBackgroundResource",
             if (glassOn) R.drawable.widget_pill_glass else if (s.dark) PILL_D[0] else PILL[0],
         )
-        val tint = if (glassOn) {
-            // 玻璃药丸: 课程色乘 ~0.8 透明度, 底下是大玻璃卡 —— 顶部微亮渐变来自 drawable 的 alpha 梯度
-            ColorUtils.setAlphaComponent(container.toArgb(), (if (s.dark) 0.75f else 0.85f).let { (it * 255).toInt() })
-        } else container.toArgb()
+        val tint = container.toArgb()   // 玻璃药丸的透明度全部由 drawable 的 alpha 渐变承担 (SRC_IN 保留)
         item.setColorStateList(
             R.id.w_item, "setBackgroundTintList",
             android.content.res.ColorStateList.valueOf(tint),

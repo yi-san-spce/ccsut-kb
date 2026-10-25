@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- L/XL 档 (≈3×3 及以上): 标题 + 下节课 + 可滚动议程列表(今天+后续按天分组) / 空态居中 + 底部行。
-     ListView + RemoteCollectionItems 在所有桌面原生可滚, 手指上下滑看后续课程 -->
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+     ListView + RemoteCollectionItems 在所有桌面原生可滚, 手指上下滑看后续课程。
+     根节点必须用框架 @RemoteView 视图 (CardView 无注解在 launcher 端会 InflateException);
+     阴影轮廓由 background 18dp 圆角提供, 玻璃位图画在背景之上 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/w_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:theme="@android:style/Theme.DeviceDefault.DayNight"
     android:clipToOutline="true"
-    app:cardCornerRadius="18dp"
-    app:cardElevation="5dp"
-    app:cardBackgroundColor="#ECEBF1">
+    android:elevation="5dp"
+    android:background="@drawable/widget_bg">
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -145,4 +145,4 @@
                 android:visibility="gone" />
         </LinearLayout>
     </FrameLayout>
-</androidx.cardview.widget.CardView>
+</FrameLayout>

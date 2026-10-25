@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- M 档 (≈2×2 / 3×2 标准): 标题 + 下节课 + 课程药丸(固定行数) / 空态居中 + 底部「下一次课」行 -->
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<!-- M 档 (≈2×2 / 3×2 标准): 标题 + 下节课 + 课程药丸(固定行数) / 空态居中 + 底部「下一次课」行。
+     根节点必须用框架 @RemoteView 视图 (CardView 无注解在 launcher 端会 InflateException);
+     阴影轮廓由 background 18dp 圆角提供, 玻璃位图画在背景之上 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/w_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:theme="@android:style/Theme.DeviceDefault.DayNight"
     android:clipToOutline="true"
-    app:cardCornerRadius="18dp"
-    app:cardElevation="5dp"
-    app:cardBackgroundColor="#ECEBF1">
+    android:elevation="5dp"
+    android:background="@drawable/widget_bg">
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -159,4 +159,4 @@
                 android:visibility="gone" />
         </LinearLayout>
     </FrameLayout>
-</androidx.cardview.widget.CardView>
+</FrameLayout>

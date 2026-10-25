@@ -74,8 +74,6 @@ dependencies {
     implementation 'androidx.compose.material:material-icons-extended:1.7.8'
     implementation 'androidx.activity:activity-compose:1.13.0'
     implementation 'androidx.core:core:1.17.0'
-    // 小组件真投影: CardView 带 @RemoteView 标注, elevation 阴影在桌面端原样渲染
-    implementation 'androidx.cardview:cardview:1.0.0'
     // 从任意种子色/图片生成 M3 动态配色 (系统壁纸取色同款 HCT 算法的 Compose 实现)
     implementation 'com.materialkolor:material-kolor:2.1.1'
     // 毛玻璃: 背景图之上的玻璃材质 (RenderEffect, minSdk 31 满足)

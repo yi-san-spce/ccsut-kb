@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- S 档 (≈2×1 紧凑): 标题 + 单行下一节课/下一次课。颜色与玻璃底运行时烤入 -->
-<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<!-- S 档 (≈2×1 紧凑): 标题 + 单行下一节课/下一次课。颜色与玻璃底运行时烤入。
+     根节点必须是框架 @RemoteView 视图 —— CardView 无注解会在 launcher 端 InflateException;
+     阴影轮廓来自 background 的 18dp 圆角 (官方: outline 由 background 边界决定), 玻璃位图画其上 -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/w_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:theme="@android:style/Theme.DeviceDefault.DayNight"
     android:clipToOutline="true"
-    app:cardCornerRadius="18dp"
-    app:cardElevation="5dp"
-    app:cardBackgroundColor="#ECEBF1">
+    android:elevation="5dp"
+    android:background="@drawable/widget_bg">
 
     <FrameLayout
         android:layout_width="match_parent"
@@ -80,4 +80,4 @@
                 android:visibility="gone" />
         </LinearLayout>
     </FrameLayout>
-</androidx.cardview.widget.CardView>
+</FrameLayout>
