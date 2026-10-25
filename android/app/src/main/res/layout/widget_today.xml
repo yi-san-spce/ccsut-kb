@@ -24,8 +24,8 @@
             android:layout_weight="1"
             android:text="第4周 · 周三"
             android:textSize="16sp"
-            android:fontFamily="sans-serif-medium"
-            android:textStyle="bold"
+            android:fontFamily="sans-serif-black"
+            android:letterSpacing="0.02"
             android:textColor="@android:color/system_neutral1_900"
             android:maxLines="1"
             android:ellipsize="end" />
@@ -85,7 +85,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
         android:lineSpacingExtra="3dp"
-        android:text="今天没有课，好好休息 🎉"
+        android:text="今天没有课，好好休息"
         android:textSize="14sp"
         android:textColor="@android:color/system_neutral2_700"
         android:visibility="gone" />

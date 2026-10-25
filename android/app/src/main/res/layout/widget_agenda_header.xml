@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 议程列表的小节头 ("今天 · 4 节" / "明天 · 3 节"): 颜色运行时烤入 -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_agenda_head"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="4dp"
+    android:paddingEnd="4dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="4dp"
+    android:text="今天 · 4 节"
+    android:textSize="12sp"
+    android:fontFamily="sans-serif-medium"
+    android:textColor="@android:color/system_neutral2_700"
+    android:maxLines="1"
+    android:ellipsize="end" />

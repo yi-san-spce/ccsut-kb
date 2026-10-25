@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- S 档 (≈2×1 紧凑): 标题 + 单行下一节课/下一次课。颜色与玻璃底运行时烤入 -->
+<androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/w_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:theme="@android:style/Theme.DeviceDefault.DayNight"
+    android:clipToOutline="true"
+    app:cardCornerRadius="18dp"
+    app:cardElevation="5dp"
+    app:cardBackgroundColor="#ECEBF1">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <ImageView
+            android:id="@+id/w_glass"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:visibility="gone"
+            android:contentDescription="@null" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:id="@+id/w_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="第4周 · 周三"
+                    android:textSize="15sp"
+                    android:fontFamily="sans-serif-black"
+                    android:letterSpacing="0.02"
+                    android:textColor="@android:color/system_neutral1_900"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:id="@+id/w_date"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="10.25"
+                    android:textSize="12sp"
+                    android:letterSpacing="0.05"
+                    android:fontFeatureSettings="tnum"
+                    android:textColor="@android:color/system_neutral2_700" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/w_next"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="下节课 8:20 · 高等数学"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:shadowColor="#59000000"
+                android:shadowRadius="3"
+                android:shadowDy="1"
+                android:textColor="@android:color/system_accent1_400"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:visibility="gone" />
+        </LinearLayout>
+    </FrameLayout>
+</androidx.cardview.widget.CardView>

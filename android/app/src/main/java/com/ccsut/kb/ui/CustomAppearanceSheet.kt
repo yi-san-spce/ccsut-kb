@@ -9,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -30,6 +31,9 @@ fun CustomAppearanceSheet(
     onTodayBarTransparency: (Int) -> Unit,
     topbarTransparency: Int,
     onTopbarTransparency: (Int) -> Unit,
+    widgetGlass: Int,
+    onWidgetGlass: (Int) -> Unit,
+    onWidgetGlassCommit: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetScroll = rememberScrollState()
@@ -88,6 +92,36 @@ fun CustomAppearanceSheet(
                     Slider(
                         value = topbarTransparency / 100f,
                         onValueChange = { onTopbarTransparency((it * 100).toInt().coerceIn(0, 100)) },
+                    )
+                }
+            }
+            Spacer(Modifier.padding(bottom = 12.dp))
+            SectionHeader("桌面")
+            SettingCard {
+                SettingRow(
+                    icon = Icons.Rounded.Widgets,
+                    title = "小组件玻璃强度",
+                    subtitle = "桌面小组件的磨砂玻璃浓度; 0=关玻璃回实色卡片",
+                )
+                Column(Modifier.padding(start = 62.dp, end = 14.dp, bottom = 12.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "强度",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "$widgetGlass%",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Slider(
+                        value = widgetGlass / 100f,
+                        // 松手才真正重渲染 (磨砂快照现算), 拖动过程只更新数字
+                        onValueChange = { onWidgetGlass((it * 100).toInt().coerceIn(0, 100)) },
+                        onValueChangeFinished = onWidgetGlassCommit,
                     )
                 }
             }

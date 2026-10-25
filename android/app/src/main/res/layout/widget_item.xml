@@ -27,6 +27,9 @@
             android:textSize="14sp"
             android:fontFamily="sans-serif-medium"
             android:textStyle="bold"
+            android:shadowColor="#4D000000"
+            android:shadowRadius="3"
+            android:shadowDy="1"
             android:textColor="@android:color/system_neutral1_900"
             android:maxLines="1"
             android:ellipsize="end" />
@@ -38,6 +41,9 @@
             android:layout_marginTop="1dp"
             android:text="第1-2节 · 教学楼"
             android:textSize="11.5sp"
+            android:shadowColor="#4D000000"
+            android:shadowRadius="2"
+            android:shadowDy="1"
             android:textColor="@android:color/system_neutral2_700"
             android:maxLines="1"
             android:ellipsize="end" />
@@ -54,5 +60,9 @@
         android:textSize="11sp"
         android:lineSpacingExtra="1dp"
         android:fontFamily="sans-serif"
+        android:fontFeatureSettings="tnum"
+        android:shadowColor="#4D000000"
+        android:shadowRadius="2"
+        android:shadowDy="1"
         android:textColor="@android:color/system_neutral2_700" />
 </LinearLayout>

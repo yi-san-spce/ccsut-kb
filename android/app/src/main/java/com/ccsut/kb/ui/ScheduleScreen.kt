@@ -826,7 +826,7 @@ private fun WeekGrid(
     week: Int,
     initialWeek: Int,
     nowMin: Int,       // 当前分钟, 由 ScheduleScreen 的 30s ticker 统一供入
-    hasBg: Boolean,   // 自定义背景生效中: 课程块 0.97 微透呼应壁纸
+    hasBg: Boolean,   // 自定义背景生效中: 课程块 0.90 微透, 背景呼吸感更强
     today: LocalDate,
     colorMap: Map<String, Int>,
     pagerState: PagerState,   // 组合期不读: 落场判定由 DayColumn 在协程里读 settledPage
@@ -1053,7 +1053,7 @@ private fun WeekGrid(
                                 colorMap = colorMap,
                                 onCourseClick = onCourseClick,
                                 onAddAt = onAddAt,
-                                blockAlpha = if (hasBg) 0.97f else 1f,
+                                blockAlpha = if (hasBg) 0.90f else 1f,
                                 week = week,
                                 pagerState = pagerState,
                                 ghosts = ghostsByDay[day].orEmpty(),
@@ -1199,7 +1199,7 @@ private fun DayColumn(
     colorMap: Map<String, Int>,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int) -> Unit,
-    blockAlpha: Float = 1f,   // 有自定义背景时 0.97 微透, 色块透出一点壁纸呼吸感
+    blockAlpha: Float = 1f,   // 有自定义背景时 0.90 微透, 色块透出更多壁纸呼吸感
     week: Int = 1,            // 本列所属周: 落场判定与 settledPage 比较
     pagerState: PagerState,   // 落场判定在协程内读 settledPage, 不在组合期订阅
     ghosts: List<Ghost> = emptyList(),
@@ -1334,9 +1334,11 @@ private fun DayColumn(
                 )
                 .border(
                     0.8.dp,
+                    // 高光描边升级为 glassEdge 同款三段式: 顶亮 → 中段渐隐 → 底部微亮
                     Brush.verticalGradient(
                         listOf(
                             Color.White.copy(alpha = if (dark) 0.16f else 0.34f),
+                            Color.Transparent,
                             Color.White.copy(alpha = if (dark) 0.04f else 0.08f),
                         ),
                     ),

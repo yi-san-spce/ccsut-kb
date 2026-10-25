@@ -161,6 +161,15 @@ object Prefs {
         sp(ctx).edit().putInt("topbar_transparency", v.coerceIn(0, 100)).apply()
     }
 
+    // ---- 小组件外观 ----
+
+    /** 小组件玻璃强度 (0-100): 磨砂快照上的染色不透明度; 0 = 关玻璃回实色卡片 */
+    fun widgetGlass(ctx: Context): Int = sp(ctx).getInt("widget_glass", 55)
+
+    fun setWidgetGlass(ctx: Context, v: Int) {
+        sp(ctx).edit().putInt("widget_glass", v.coerceIn(0, 100)).apply()
+    }
+
     /** 旧不透明度 → 新透明度的翻转: 100(不透明)→0, 10→90; 未存过(null, 旧默认=不透明)→0 */
     fun migrateLegacyTodayBarAlpha(legacy: Int?): Int =
         legacy?.let { (100 - it).coerceIn(0, 100) } ?: 0
