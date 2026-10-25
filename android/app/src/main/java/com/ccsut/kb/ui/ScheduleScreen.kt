@@ -235,7 +235,7 @@ fun ScheduleScreen(
     ghosts: List<Ghost> = emptyList(),
     onGhostRestore: (Ghost) -> Unit = {},
     // 自定义外观: 「今天」状态条 (今日课程横条) 的透明度百分比 (10-100)
-    todayBarAlpha: Int = 100,
+    todayBarTransparency: Int = 0,
 ) {
     // 时间旅行: dbgOffset 变化时重取语义今天 (KbClock, 只平移日期);
     // 之后由下方 30 秒 ticker 自动跟进真实日期, 跨零点/跨周后顶栏日期、今日列高亮、今日横条不会停在昨天
@@ -448,7 +448,7 @@ fun ScheduleScreen(
                 barBg = barBg,
                 barFg = barFg,
                 haze = haze,
-                alpha = todayBarAlpha / 100f,
+                transparency = todayBarTransparency,
                 modifier = Modifier.weight(1f).onSizeChanged { barH = with(density) { it.height.toDp() } },
             )
             AnimatedVisibility(
@@ -467,7 +467,7 @@ fun ScheduleScreen(
                 BackToCurrentPill(
                     bg = barBg,
                     fg = barFg,
-                    alpha = todayBarAlpha / 100f,
+                    transparency = todayBarTransparency,
                     modifier = Modifier.padding(start = 6.dp).height(barH),
                     onClick = { scope.launch { pagerState.animateScrollToPage(initialWeek - 1) } },
                 )
@@ -508,27 +508,31 @@ private fun TodayBar(
     barBg: Color,
     barFg: Color,
     haze: HazeState? = null,
-    alpha: Float = 1f,   // 自定义外观: 状态条底色透明度 (文字保持全不透明保证可读)
+    transparency: Int = 0,   // 自定义外观: 0=完全不透明, 100=纯文字(无底/无磨砂/无阴影); 文字保持全不透明
     modifier: Modifier = Modifier,
 ) {
+    val op = (100 - transparency) / 100f
+    val pure = transparency >= 100
     // 浅色底流光用黑光带才可见; 无限动画本体在 ShimmerBand 内驱动
     val dark = CourseColors.isDark(MaterialTheme.colorScheme)
 
     Surface(
-        color = if (haze != null) Color.Transparent else barBg.copy(alpha = alpha),
+        color = if (haze != null || pure) Color.Transparent else barBg.copy(alpha = op),
         contentColor = barFg,
         shape = RoundedCornerShape(16.dp),
         modifier = modifier
-            .shadow(6.dp, RoundedCornerShape(16.dp))
+            // 阴影随透明度等比淡出: 纯文字档 0dp, 不在背景图上留暗边
+            .shadow(6.dp * op, RoundedCornerShape(16.dp))
             .then(
-                if (haze != null) Modifier
+                if (haze != null && !pure) Modifier
                     .clip(RoundedCornerShape(16.dp))
                     .hazeChild(
                         haze,
                         style = HazeStyle(
                             backgroundColor = MaterialTheme.colorScheme.surface,
-                            tints = listOf(HazeTint(barBg.copy(alpha = 0.45f * alpha))),
-                            blurRadius = 30.dp,
+                            tints = listOf(HazeTint(barBg.copy(alpha = 0.45f * op))),
+                            // 模糊第一次随滑杆渐变: 越透明磨砂越弱, 100% 时整体跳过, 头像原样透出
+                            blurRadius = 30.dp * op,
                             noiseFactor = 0f,
                         ),
                     )
@@ -541,12 +545,12 @@ private fun TodayBar(
             Box(
                 Modifier.matchParentSize().background(
                     Brush.verticalGradient(
-                        listOf(Color.White.copy(alpha = if (dark) 0.10f else 0.22f), Color.Transparent),
+                        listOf(Color.White.copy(alpha = (if (dark) 0.10f else 0.22f) * op), Color.Transparent),
                     ),
                 ),
             )
             // 上课中: 一层缓慢扫过的微光, Material You 流光感 (仅此状态开动画)
-            if (status.tone == TodayStatus.Tone.ACTIVE) ShimmerBand(dark, Modifier.matchParentSize())
+            if (status.tone == TodayStatus.Tone.ACTIVE && !pure) ShimmerBand(dark, Modifier.matchParentSize())
             Row(
                 Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -644,14 +648,15 @@ private fun BackToCurrentPill(
     bg: Color,
     fg: Color,
     onClick: () -> Unit,
-    alpha: Float = 1f,   // 与状态条同一族: 跟随自定义外观的透明度
+    transparency: Int = 0,   // 与状态条同一族: 跟随自定义外观的透明度 (100% 时 alpha=0 只剩文字)
     modifier: Modifier = Modifier,
 ) {
+    val op = (100 - transparency) / 100f
     Box(
         modifier
             .heightIn(min = 40.dp)
             .clip(RoundedCornerShape(50))
-            .background(bg.copy(alpha = alpha))
+            .background(bg.copy(alpha = op))
             .clickable(onClickLabel = "回到本周", onClick = onClick)
             .padding(horizontal = 14.dp),
         contentAlignment = Alignment.Center,

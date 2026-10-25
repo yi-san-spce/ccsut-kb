@@ -178,7 +178,7 @@ fun App() {
     var bgOn by remember { mutableStateOf(Prefs.bgOn(ctx)) }
     var bgTick by remember { mutableIntStateOf(0) }
     var bgAlpha by remember { mutableIntStateOf(Prefs.bgAlpha(ctx)) }
-    var todayBarAlpha by remember { mutableIntStateOf(Prefs.todayBarAlpha(ctx)) }
+    var todayBarTransparency by remember { mutableIntStateOf(Prefs.todayBarTransparency(ctx)) }
     var colorSource by remember { mutableIntStateOf(Prefs.colorSource(ctx)) }
     var bgSeed by remember { mutableIntStateOf(Prefs.bgSeed(ctx)) }
     var styleTheme by remember { mutableIntStateOf(Prefs.styleTheme(ctx)) }
@@ -723,7 +723,7 @@ fun App() {
                         onUndoAll = { restoreAll() },
                         ghosts = ghosts,
                         onGhostRestore = { restoreGhost(it) },
-                        todayBarAlpha = todayBarAlpha,
+                        todayBarTransparency = todayBarTransparency,
                     )
                 }
             }
@@ -922,10 +922,10 @@ fun App() {
         // ---- 自定义外观 (更多 → 自定义外观) ----
         if (showAppearance) {
             CustomAppearanceSheet(
-                todayBarAlpha = todayBarAlpha,
-                onTodayBarAlpha = {
-                    Prefs.setTodayBarAlpha(ctx, it)
-                    todayBarAlpha = it
+                todayBarTransparency = todayBarTransparency,
+                onTodayBarTransparency = {
+                    Prefs.setTodayBarTransparency(ctx, it)
+                    todayBarTransparency = it
                 },
                 onDismiss = { showAppearance = false },
             )

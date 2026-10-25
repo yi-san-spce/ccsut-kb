@@ -21,13 +21,13 @@ import androidx.compose.ui.unit.sp
 
 /**
  * 自定义外观面板: 主页个性化的集中地。
- * 现有: 「今天」状态条 (含「回到本周」药丸) 底色透明度;
+ * 现有: 「今天」状态条 (含「回到本周」药丸) 透明度 (0=完全不透明, 100=纯文字);
  * 之后的自定义选项都往这个面板里加。
  */
 @Composable
 fun CustomAppearanceSheet(
-    todayBarAlpha: Int,
-    onTodayBarAlpha: (Int) -> Unit,
+    todayBarTransparency: Int,
+    onTodayBarTransparency: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetScroll = rememberScrollState()
@@ -43,7 +43,7 @@ fun CustomAppearanceSheet(
                 SettingRow(
                     icon = Icons.Rounded.Tune,
                     title = "状态条透明度",
-                    subtitle = "「今天共几节课」大卡片, 「回到本周」药丸跟随",
+                    subtitle = "0=完全不透明, 100=纯文字(无底无磨砂); 「回到本周」药丸跟随",
                 )
                 Column(Modifier.padding(start = 62.dp, end = 14.dp, bottom = 12.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -54,14 +54,14 @@ fun CustomAppearanceSheet(
                             modifier = Modifier.weight(1f),
                         )
                         Text(
-                            "$todayBarAlpha%",
+                            "$todayBarTransparency%",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Slider(
-                        value = todayBarAlpha / 100f,
-                        onValueChange = { onTodayBarAlpha((it * 100).toInt().coerceIn(10, 100)) },
+                        value = todayBarTransparency / 100f,
+                        onValueChange = { onTodayBarTransparency((it * 100).toInt().coerceIn(0, 100)) },
                     )
                 }
             }

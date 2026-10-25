@@ -134,12 +134,29 @@ object Prefs {
 
     // ---- 自定义外观 ----
 
-    /** 「今天」状态条底色透明度百分比 (10-100, 100=不透明); 「回到本周」药丸同族跟随 */
-    fun todayBarAlpha(ctx: Context): Int = sp(ctx).getInt("today_bar_alpha", 100)
+    // 旧键存的是"不透明度"(10-100, 100=不透明), 与滑杆"透明度"文案语义相反, 已被新键替代
+    private const val KEY_TODAY_BAR_ALPHA_LEGACY = "today_bar_alpha"
+    private const val KEY_TODAY_BAR_TRANSPARENCY = "today_bar_transparency"
 
-    fun setTodayBarAlpha(ctx: Context, v: Int) {
-        sp(ctx).edit().putInt("today_bar_alpha", v.coerceIn(10, 100)).apply()
+    /** 「今天」状态条透明度百分比 (0-100): 0=完全不透明, 100=纯文字(无底/无磨砂/无阴影); 「回到本周」药丸同族跟随 */
+    fun todayBarTransparency(ctx: Context): Int {
+        val sp = sp(ctx)
+        if (sp.contains(KEY_TODAY_BAR_TRANSPARENCY)) return sp.getInt(KEY_TODAY_BAR_TRANSPARENCY, 0)
+        // 首次读到新键: 从旧不透明度翻转迁移, 老用户视觉不变; 旧键随即删除
+        val migrated = migrateLegacyTodayBarAlpha(
+            if (sp.contains(KEY_TODAY_BAR_ALPHA_LEGACY)) sp.getInt(KEY_TODAY_BAR_ALPHA_LEGACY, 100) else null,
+        )
+        sp.edit().putInt(KEY_TODAY_BAR_TRANSPARENCY, migrated).remove(KEY_TODAY_BAR_ALPHA_LEGACY).apply()
+        return migrated
     }
+
+    fun setTodayBarTransparency(ctx: Context, v: Int) {
+        sp(ctx).edit().putInt(KEY_TODAY_BAR_TRANSPARENCY, v.coerceIn(0, 100)).apply()
+    }
+
+    /** 旧不透明度 → 新透明度的翻转: 100(不透明)→0, 10→90; 未存过(null, 旧默认=不透明)→0 */
+    fun migrateLegacyTodayBarAlpha(legacy: Int?): Int =
+        legacy?.let { (100 - it).coerceIn(0, 100) } ?: 0
 
     // ---- 课程颜色注册表 (删除/恢复课程不重排其余课程颜色) ----
 
