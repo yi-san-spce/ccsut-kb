@@ -10,8 +10,8 @@
     android:background="@drawable/widget_pill_0"
     android:paddingStart="11dp"
     android:paddingEnd="11dp"
-    android:paddingTop="7dp"
-    android:paddingBottom="7dp">
+    android:paddingTop="5dp"
+    android:paddingBottom="5dp">
 
     <LinearLayout
         android:layout_width="0dp"
