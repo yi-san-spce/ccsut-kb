@@ -236,6 +236,8 @@ fun ScheduleScreen(
     onGhostRestore: (Ghost) -> Unit = {},
     // 自定义外观: 「今天」状态条 (今日课程横条) 的透明度百分比 (10-100)
     todayBarTransparency: Int = 0,
+    // 自定义外观: 顶栏的透明度百分比 (0-100), 100=纯文字+玻璃字
+    topbarTransparency: Int = 0,
 ) {
     // 时间旅行: dbgOffset 变化时重取语义今天 (KbClock, 只平移日期);
     // 之后由下方 30 秒 ticker 自动跟进真实日期, 跨零点/跨周后顶栏日期、今日列高亮、今日横条不会停在昨天
@@ -303,12 +305,15 @@ fun ScheduleScreen(
     // 有背景图时顶栏/今日状态条走毛玻璃 (haze), 无背景图保持纯色
     val hazeState = remember { HazeState() }
     val haze = if (bgBitmap != null) hazeState else null
+    // 顶栏透明度: 100=纯文字档(无底无磨砂, 文字换玻璃字), 中间档 tint/模糊随滑杆渐变
+    val topBarPure = topbarTransparency >= 100
+    val topOp = (100 - topbarTransparency) / 100f
     // 顶栏玻璃样式: remember 稳定实例 —— 每次重组新建 style 会给效果节点打脏标记, 徒增重绘
-    val topBarHazeStyle = remember(cs) {
+    val topBarHazeStyle = remember(cs, topOp) {
         HazeStyle(
             backgroundColor = cs.surface,
-            tints = listOf(HazeTint(cs.surface.copy(alpha = 0.55f))),
-            blurRadius = 30.dp,
+            tints = listOf(HazeTint(cs.surface.copy(alpha = 0.55f * topOp))),
+            blurRadius = 30.dp * topOp,
             noiseFactor = 0f,
         )
     }
@@ -353,7 +358,7 @@ fun ScheduleScreen(
             Modifier
                 .fillMaxWidth()
                 .then(
-                    if (haze != null) Modifier
+                    if (haze != null && !topBarPure) Modifier
                     .clip(TopBarShape)
                     .hazeChild(
                         haze,
@@ -369,20 +374,35 @@ fun ScheduleScreen(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     // 翻周时数字按方向纵向上滚/下滚, 不再硬切
-                    WeekNumberText(viewWeek, 24.sp)
+                    WeekNumberText(viewWeek, 24.sp, glass = topBarPure && haze != null)
                     // 非本周不加"(非本周)"小字: 「回到本周」药丸已表达同一状态
-                    Text(
-                        " ${Weeks.cnDay(todayDay)}",
-                        fontSize = 24.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    )
+                    if (topBarPure && haze != null) {
+                        GlassText(
+                            " ${Weeks.cnDay(todayDay)}",
+                            fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                        )
+                    } else {
+                        Text(
+                            " ${Weeks.cnDay(todayDay)}",
+                            fontSize = 24.sp, fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${today.year}/${today.monthValue}/${today.dayOfMonth}",
-                        fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
+                    if (topBarPure && haze != null) {
+                        GlassText(
+                            "${today.year}/${today.monthValue}/${today.dayOfMonth}",
+                            fontSize = 13.sp, emphasis = 0.8f,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    } else {
+                        Text(
+                            "${today.year}/${today.monthValue}/${today.dayOfMonth}",
+                            fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
+                    }
                     // 徽标即可点: 点一下在班级/个人课表间来回切
                     if (personalBadge) {
                         Text(
@@ -433,13 +453,26 @@ fun ScheduleScreen(
                 )
             }
             Box(
-                Modifier.width(48.dp).height(48.dp).clip(CircleShape).clickable(onClick = onOpenMore),
+                Modifier
+                    .width(48.dp).height(48.dp).clip(CircleShape).clickable(onClick = onOpenMore)
+                    // 纯文字档: 图标直接压在背景图上, 加一圈暗色径向柔晕保证可读
+                    .then(
+                        if (topBarPure && haze != null) Modifier.drawBehind {
+                            drawCircle(
+                                Brush.radialGradient(
+                                    listOf(Color.Black.copy(alpha = 0.32f), Color.Transparent),
+                                    radius = size.minDimension / 2f,
+                                ),
+                            )
+                        } else Modifier,
+                    ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     Icons.Filled.Menu,
                     contentDescription = "更多",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (topBarPure && haze != null) Color.White
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -517,6 +550,8 @@ private fun TodayBar(
 ) {
     val op = (100 - transparency) / 100f
     val pure = transparency >= 100
+    // 玻璃字只在背景图上启用: 无背景图时透明档文字直接落在主题背景上, 主题色本就可读
+    val glassText = pure && haze != null
     // 浅色底流光用黑光带才可见; 无限动画本体在 ShimmerBand 内驱动
     val dark = CourseColors.isDark(MaterialTheme.colorScheme)
     // 玻璃样式实例稳定化(同顶栏): barBg/透明度/主题面都在 key 里, 变了才重建
@@ -574,12 +609,16 @@ private fun TodayBar(
                         },
                         label = "barTitle",
                     ) { t ->
-                        Text(
-                            t,
-                            fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                            color = barFg,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
+                        if (glassText) {
+                            GlassText(t, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        } else {
+                            Text(
+                                t,
+                                fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                color = barFg,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                     AnimatedContent(
                         targetState = status.sub,
@@ -595,12 +634,16 @@ private fun TodayBar(
                         // 高度不变 —— 否则 AnimatedContent 的 SizeTransform 逐帧动画容器高度,
                         // 横幅行高度逐帧变 → Column→pager(weight) 逐帧重测两个整页
                         // (atrace 实测 measureAndLayout 23ms × ~10 帧) —— 跨本周边界卡顿的真正主源
-                        Text(
-                            s ?: "",
-                            fontSize = 10.sp, lineHeight = 13.sp,
-                            color = barFg.copy(alpha = 0.72f),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
+                        if (glassText) {
+                            GlassText(s ?: "", fontSize = 10.sp, lineHeight = 13.sp, emphasis = 0.75f)
+                        } else {
+                            Text(
+                                s ?: "",
+                                fontSize = 10.sp, lineHeight = 13.sp,
+                                color = barFg.copy(alpha = 0.72f),
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }
@@ -630,7 +673,7 @@ private fun ShimmerBand(dark: Boolean, modifier: Modifier = Modifier) {
 
 /** 「第 N 周」数字滚动: 翻周时数字按滑动方向纵向上滚/下滚(方向感知 200ms), 竖屏顶栏与横屏 CompactBar 共用 */
 @Composable
-private fun WeekNumberText(viewWeek: Int, fontSize: TextUnit) {
+private fun WeekNumberText(viewWeek: Int, fontSize: TextUnit, glass: Boolean = false) {
     AnimatedContent(
         targetState = viewWeek,
         transitionSpec = {
@@ -642,11 +685,15 @@ private fun WeekNumberText(viewWeek: Int, fontSize: TextUnit) {
         },
         label = "weekNum",
     ) { week ->
-        Text(
-            "第${week}周",
-            fontSize = fontSize, fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
+        if (glass) {
+            GlassText("第${week}周", fontSize = fontSize, fontWeight = FontWeight.Bold)
+        } else {
+            Text(
+                "第${week}周",
+                fontSize = fontSize, fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onBackground,
+            )
+        }
     }
 }
 

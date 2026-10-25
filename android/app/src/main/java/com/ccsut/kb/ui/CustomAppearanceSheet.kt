@@ -21,13 +21,15 @@ import androidx.compose.ui.unit.sp
 
 /**
  * 自定义外观面板: 主页个性化的集中地。
- * 现有: 「今天」状态条 (含「回到本周」药丸) 透明度 (0=完全不透明, 100=纯文字);
- * 之后的自定义选项都往这个面板里加。
+ * 现有: 「今天」状态条 (含「回到本周」药丸) 透明度 (0=完全不透明, 100=纯文字) 与
+ * 顶栏透明度 (0=毛玻璃, 100=纯文字玻璃字); 之后的自定义选项都往这个面板里加。
  */
 @Composable
 fun CustomAppearanceSheet(
     todayBarTransparency: Int,
     onTodayBarTransparency: (Int) -> Unit,
+    topbarTransparency: Int,
+    onTopbarTransparency: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetScroll = rememberScrollState()
@@ -62,6 +64,30 @@ fun CustomAppearanceSheet(
                     Slider(
                         value = todayBarTransparency / 100f,
                         onValueChange = { onTodayBarTransparency((it * 100).toInt().coerceIn(0, 100)) },
+                    )
+                }
+                SettingRow(
+                    icon = Icons.Rounded.Tune,
+                    title = "顶栏透明度",
+                    subtitle = "0=毛玻璃, 100=纯文字玻璃字(无底无磨砂); 设置背景图后生效",
+                )
+                Column(Modifier.padding(start = 62.dp, end = 14.dp, bottom = 12.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "透明度",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "$topbarTransparency%",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Slider(
+                        value = topbarTransparency / 100f,
+                        onValueChange = { onTopbarTransparency((it * 100).toInt().coerceIn(0, 100)) },
                     )
                 }
             }

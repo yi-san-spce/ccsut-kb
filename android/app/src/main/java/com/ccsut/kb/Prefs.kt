@@ -154,6 +154,13 @@ object Prefs {
         sp(ctx).edit().putInt(KEY_TODAY_BAR_TRANSPARENCY, v.coerceIn(0, 100)).apply()
     }
 
+    /** 顶栏透明度百分比 (0-100): 0=毛玻璃(现状), 100=纯文字+玻璃字; 仅设置背景图后生效 */
+    fun topbarTransparency(ctx: Context): Int = sp(ctx).getInt("topbar_transparency", 0)
+
+    fun setTopbarTransparency(ctx: Context, v: Int) {
+        sp(ctx).edit().putInt("topbar_transparency", v.coerceIn(0, 100)).apply()
+    }
+
     /** 旧不透明度 → 新透明度的翻转: 100(不透明)→0, 10→90; 未存过(null, 旧默认=不透明)→0 */
     fun migrateLegacyTodayBarAlpha(legacy: Int?): Int =
         legacy?.let { (100 - it).coerceIn(0, 100) } ?: 0

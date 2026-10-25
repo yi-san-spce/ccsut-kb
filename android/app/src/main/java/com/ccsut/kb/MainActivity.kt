@@ -179,6 +179,7 @@ fun App() {
     var bgTick by remember { mutableIntStateOf(0) }
     var bgAlpha by remember { mutableIntStateOf(Prefs.bgAlpha(ctx)) }
     var todayBarTransparency by remember { mutableIntStateOf(Prefs.todayBarTransparency(ctx)) }
+    var topbarTransparency by remember { mutableIntStateOf(Prefs.topbarTransparency(ctx)) }
     var colorSource by remember { mutableIntStateOf(Prefs.colorSource(ctx)) }
     var bgSeed by remember { mutableIntStateOf(Prefs.bgSeed(ctx)) }
     var styleTheme by remember { mutableIntStateOf(Prefs.styleTheme(ctx)) }
@@ -724,6 +725,7 @@ fun App() {
                         ghosts = ghosts,
                         onGhostRestore = { restoreGhost(it) },
                         todayBarTransparency = todayBarTransparency,
+                        topbarTransparency = topbarTransparency,
                     )
                 }
             }
@@ -926,6 +928,11 @@ fun App() {
                 onTodayBarTransparency = {
                     Prefs.setTodayBarTransparency(ctx, it)
                     todayBarTransparency = it
+                },
+                topbarTransparency = topbarTransparency,
+                onTopbarTransparency = {
+                    Prefs.setTopbarTransparency(ctx, it)
+                    topbarTransparency = it
                 },
                 onDismiss = { showAppearance = false },
             )
