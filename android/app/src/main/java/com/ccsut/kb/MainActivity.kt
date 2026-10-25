@@ -180,6 +180,7 @@ fun App() {
     var bgAlpha by remember { mutableIntStateOf(Prefs.bgAlpha(ctx)) }
     var todayBarTransparency by remember { mutableIntStateOf(Prefs.todayBarTransparency(ctx)) }
     var topbarTransparency by remember { mutableIntStateOf(Prefs.topbarTransparency(ctx)) }
+    var widgetGlass by remember { mutableIntStateOf(Prefs.widgetGlass(ctx)) }
     var colorSource by remember { mutableIntStateOf(Prefs.colorSource(ctx)) }
     var bgSeed by remember { mutableIntStateOf(Prefs.bgSeed(ctx)) }
     var styleTheme by remember { mutableIntStateOf(Prefs.styleTheme(ctx)) }
@@ -934,6 +935,12 @@ fun App() {
                     Prefs.setTopbarTransparency(ctx, it)
                     topbarTransparency = it
                 },
+                widgetGlass = widgetGlass,
+                onWidgetGlass = {
+                    Prefs.setWidgetGlass(ctx, it)
+                    widgetGlass = it
+                },
+                onWidgetGlassCommit = { com.ccsut.kb.widget.WidgetRenderer.updateAll(ctx) },
                 onDismiss = { showAppearance = false },
             )
         }
