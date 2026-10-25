@@ -2,6 +2,8 @@ package com.ccsut.kb.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.filled.Sms
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -82,6 +85,9 @@ private fun looksLikeBadAccount(s: String): Boolean =
 fun LoginScreen(
     initialAccount: String,
     friendMode: Boolean = false,
+    // 朋友模式: 导出的 ICS 是否写入课前提醒 (VALARM), null=不加 / 0=上课时 / 正值=提前分钟
+    reminderMin: Int? = null,
+    onReminderMin: (Int?) -> Unit = {},
     onDismiss: () -> Unit,
     onSuccess: (data: PersonalRepo.PersonalData) -> Unit,
 ) {
@@ -200,6 +206,33 @@ fun LoginScreen(
                 Text(
                     "课表只在内存中生成为 .ics 文件用于分享，不保存在本机、不影响你自己的课表；导出后你自己的登录会话会被让出。请确保已获得对方同意。",
                     fontSize = 12.sp, color = cs.primary, lineHeight = 18.sp,
+                )
+                // 导出前可选的 ICS 个性化: 课前提醒 (VALARM 随文件带给朋友)
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "朋友的课前提醒",
+                    fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = cs.onSurface,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    listOf("不提醒" to null, "上课时" to 0, "提前15分" to 15, "提前30分" to 30, "提前45分" to 45)
+                        .forEach { (label, v) ->
+                            FilterChip(
+                                selected = reminderMin == v,
+                                onClick = { onReminderMin(v) },
+                                label = { Text(label, fontSize = 12.sp) },
+                            )
+                        }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "写入日历文件，导入到对方手机后由其日历 App 生效（部分安卓日历可能忽略）",
+                    fontSize = 11.sp, color = cs.onSurfaceVariant, lineHeight = 16.sp,
                 )
             }
             Spacer(Modifier.height(22.dp))

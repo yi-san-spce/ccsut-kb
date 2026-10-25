@@ -204,6 +204,8 @@ fun App() {
     // 分享课表面板 + 登录页「帮朋友导出」模式 (更多 → 分享课表)
     var showShare by remember { mutableStateOf(false) }
     var loginFriendMode by remember { mutableStateOf(false) }
+    // 帮朋友导出: 写入 ICS 的课前提醒 (null=不加 / 0=上课时 / 正值=提前分钟), 默认提前 15 分钟
+    var friendReminderMin by remember { mutableStateOf<Int?>(15) }
 
     // ---- 开发者模式 ----
     var devMode by remember { mutableStateOf(Prefs.devMode(ctx)) }
@@ -984,6 +986,8 @@ fun App() {
             LoginScreen(
                 initialAccount = if (loginFriendMode) "" else Prefs.casAccount(ctx),
                 friendMode = loginFriendMode,
+                reminderMin = friendReminderMin,
+                onReminderMin = { friendReminderMin = it },
                 onDismiss = { showLogin = false; loginFriendMode = false },
                 onSuccess = { data ->
                     if (!loginFriendMode) {
@@ -1003,7 +1007,8 @@ fun App() {
                             val file = withContext(Dispatchers.IO) {
                                 runCatching {
                                     writeIcsFile(
-                                        ctx, icsSourceOfFriend(data),
+                                        ctx,
+                                        icsSourceOfFriend(data).copy(reminderMin = friendReminderMin),
                                         "课表-${data.studentName.ifBlank { "朋友" }}-${data.xnxq}.ics",
                                     )
                                 }.getOrNull()

@@ -109,11 +109,6 @@ fun ShareSheet(
                 "以上即 iPhone 的完整导入步骤；电脑端也可在 Google 日历「设置 → 导入」上传 .ics。单周调休（如周日补上周一的课）暂不支持，以学校校历为准。",
                 fontSize = 12.sp, color = cs.onSurfaceVariant, lineHeight = 18.sp,
             )
-            Spacer(Modifier.padding(top = 8.dp))
-            Text(
-                "帮朋友导出会用对方的账号登录：导出完成后你自己的教务登录会话会被让出，下次同步自己的课表需重新验证码登录。请确保已获得对方同意。",
-                fontSize = 12.sp, color = cs.onSurfaceVariant, lineHeight = 18.sp,
-            )
             Spacer(Modifier.padding(bottom = 12.dp))
         }
     }

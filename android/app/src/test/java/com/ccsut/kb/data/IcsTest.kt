@@ -93,4 +93,32 @@ class IcsTest {
         assertTrue(out.contains("TZID:Asia/Shanghai"))
         assertTrue(out.trimEnd().endsWith("END:VCALENDAR"))
     }
+
+    @Test
+    fun `课前提醒15分_每个VEVENT内嵌VALARM`() {
+        val c = course(jc = 1, day = 1, zc = "1-2", ranges = listOf(1..2))
+        val out = Ics.build(src(listOf(c)).copy(reminderMin = 15))!!
+        // VALARM 跟 VEVENT 走 (1 条连续周折叠事件 = 1 条 VALARM), 每次循环发生时由日历触发
+        assertEquals(1, Regex("BEGIN:VALARM").findAll(out).count())
+        assertTrue(out.contains("ACTION:DISPLAY"))
+        assertTrue(out.contains("DESCRIPTION:上课提醒"))
+        assertTrue(out.contains("TRIGGER:-PT15M"))
+        // VALARM 必须嵌在 VEVENT 内 (END:VALARM 紧跟 END:VEVENT 之前)
+        assertTrue(out.contains("END:VALARM\r\nEND:VEVENT"))
+    }
+
+    @Test
+    fun `不选提醒_不生成VALARM`() {
+        val c = course(jc = 1, day = 1, zc = "1-2", ranges = listOf(1..2))
+        val out = Ics.build(src(listOf(c)))!!
+        assertFalse(out.contains("VALARM"))
+    }
+
+    @Test
+    fun `上课时提醒_TRIGGER为PT0S`() {
+        val c = course(jc = 1, day = 1, zc = "1-2", ranges = listOf(1..2))
+        val out = Ics.build(src(listOf(c)).copy(reminderMin = 0))!!
+        assertTrue(out.contains("TRIGGER:PT0S"))
+        assertFalse(out.contains("TRIGGER:-PT"))
+    }
 }

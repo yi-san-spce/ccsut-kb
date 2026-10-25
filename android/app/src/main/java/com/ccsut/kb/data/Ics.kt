@@ -32,6 +32,7 @@ object Ics {
         val startDate: String,      // 第 1 周周一, yyyy-MM-dd
         val weeks: Int,             // 总周数
         val uidSeed: String,        // UID 前缀 (学期等, 不放账号——文件会被转发)
+        val reminderMin: Int? = null, // 课前提醒: null=不加 VALARM; 0=上课时; 15/30/45=提前分钟
     )
 
     /** 生成完整 ICS 文本; 无任何可导出事件时返回 null */
@@ -81,8 +82,7 @@ object Ics {
                     "SUMMARY:${escape(summaryOf(b))}",
                     if (b.rooms.isNotBlank()) "LOCATION:${escape(b.rooms)}" else null,
                     "DESCRIPTION:${escape(desc)}",
-                    "END:VEVENT",
-                ).filterNotNull()
+                ).filterNotNull() + alarmLines(s.reminderMin) + listOf("END:VEVENT")
             }
         }
         if (events.isEmpty()) return null
@@ -102,6 +102,19 @@ object Ics {
     /** 摘要: 课程名 + 体育分项 */
     private fun summaryOf(b: Block): String =
         if (b.course.fx.isNotBlank()) "${b.course.kc}(${b.course.fx})" else b.course.kc
+
+    /** 课前提醒 (RFC 5545 VALARM, 嵌在每个循环事件内, 由导入方的日历 App 生效):
+     *  null 不生成; 0 = 上课时 (TRIGGER:PT0S); 正值 = 提前 N 分钟 (TRIGGER:-PT15M) */
+    internal fun alarmLines(reminderMin: Int?): List<String> = when (reminderMin) {
+        null -> emptyList()
+        else -> listOf(
+            "BEGIN:VALARM",
+            "ACTION:DISPLAY",
+            "DESCRIPTION:上课提醒",
+            "TRIGGER:" + if (reminderMin <= 0) "PT0S" else "-PT${reminderMin}M",
+            "END:VALARM",
+        )
+    }
 
     /** 第 jc 节的时刻; later=false 取 start, true 取 end; 脏时间返回 null */
     private fun timeOf(periods: List<Period>, jc: Int, later: Boolean): java.time.LocalTime? {
