@@ -303,6 +303,15 @@ fun ScheduleScreen(
     // 有背景图时顶栏/今日状态条走毛玻璃 (haze), 无背景图保持纯色
     val hazeState = remember { HazeState() }
     val haze = if (bgBitmap != null) hazeState else null
+    // 顶栏玻璃样式: remember 稳定实例 —— 每次重组新建 style 会给效果节点打脏标记, 徒增重绘
+    val topBarHazeStyle = remember(cs) {
+        HazeStyle(
+            backgroundColor = cs.surface,
+            tints = listOf(HazeTint(cs.surface.copy(alpha = 0.55f))),
+            blurRadius = 30.dp,
+            noiseFactor = 0f,
+        )
+    }
 
     Box(Modifier.fillMaxSize()) {
         bgBitmap?.let { bmp ->
@@ -348,12 +357,7 @@ fun ScheduleScreen(
                     .clip(TopBarShape)
                     .hazeChild(
                         haze,
-                        style = HazeStyle(
-                            backgroundColor = MaterialTheme.colorScheme.surface,
-                            tints = listOf(HazeTint(MaterialTheme.colorScheme.surface.copy(alpha = 0.55f))),
-                            blurRadius = 30.dp,
-                            noiseFactor = 0f,
-                        ),
+                        style = topBarHazeStyle,
                     )
                     .glassEdge(TopBarShape, CourseColors.isDark(MaterialTheme.colorScheme)) else Modifier,
                 )
@@ -515,6 +519,16 @@ private fun TodayBar(
     val pure = transparency >= 100
     // 浅色底流光用黑光带才可见; 无限动画本体在 ShimmerBand 内驱动
     val dark = CourseColors.isDark(MaterialTheme.colorScheme)
+    // 玻璃样式实例稳定化(同顶栏): barBg/透明度/主题面都在 key 里, 变了才重建
+    val surface = MaterialTheme.colorScheme.surface
+    val barHazeStyle = remember(surface, barBg, op) {
+        HazeStyle(
+            backgroundColor = surface,
+            tints = listOf(HazeTint(barBg.copy(alpha = 0.45f * op))),
+            blurRadius = 30.dp * op,
+            noiseFactor = 0f,
+        )
+    }
 
     Surface(
         color = if (haze != null || pure) Color.Transparent else barBg.copy(alpha = op),
@@ -528,13 +542,7 @@ private fun TodayBar(
                     .clip(RoundedCornerShape(16.dp))
                     .hazeChild(
                         haze,
-                        style = HazeStyle(
-                            backgroundColor = MaterialTheme.colorScheme.surface,
-                            tints = listOf(HazeTint(barBg.copy(alpha = 0.45f * op))),
-                            // 模糊第一次随滑杆渐变: 越透明磨砂越弱, 100% 时整体跳过, 头像原样透出
-                            blurRadius = 30.dp * op,
-                            noiseFactor = 0f,
-                        ),
+                        style = barHazeStyle,
                     )
                     .glassEdge(RoundedCornerShape(16.dp), dark)
                 else Modifier,

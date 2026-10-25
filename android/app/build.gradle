@@ -77,7 +77,7 @@ dependencies {
     // 从任意种子色/图片生成 M3 动态配色 (系统壁纸取色同款 HCT 算法的 Compose 实现)
     implementation 'com.materialkolor:material-kolor:2.1.1'
     // 毛玻璃: 背景图之上的玻璃材质 (RenderEffect, minSdk 31 满足)
-    implementation 'dev.chrisbanes.haze:haze:1.5.3'
+    implementation 'dev.chrisbanes.haze:haze:1.7.3'
 
     // 纯函数单元测试 (android.jar 里的 org.json 是抛异常的桩, 测试classpath 换真实现)
     testImplementation 'junit:junit:4.13.2'
