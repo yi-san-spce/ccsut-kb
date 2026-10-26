@@ -16,6 +16,9 @@ import java.time.ZoneId
  * 文件支持两种形态 (单对象为简写, 等价于只有一条的数组):
  * ```json
  * {
+ *   "track": "https://www.vercount.one/api/v2/log",  // 可选: 匿名计数端点 (1.3.0-beta.1+ 支持, 旧版本
+ *                                                    //  忽略)。拉取成功 ping 一次活跃 key, 点「确认」
+ *                                                    //  再 ping 一次公告 key; 失败静默, 不影响任何功能
  *   "notices": [
  *     {
  *       "id": "2026-10-maint",       // 去重键, 缺省由内容派生 (改文案即换 id)
@@ -46,6 +49,7 @@ data class RemoteNotice(
     val message: String,
     val url: String? = null,
     val link: String? = null,
+    val track: String? = null,   // 文件顶层 track 透传给每条 (计数端点, https only), 供点击埋点使用
     val once: Boolean = true,
     val critical: Boolean = false,
     val confirmText: String = "确认",
@@ -61,6 +65,23 @@ object RemoteNotices {
     /** 已读记录上限: 防止长期维护把 prefs 撑大 (超出淘汰最旧) */
     private const val SEEN_CAP = 32
 
+    /** 计数 key 用伪 URL 形态 (Vercount 按完整 key 记 page_pv、按 host 聚合 site_pv), host 用占位域 */
+    private const val PING_KEY_ALIVE = "https://ccsut-kb.app/alive"
+
+    /** fire-and-forget 计数: 独立线程 + runCatching, 任何失败静默 (埋点绝不影响主功能) */
+    private fun ping(endpoint: String, key: String) {
+        Thread {
+            runCatching { Updater.httpPostJson(endpoint, """{"url":"$key"}""") }
+        }.start()
+    }
+
+    /** 公告「确认」点击计数: track 端点 + 公告 id 生成 key; id 只留安全字符 (防御性), 空则放弃 */
+    fun pingConfirm(notice: RemoteNotice) {
+        val endpoint = notice.track ?: return
+        val id = notice.id.filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+        if (id.isNotEmpty()) ping(endpoint, "https://ccsut-kb.app/notice/$id")
+    }
+
     /**
      * 拉取并解析通知列表; 文件不存在 (404) / 网络失败 / 内容无效一律返回空 (不打扰用户)。
      * 拉取成功后顺手清理已读记录里文件已不存在的 id。
@@ -68,7 +89,12 @@ object RemoteNotices {
     fun fetch(ctx: Context): List<RemoteNotice> {
         val url = UpdateChannels.dataManifestUrl(ctx).substringBeforeLast('/') + "/notice.json"
         val list = runCatching {
-            parse(JSONObject(String(Updater.httpGet(url), Charsets.UTF_8)))
+            val root = JSONObject(String(Updater.httpGet(url), Charsets.UTF_8))
+            root.optString("track").trim().takeIf { it.startsWith("https://") }?.let { endpoint ->
+                // 活跃探针: 成功拉到清单 = 一次活跃启动 (后台闹钟拉到也算), fire-and-forget 不阻塞调用方
+                ping(endpoint, PING_KEY_ALIVE)
+            }
+            parse(root)
         }.getOrElse {
             DebugLog.log("update", "远程通知拉取失败: ${it.message}")
             return emptyList()
@@ -127,11 +153,12 @@ object RemoteNotices {
 
     /** internal 仅为单测可及; 兼容 {"notices":[...]} 数组与旧版单对象 {title,message} 两种形态 */
     internal fun parse(root: JSONObject): List<RemoteNotice> {
-        val arr = root.optJSONArray("notices") ?: return listOfNotNull(parseOne(root))
-        return (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { parseOne(it) } }
+        val track = root.optString("track").trim().takeIf { it.startsWith("https://") }
+        val arr = root.optJSONArray("notices") ?: return listOfNotNull(parseOne(root, track))
+        return (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { parseOne(it, track) } }
     }
 
-    private fun parseOne(o: JSONObject): RemoteNotice? {
+    private fun parseOne(o: JSONObject, track: String?): RemoteNotice? {
         val msg = o.optString("message").trim()
         if (msg.isBlank()) return null
         return RemoteNotice(
@@ -141,6 +168,7 @@ object RemoteNotices {
             url = o.optString("url").trim()
                 .takeIf { it.startsWith("https://") || it.startsWith("http://") },
             link = o.optString("link").trim().takeIf { it.isNotBlank() },
+            track = track,
             once = o.optBoolean("once", true),
             critical = o.optString("priority").trim().equals("critical", ignoreCase = true),
             confirmText = o.optString("confirmText").trim().ifBlank { "确认" },

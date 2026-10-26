@@ -9,6 +9,28 @@ import org.junit.Test
 /** 软件更新: GitHub Releases / versions.json 解析, 语义化版本比较, 镜像前缀, Release 正文分段 */
 class ReleasesTest {
 
+    // ---- 实时下载量 ----
+
+    @Test
+    fun `parseDownloadCounts按tag聚合apk资产计数`() {
+        val arr = org.json.JSONArray(
+            """[
+                {"tag_name":"v1.2.0-stable","assets":[
+                    {"name":"ccsut-kb-1.2.0-stable.apk","download_count":220},
+                    {"name":"notes.md","download_count":99}]},
+                {"tag_name":"v1.1.0-stable","assets":[
+                    {"name":"a.apk","download_count":10},
+                    {"name":"b.apk","download_count":5}]},
+                {"tag_name":"","assets":[{"name":"x.apk","download_count":7}]},
+                {"tag_name":"v0.9.0-stable","assets":[]}
+            ]"""
+        )
+        val m = Releases.parseDownloadCounts(arr)
+        assertEquals(2, m.size)
+        assertEquals(220L, m["1.2.0-stable"])
+        assertEquals(15L, m["1.1.0-stable"])   // 同 release 多个 .apk 求和; 非 .apk 资产不计
+    }
+
     // ---- 版本比较 ----
 
     @Test

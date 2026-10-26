@@ -157,6 +157,27 @@ object Releases {
     fun fetchLatest(ctx: Context, source: Int, channel: Int): ReleaseInfo? =
         runCatching { fetchAll(ctx, source, channel).firstOrNull() }.getOrNull()
 
+    /** 实时下载量: GitHub Releases API 的 tag → APK 下载数。镜像模式的静态索引只带发版快照, 用它覆盖;
+     *  官方直连模式主源即 API 本身已是实时值, 无需调用。网络失败直接抛, 由调用方兜底 */
+    fun downloadCountsByTag(): Map<String, Long> =
+        parseDownloadCounts(JSONArray(String(Updater.httpGet(GH_API_RELEASES, headers = GH_HEADERS), Charsets.UTF_8)))
+
+    /** internal 仅为单测可及; tag_name 去掉 v 前缀作 versionName 键, 同一 release 的多个 .apk 资产计数求和 */
+    internal fun parseDownloadCounts(arr: JSONArray): Map<String, Long> = buildMap {
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val tag = o.optString("tag_name").trim().removePrefix("v")
+            if (tag.isEmpty()) continue
+            val assets = o.optJSONArray("assets") ?: continue
+            var d = 0L
+            for (j in 0 until assets.length()) {
+                val a = assets.optJSONObject(j) ?: continue
+                if (a.optString("name").endsWith(".apk")) d += a.optLong("download_count")
+            }
+            if (d > 0) put(tag, d)
+        }
+    }
+
     /** 官方直连: Releases API 为主; 限流/失败回退 Release 资产里的静态索引 (无限流) */
     private fun fetchOfficial(ctx: Context, channel: Int): List<ReleaseInfo> {
         try {

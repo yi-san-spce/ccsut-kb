@@ -42,6 +42,19 @@ class NoticeTest {
     }
 
     @Test
+    fun `顶层track透传给每条公告且非法值丢弃`() {
+        val list = parse(
+            """{"track":"https://www.vercount.one/api/v2/log","notices":[{"id":"a","message":"m"},{"id":"b","message":"n"}]}"""
+        )
+        assertEquals(2, list.size)
+        assertEquals("https://www.vercount.one/api/v2/log", list[0].track)
+        assertEquals(list[0].track, list[1].track)
+        // 非 https 丢弃 (与 url 同策略); 无 track 字段为 null
+        assertNull(parse("""{"track":"http://evil.example","notices":[{"message":"m"}]}""").single().track)
+        assertNull(parse("""{"notices":[{"message":"m"}]}""").single().track)
+    }
+
+    @Test
     fun `旧版单对象简写兼容且id由内容派生`() {
         val n = parse("""{"message":"内容","url":"ftp://x"}""").single()
         assertEquals("通知", n.title)          // title 缺省

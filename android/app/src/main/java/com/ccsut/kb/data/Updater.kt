@@ -250,6 +250,23 @@ object Updater {
         }
     }
 
+    /** 最小 JSON POST: 供 best-effort 埋点 (公告点击/活跃计数) 使用, 短超时, 调用方自行 runCatching 吞错 */
+    internal fun httpPostJson(url: String, jsonBody: String, timeoutMs: Int = 5_000): ByteArray {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        conn.connectTimeout = timeoutMs
+        conn.readTimeout = timeoutMs
+        conn.requestMethod = "POST"
+        conn.doOutput = true
+        conn.setRequestProperty("Content-Type", "application/json")
+        try {
+            conn.outputStream.use { it.write(jsonBody.toByteArray(Charsets.UTF_8)) }
+            if (conn.responseCode !in 200..299) error("HTTP ${conn.responseCode}")
+            return conn.inputStream.use { it.readBytes() }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     fun sha256Hex(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it) }

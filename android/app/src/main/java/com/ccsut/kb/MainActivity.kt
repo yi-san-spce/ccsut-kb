@@ -320,6 +320,16 @@ fun App() {
                     // 列表里的最高版本同时喂给「更多」入口的「发现新版本」徽标
                     latestKnown = list.firstOrNull { Releases.relation(it) > 0 }
                     refreshCachedApks(list)
+                    // 镜像模式的静态索引只带发版时快照的下载量: 先显示快照, 再用 GitHub API 实时值覆盖
+                    // (失败静默保留快照; 官方直连模式主源即 API, 本身已是实时值, 无需重复拉)
+                    if (src == UpdateChannels.SOURCE_MIRROR) {
+                        val live = withContext(Dispatchers.IO) {
+                            runCatching { Releases.downloadCountsByTag() }.getOrNull()
+                        }
+                        if (live != null) {
+                            releases = list.map { r -> live[r.versionName]?.let { r.copy(downloadCount = it) } ?: r }
+                        }
+                    }
                 },
                 onFailure = { releasesError = it.message ?: "获取版本信息失败" },
             )
@@ -1450,6 +1460,7 @@ fun App() {
                     confirmText = item.notice.confirmText,
                     dismissText = item.notice.dismissText,
                     onConfirm = {
+                        RemoteNotices.pingConfirm(item.notice)   // 匿名点击计数, 失败静默
                         finish()
                         when (item.notice.link) {
                             // App 内跳转优先 (link 仅新版认识, 旧版本回退 url 开浏览器)

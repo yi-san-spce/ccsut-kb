@@ -1,4 +1,5 @@
 {
+  "track": "https://www.vercount.one/api/v2/log",
   "notices": [
     {
       "id": "2026-10-sync-selection-results",
