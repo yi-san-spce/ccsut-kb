@@ -11,6 +11,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.AlertDialog
@@ -73,6 +80,8 @@ import com.ccsut.kb.ui.KbTheme
 import com.ccsut.kb.ui.LoginScreen
 import com.ccsut.kb.ui.MoreSheet
 import com.ccsut.kb.ui.NoticeDialog
+import com.ccsut.kb.ui.PreClass
+import com.ccsut.kb.ui.PreClassScreen
 import com.ccsut.kb.ui.ScheduleScreen
 import com.ccsut.kb.ui.ShareSheet
 import com.ccsut.kb.ui.UndoEntry
@@ -83,6 +92,7 @@ import com.ccsut.kb.ui.WelcomeScreen
 import com.ccsut.kb.util.Block
 import com.ccsut.kb.util.DebugLog
 import com.ccsut.kb.util.KbClock
+import com.ccsut.kb.util.Merger
 import com.ccsut.kb.util.Weeks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -189,6 +199,12 @@ fun App() {
     var nextReminderAt by remember { mutableLongStateOf(Prefs.nextReminderAt(ctx)) }
     var afterClassOn by remember { mutableStateOf(Prefs.afterClassOn(ctx)) }
     var earlyOn by remember { mutableStateOf(Prefs.earlyOn(ctx)) }
+
+    // ---- 课前全屏聚焦 ----
+    var showPreClass by remember { mutableStateOf(false) }
+    var preclassOn by remember { mutableStateOf(Prefs.preclassOn(ctx)) }
+    var preclassWindow by remember { mutableIntStateOf(Prefs.preclassWindow(ctx)) }
+    var resumeTick by remember { mutableIntStateOf(0) }   // 回前台计数: 课前聚焦随回前台重新判定
 
     // ---- 编辑会话: 回退栈 + 虚影 (内存态; 换班级/重置修改即整场作废) ----
     var undoStack by remember { mutableStateOf(listOf<UndoEntry>()) }
@@ -486,6 +502,7 @@ fun App() {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_START) {
+                resumeTick++
                 checkUpdatesAndNotice()
                 // 后台期间提醒兜底接收器可能已把「下次提醒」重排成新事件, 设置页若沿用旧状态
                 // 会显示一个已过去的时刻; 回前台重排一次并重读 (顺带自愈被系统吞掉的精确闹钟)
@@ -739,6 +756,8 @@ fun App() {
                         onGhostRestore = { restoreGhost(it) },
                         todayBarTransparency = todayBarTransparency,
                         topbarTransparency = topbarTransparency,
+                        preclassWindowMin = preclassWindow,
+                        onOpenPreClass = { showPreClass = true },
                     )
                 }
             }
@@ -1059,6 +1078,8 @@ fun App() {
                 nextReminderAt = nextReminderAt,
                 afterClassOn = afterClassOn,
                 earlyOn = earlyOn,
+                preclassOn = preclassOn,
+                preclassWindow = preclassWindow,
                 devMode = devMode,
                 personalActive = usePersonal,
                 personalName = studentName,
@@ -1155,6 +1176,14 @@ fun App() {
                         }
                         nextReminderAt = Prefs.nextReminderAt(ctx)
                     }
+                },
+                onPreclassToggle = { v ->
+                    Prefs.setPreclassOn(ctx, v)
+                    preclassOn = v
+                },
+                onPreclassWindow = { v ->
+                    Prefs.setPreclassWindow(ctx, v)
+                    preclassWindow = v
                 },
                 onSelectClass = {
                     showMore = false
@@ -1425,7 +1454,7 @@ fun App() {
         // 检查照常进行, 待弹条目留在队列里, 用户回到课表界面后自动出现。
         val mainIdle = !showWelcome && !screenChoose && !showMore && !showAbout && !showDev &&
             !showUpdate && !showLogin && !showShare && detailCourse == null && addAt == null &&
-            editBlock == null && delBlock == null
+            editBlock == null && delBlock == null && !showPreClass
         if (mainIdle) dialogQueue.firstOrNull()?.let { item ->
             fun finish() {
                 handledDialogKeys = handledDialogKeys + item.key
@@ -1502,6 +1531,49 @@ fun App() {
                 onInstall = { startDownload(it) },
                 onDismiss = { showUpdate = false },
             )
+        }
+
+        // ---- 课前全屏聚焦 (最顶层) ----
+        // 触发: 课表主界面空闲 + 开关开 + 距下节课 ≤ 窗口 + 这节实例没被手动关过;
+        // 冷启动 (ready 后 mainIdle 首次为真)、回前台 (resumeTick)、数据变化 (dataTick/clsId) 都会重新判定。
+        LaunchedEffect(mainIdle, resumeTick, dataTick, clsId, usePersonal, preclassOn, preclassWindow) {
+            if (!mainIdle || !preclassOn || showPreClass) return@LaunchedEffect
+            val c = cls ?: return@LaunchedEffect
+            val now = KbClock.now()
+            val today = now.toLocalDate()
+            val blocks = Merger.blocksOf(c.courses, Weeks.currentWeek(dataset, today))
+                .filter { it.course.day == today.dayOfWeek.value }
+            val st = PreClass.compute(blocks, dataset.periods, now.hour * 60 + now.minute, preclassWindow, today)
+            if (st != null && st.kind == PreClass.Kind.BEFORE && Prefs.preclassDismissed(ctx) != st.key) {
+                showPreClass = true
+            }
+        }
+        // 关闭 = 收起 + 记下这节实例键 (同一节不再自动弹; TodayBar 手动入口不受限)
+        fun dismissPreClass() {
+            showPreClass = false
+            val c = cls ?: return
+            val now = KbClock.now()
+            val today = now.toLocalDate()
+            val blocks = Merger.blocksOf(c.courses, Weeks.currentWeek(dataset, today))
+                .filter { it.course.day == today.dayOfWeek.value }
+            PreClass.compute(blocks, dataset.periods, now.hour * 60 + now.minute, preclassWindow, today)
+                ?.let { Prefs.setPreclassDismissed(ctx, it.key) }
+        }
+        AnimatedVisibility(
+            visible = showPreClass,
+            enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.96f, animationSpec = tween(320, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(180)) + scaleOut(targetScale = 0.97f, animationSpec = tween(240)),
+        ) {
+            val pcCls = cls
+            if (pcCls != null) {
+                PreClassScreen(
+                    dataset = dataset,
+                    cls = pcCls,
+                    colorMap = colorMap,
+                    windowMin = preclassWindow,
+                    onClose = { dismissPreClass() },
+                )
+            }
         }
     }
 }

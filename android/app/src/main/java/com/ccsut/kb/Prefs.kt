@@ -132,6 +132,29 @@ object Prefs {
         sp(ctx).edit().putInt("notif_drops", notifDrops(ctx) + n).apply()
     }
 
+    // ---- 课前全屏聚焦 ----
+
+    /** 课前窗口内打开 APP 自动进入全屏聚焦页 */
+    fun preclassOn(ctx: Context): Boolean = sp(ctx).getBoolean("preclass_on", true)
+
+    fun setPreclassOn(ctx: Context, v: Boolean) {
+        sp(ctx).edit().putBoolean("preclass_on", v).apply()
+    }
+
+    /** 触发窗口(分钟): 距下节课 ≤N 分钟自动全屏, 5-60 */
+    fun preclassWindow(ctx: Context): Int = sp(ctx).getInt("preclass_window", 20)
+
+    fun setPreclassWindow(ctx: Context, v: Int) {
+        sp(ctx).edit().putInt("preclass_window", v.coerceIn(5, 60)).apply()
+    }
+
+    /** 最近一次被手动关掉的聚焦页实例键: 同一节课实例不再自动弹(手动入口不受限); 新课块/新一天自然过期 */
+    fun preclassDismissed(ctx: Context): String = sp(ctx).getString("preclass_dismissed", "") ?: ""
+
+    fun setPreclassDismissed(ctx: Context, v: String) {
+        sp(ctx).edit().putString("preclass_dismissed", v).apply()
+    }
+
     // ---- 自定义外观 ----
 
     // 旧键存的是"不透明度"(10-100, 100=不透明), 与滑杆"透明度"文案语义相反, 已被新键替代

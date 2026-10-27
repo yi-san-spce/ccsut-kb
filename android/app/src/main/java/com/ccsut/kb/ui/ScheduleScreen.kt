@@ -238,6 +238,10 @@ fun ScheduleScreen(
     todayBarTransparency: Int = 0,
     // 自定义外观: 顶栏的透明度百分比 (0-100), 100=纯文字+玻璃字
     topbarTransparency: Int = 0,
+    // 课前聚焦: 触发窗口(分钟), 决定状态条手动入口何时可用
+    preclassWindowMin: Int = 20,
+    // 课前聚焦手动入口: 状态条可点时回调 (上课中/课前窗口内)
+    onOpenPreClass: (() -> Unit)? = null,
 ) {
     // 时间旅行: dbgOffset 变化时重取语义今天 (KbClock, 只平移日期);
     // 之后由下方 30 秒 ticker 自动跟进真实日期, 跨零点/跨周后顶栏日期、今日列高亮、今日横条不会停在昨天
@@ -273,6 +277,10 @@ fun ScheduleScreen(
     }
     val todayStatus = remember(todayBlocks, dataset.periods, tomorrowEarly, nowMin) {
         TodayStatus.compute(todayBlocks, dataset.periods, nowMin, todayDay, tomorrowEarly)
+    }
+    // 课前聚焦目标 (上课中/窗口内有下一节): 非空时状态条可点进全屏聚焦页
+    val preclassState = remember(todayBlocks, dataset.periods, nowMin, preclassWindowMin, today) {
+        PreClass.compute(todayBlocks, dataset.periods, nowMin, preclassWindowMin, today)
     }
     // 横屏等矮窗口: 顶栏与状态栏合并成一行, 课表拿回高度
     val compact = LocalConfiguration.current.screenHeightDp < 480
@@ -486,6 +494,7 @@ fun ScheduleScreen(
                 barFg = barFg,
                 haze = haze,
                 transparency = todayBarTransparency,
+                onClick = if (preclassState != null) onOpenPreClass else null,
                 modifier = Modifier.weight(1f).onSizeChanged { barH = with(density) { it.height.toDp() } },
             )
             AnimatedVisibility(
@@ -546,6 +555,7 @@ private fun TodayBar(
     barFg: Color,
     haze: HazeState? = null,
     transparency: Int = 0,   // 自定义外观: 0=完全不透明, 100=纯文字(无底/无磨砂/无阴影); 文字保持全不透明
+    onClick: (() -> Unit)? = null,   // 课前聚焦手动入口: 非空时可点进全屏聚焦页
     modifier: Modifier = Modifier,
 ) {
     val op = (100 - transparency) / 100f
@@ -581,7 +591,8 @@ private fun TodayBar(
                     )
                     .glassEdge(RoundedCornerShape(16.dp), dark)
                 else Modifier,
-            ),
+            )
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
     ) {
         Box {
             // 顶面反光: 玻璃上沿一道淡白渐变, 悬浮感的关键一笔 (深色模式更弱)

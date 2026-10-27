@@ -52,6 +52,7 @@ import androidx.compose.material.icons.rounded.Celebration
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DarkMode
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Group
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Lock
@@ -123,6 +124,8 @@ fun MoreSheet(
     nextReminderAt: Long,
     afterClassOn: Boolean,
     earlyOn: Boolean,
+    preclassOn: Boolean,
+    preclassWindow: Int,
     devMode: Boolean,
     personalActive: Boolean,
     personalName: String,
@@ -139,6 +142,8 @@ fun MoreSheet(
     onLeadChange: (Int) -> Unit,
     onAfterClassChange: (Boolean) -> Unit,
     onEarlyChange: (Boolean) -> Unit,
+    onPreclassToggle: (Boolean) -> Unit,
+    onPreclassWindow: (Int) -> Unit,
     onSelectClass: () -> Unit,
     onResetClassEdits: () -> Unit,
     onResetPersonalEdits: () -> Unit,
@@ -701,6 +706,34 @@ fun MoreSheet(
                         })
                     },
                 )
+                // 课前全屏聚焦: 与通知类提醒相互独立, 纯 App 内展示
+                SettingRow(
+                    icon = Icons.Rounded.Fullscreen,
+                    title = "课前全屏聚焦",
+                    subtitle = "课前 $preclassWindow 分钟内打开 APP，直接看下节课",
+                    trailing = { KbSwitch(checked = preclassOn, onCheckedChange = onPreclassToggle) },
+                )
+                AnimatedVisibility(
+                    visible = preclassOn,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(150)) + shrinkVertically(tween(150)),
+                ) {
+                    Column {
+                        SettingRow(
+                            icon = Icons.Rounded.Tune,
+                            title = "触发窗口 · $preclassWindow 分钟",
+                            subtitle = "距下节课多少分钟内打开就自动全屏 (5–60)",
+                        )
+                        Slider(
+                            value = preclassWindow.toFloat(),
+                            onValueChange = { onPreclassWindow((it + 0.5f).toInt()) },
+                            valueRange = 5f..60f,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                        )
+                    }
+                }
                 SettingRow(
                     icon = Icons.Rounded.Widgets,
                     title = "桌面小组件",
