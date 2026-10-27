@@ -131,7 +131,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.time.LocalDate
-import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 
 private val BREAK_H = 22.dp      // 大课间(午休/晚饭)分隔带高度
@@ -265,12 +264,12 @@ fun ScheduleScreen(
             .minByOrNull { it.startJc }
             ?.takeIf { it.startJc == 1 }
     }
-    // 当前分钟(30 秒刷新): 状态栏横竖屏共用; 顺带重取语义今天, 覆盖跨零点/跨周
-    var nowMin by remember { mutableStateOf(LocalTime.now().let { it.hour * 60 + it.minute }) }
+    // 当前分钟(30 秒刷新): 状态栏横竖屏共用; 走 KbClock 虚拟时刻, 与课前聚焦判定同源; 顺带重取语义今天, 覆盖跨零点/跨周
+    var nowMin by remember { mutableStateOf(KbClock.now().let { it.hour * 60 + it.minute }) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(30_000)
-            nowMin = LocalTime.now().let { it.hour * 60 + it.minute }
+            nowMin = KbClock.now().let { it.hour * 60 + it.minute }
             // LocalDate 按值相等, 未跨天时赋值不触发重组
             today = KbClock.today()
         }

@@ -73,7 +73,6 @@ import com.ccsut.kb.util.Merger
 import com.ccsut.kb.util.TimeParse
 import com.ccsut.kb.util.Weeks
 import kotlinx.coroutines.delay
-import java.time.LocalTime
 
 /**
  * 课前全屏聚焦页 (视觉方向 C「课程色大卡」):
@@ -89,13 +88,13 @@ fun PreClassScreen(
     onClose: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
-    // 屏内 30 秒 ticker: 倒计时随停留推进, 跨零点自动跟到新的一天 (同 ScheduleScreen 口径)
+    // 屏内 30 秒 ticker: 倒计时随停留推进, 走 KbClock 虚拟时刻 (与触发判定同源), 跨零点自动跟到新的一天 (同 ScheduleScreen 口径)
     var today by remember { mutableStateOf(KbClock.today()) }
-    var nowMin by remember { mutableStateOf(LocalTime.now().let { it.hour * 60 + it.minute }) }
+    var nowMin by remember { mutableStateOf(KbClock.now().let { it.hour * 60 + it.minute }) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(30_000)
-            nowMin = LocalTime.now().let { it.hour * 60 + it.minute }
+            nowMin = KbClock.now().let { it.hour * 60 + it.minute }
             today = KbClock.today()
         }
     }
