@@ -66,12 +66,10 @@ import androidx.compose.runtime.setValue
 fun DevSheet(
     dataset: Dataset,
     offset: Int,
-    offsetMin: Int,
     nextReminderAt: Long,
     personalActive: Boolean,
     personalName: String,
     onOffsetChange: (Int) -> Unit,
-    onOffsetMinChange: (Int) -> Unit,
     onRebuildCache: () -> Unit,
     onRefreshWidget: () -> Unit,
     onReschedule: () -> Unit,
@@ -114,7 +112,6 @@ fun DevSheet(
         PackageManager.PERMISSION_GRANTED
     val exactOk = ctx.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() == true
     val df = remember { DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") }
-    val hm = remember { DateTimeFormatter.ofPattern("HH:mm") }
     val fmtTime: (Long) -> String = {
         df.format(Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()))
     }
@@ -208,9 +205,8 @@ fun DevSheet(
                     )
                     DetailRow(
                         "语义今天",
-                        "${KbClock.fmt(KbClock.today())} ${KbClock.now().format(hm)} · 第${Weeks.currentWeek(dataset, KbClock.today())}周" +
-                            (if (offset != 0) "（偏移 $offset 天）" else "") +
-                            (if (offsetMin != 0) "（虚拟时刻 ${if (offsetMin > 0) "+" else ""}$offsetMin 分钟）" else ""),
+                        "${KbClock.fmt(KbClock.today())} · 第${Weeks.currentWeek(dataset, KbClock.today())}周" +
+                            if (offset != 0) "（偏移 $offset 天）" else "",
                     )
                     DetailRow(
                         "提醒",
@@ -245,43 +241,6 @@ fun DevSheet(
                         SegmentedButton(
                             selected = offset == v,
                             onClick = { onOffsetChange(v) },
-                            shape = SegmentedButtonDefaults.itemShape(i, chips.size),
-                        ) { Text(label, fontSize = 12.sp) }
-                    }
-                }
-
-                // 分钟级虚拟时刻: 课前聚焦等「时刻敏感」功能不用等真实时间, 快进/回退到目标窗口即可测
-                SettingRow(
-                    title = "虚拟时刻",
-                    subtitle = if (offsetMin == 0) "0 分钟，使用真实时钟"
-                    else "偏移 ${if (offsetMin > 0) "+" else ""}$offsetMin 分钟 · 虚拟为 ${KbClock.now().format(hm)}",
-                    subtitleColor = if (offsetMin == 0) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.error,
-                )
-                SingleChoiceSegmentedButtonRow(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
-                ) {
-                    val chips = listOf("真实" to 0, "+5" to 5, "+10" to 10, "+15" to 15, "+20" to 20, "+30" to 30)
-                    chips.forEachIndexed { i, (label, v) ->
-                        SegmentedButton(
-                            selected = offsetMin == v,
-                            onClick = { onOffsetMinChange(v) },
-                            shape = SegmentedButtonDefaults.itemShape(i, chips.size),
-                        ) { Text(label, fontSize = 12.sp) }
-                    }
-                }
-                SingleChoiceSegmentedButtonRow(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
-                ) {
-                    val chips = listOf("-30" to -30, "-20" to -20, "-10" to -10, "-5" to -5, "+45" to 45, "+60" to 60)
-                    chips.forEachIndexed { i, (label, v) ->
-                        SegmentedButton(
-                            selected = offsetMin == v,
-                            onClick = { onOffsetMinChange(v) },
                             shape = SegmentedButtonDefaults.itemShape(i, chips.size),
                         ) { Text(label, fontSize = 12.sp) }
                     }

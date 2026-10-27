@@ -294,13 +294,6 @@ object Prefs {
         sp(ctx).edit().putInt("dbg_offset_days", v.coerceIn(-30, 60)).apply()
     }
 
-    /** 开发者: 分钟级虚拟时刻偏移(±1440), KbClock.now() 应用; 课前聚焦等时刻敏感功能不用等真实时间即可测 */
-    fun dbgOffsetMin(ctx: Context): Int = sp(ctx).getInt("dbg_offset_min", 0)
-
-    fun setDbgOffsetMin(ctx: Context, v: Int) {
-        sp(ctx).edit().putInt("dbg_offset_min", v.coerceIn(-1440, 1440)).apply()
-    }
-
     /** 重置个性化: 课程颜色/背景/主题, 保留班级、提醒与数据 */
     fun clearPersonal(ctx: Context) {
         sp(ctx).edit()

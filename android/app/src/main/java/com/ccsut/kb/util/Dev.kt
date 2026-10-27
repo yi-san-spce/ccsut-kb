@@ -22,21 +22,15 @@ object KbClock {
     /** 日期偏移天数, App 启动时从 Prefs 恢复 */
     var offsetDays: Int = 0
 
-    /** 分钟级虚拟时刻偏移, App 启动时从 Prefs 恢复; 仅开发者模式用 (提醒排程走真实时钟, 不受影响) */
-    var offsetMin: Int = 0
-
     fun init(ctx: Context) {
         offsetDays = Prefs.dbgOffsetDays(ctx)
-        offsetMin = Prefs.dbgOffsetMin(ctx)
     }
 
-    /** 语义上的"今天"(由 now 推导: 分钟偏移跨零点时日期自动跟进, 与虚拟时刻永远同源) */
-    fun today(): LocalDate = now().toLocalDate()
+    /** 语义上的"今天"(受时间旅行影响) */
+    fun today(): LocalDate = LocalDate.now().plusDays(offsetDays.toLong())
 
-    /** 语义上的"现在"(日期平移 + 分钟偏移 —— 晚上可测白天场景, 课前聚焦不用等真实时间) */
-    fun now(): LocalDateTime = LocalDateTime.now()
-        .plusDays(offsetDays.toLong())
-        .plusMinutes(offsetMin.toLong())
+    /** 语义上的"现在"(只平移日期, 时刻保持真实 —— 晚上可测白天场景) */
+    fun now(): LocalDateTime = LocalDateTime.now().plusDays(offsetDays.toLong())
 
     fun fmt(d: LocalDate): String = d.format(DateTimeFormatter.ofPattern("M月d日 EEEE"))
 }

@@ -227,7 +227,6 @@ fun App() {
     var devMode by remember { mutableStateOf(Prefs.devMode(ctx)) }
     var showDev by remember { mutableStateOf(false) }
     var dbgOffset by remember { mutableIntStateOf(Prefs.dbgOffsetDays(ctx)) }
-    var dbgOffsetMin by remember { mutableIntStateOf(Prefs.dbgOffsetMin(ctx)) }
 
     val bgFile = remember(bgOn, bgTick) {
         if (bgOn) BgStore.file(ctx).takeIf { it.exists() } else null
@@ -1311,7 +1310,6 @@ fun App() {
             DevSheet(
                 dataset = classDataset,
                 offset = dbgOffset,
-                offsetMin = dbgOffsetMin,
                 nextReminderAt = nextReminderAt,
                 personalActive = usePersonal,
                 personalName = studentName,
@@ -1320,13 +1318,6 @@ fun App() {
                     dbgOffset = v
                     KbClock.offsetDays = v
                     DebugLog.log("dev", "时间旅行 → $v 天 (今天=${KbClock.today()})")
-                    resync()
-                },
-                onOffsetMinChange = { v ->
-                    Prefs.setDbgOffsetMin(ctx, v)
-                    dbgOffsetMin = v
-                    KbClock.offsetMin = v
-                    DebugLog.log("dev", "虚拟时刻 → ${if (v >= 0) "+" else ""}$v 分钟 (现在=${KbClock.now()})")
                     resync()
                 },
                 onRebuildCache = {
@@ -1449,8 +1440,6 @@ fun App() {
                         nextReminderAt = 0
                         dbgOffset = 0
                         KbClock.offsetDays = 0
-                        dbgOffsetMin = 0
-                        KbClock.offsetMin = 0
                         showDev = false
                         screenChoose = true
                         DebugLog.log("dev", "完全重置完成, 回到选班级")
