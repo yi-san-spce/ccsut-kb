@@ -104,4 +104,28 @@ class PreClassTest {
         assertEquals(PreClass.Kind.CURRENT, cur?.kind)
         assertEquals(90, cur?.mins)
     }
+
+    @Test
+    fun `预览_无视窗口取今天最近一节`() {
+        // 8:00 距 10:20 有 140 分钟, 远超常规触发窗口, 预览仍应返回 BEFORE
+        val st = PreClass.preview(
+            listOf(course("高数", 3)), periods, nowMin = 8 * 60,
+            today = today, startDate = "2026-09-07", weeks = 20,
+        )
+        assertEquals(PreClass.Kind.BEFORE, st?.kind)
+        assertEquals(140, st?.mins)
+    }
+
+    @Test
+    fun `预览_今天上完取未来最近一节`() {
+        // 周二 16:00: 周二的课已上完, 取周三第一节 (14:00), 分钟数含跨天
+        val courses = listOf(course("高数", 1, day = 2), course("英语", 5, day = 3))
+        val st = PreClass.preview(
+            courses, periods, nowMin = 16 * 60,
+            today = today, startDate = "2026-09-07", weeks = 20,
+        )
+        assertEquals(PreClass.Kind.BEFORE, st?.kind)
+        assertEquals("英语", st?.block?.course?.kc)
+        assertEquals(1440 + 14 * 60 - 16 * 60, st?.mins)
+    }
 }

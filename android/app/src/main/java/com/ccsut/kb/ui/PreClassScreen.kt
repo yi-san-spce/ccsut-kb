@@ -86,6 +86,7 @@ fun PreClassScreen(
     cls: Cls,
     colorMap: Map<String, Int>,
     windowMin: Int,
+    preview: Boolean = false,   // 开发者预览: 无视触发窗口取目标课, 关闭不记去重键
     onClose: () -> Unit,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -103,8 +104,12 @@ fun PreClassScreen(
     val dayBlocks = remember(cls.courses, week, today) {
         Merger.blocksOf(cls.courses, week).filter { it.course.day == today.dayOfWeek.value }
     }
-    val state = remember(dayBlocks, dataset.periods, nowMin, windowMin, today) {
-        PreClass.compute(dayBlocks, dataset.periods, nowMin, windowMin, today)
+    val state = remember(dayBlocks, dataset.periods, nowMin, windowMin, today, preview) {
+        if (preview) {
+            PreClass.preview(cls.courses, dataset.periods, nowMin, today, dataset.startDate, dataset.weeks)
+        } else {
+            PreClass.compute(dayBlocks, dataset.periods, nowMin, windowMin, today)
+        }
     }
 
     // 关闭编排: 先屏内错峰退场, 走完再回调真正关闭 (外层再补一次快速淡出)
@@ -135,7 +140,22 @@ fun PreClassScreen(
     val teacher = st.block.teachers.ifBlank { st.block.course.teacher }.trim()
     val jcText = if (st.block.span > 1) "第 ${st.block.startJc}–${st.block.startJc + st.block.span - 1} 节" else "第 ${st.block.startJc} 节"
     val timeText = "${fmtMin(st.startMin)} – ${fmtMin(st.endMin)}"
-    val minsText = if (st.mins <= 0) "马上" else "${st.mins}"
+    // 倒计时展示: 分钟级为主; 预览跨天时(未来 7 天取最近一节)换算成天, 防大数字溢出
+    val minsText = when {
+        st.mins <= 0 -> "马上"
+        st.mins < 1440 -> "${st.mins}"
+        else -> "${(st.mins + 1439) / 1440}"
+    }
+    val minsUnit = when {
+        st.mins <= 0 -> ""
+        st.mins < 1440 -> "分钟"
+        else -> "天"
+    }
+    val minsCaption = when {
+        st.mins <= 0 -> if (isBefore) "就要上课啦" else "就要下课啦"
+        st.mins < 1440 -> if (isBefore) "分钟后上课" else "分钟后下课"
+        else -> "后上课"
+    }
     val ringFrac = when (st.kind) {
         PreClass.Kind.BEFORE -> (st.mins.toFloat() / windowMin.coerceAtLeast(1)).coerceIn(0f, 1f)
         PreClass.Kind.CURRENT ->
@@ -157,7 +177,8 @@ fun PreClassScreen(
         append(st.block.course.kc)
         append(" ${fmtMin(st.startMin)}到${fmtMin(st.endMin)}")
         if (room.isNotBlank()) append(" $room")
-        append(if (isBefore) " 还有 ${st.mins} 分钟" else " 还剩 ${st.mins} 分钟")
+        append(if (isBefore) " 还有" else " 还剩")
+        if (st.mins < 1440) append(" ${st.mins} 分钟") else append(" ${(st.mins + 1439) / 1440} 天")
     }
 
     // 错峰工具: p 在 [a,b] 区间的进度
@@ -318,13 +339,15 @@ fun PreClassScreen(
                                     ) { t ->
                                         Text(t, fontSize = 34.sp, fontWeight = FontWeight.Bold, color = onC)
                                     }
-                                    Text("分钟", fontSize = 11.sp, color = onC.copy(alpha = 0.80f))
+                                    if (minsUnit.isNotEmpty()) {
+                                        Text(minsUnit, fontSize = 11.sp, color = onC.copy(alpha = 0.80f))
+                                    }
                                 }
                             }
                             Spacer(Modifier.width(20.dp))
                             Column {
                                 Text(
-                                    if (isBefore) "分钟后上课" else "分钟后下课",
+                                    minsCaption,
                                     fontSize = 14.sp,
                                     color = onC.copy(alpha = 0.85f),
                                 )

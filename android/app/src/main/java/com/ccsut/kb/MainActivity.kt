@@ -205,6 +205,9 @@ fun App() {
     var preclassOn by remember { mutableStateOf(Prefs.preclassOn(ctx)) }
     var preclassWindow by remember { mutableIntStateOf(Prefs.preclassWindow(ctx)) }
     var resumeTick by remember { mutableIntStateOf(0) }   // 回前台计数: 课前聚焦随回前台重新判定
+    var preclassPreview by remember { mutableStateOf(false) }   // 开发者预览态: 无视窗口, 关闭不记去重键
+    // 本次会话自动弹过/预览过的实例键: 关闭后立刻回主界面不会重弹 (重启/下一节课自然失效)
+    var preclassAutoShownKeys by remember { mutableStateOf(setOf<String>()) }
 
     // ---- 编辑会话: 回退栈 + 虚影 (内存态; 换班级/重置修改即整场作废) ----
     var undoStack by remember { mutableStateOf(listOf<UndoEntry>()) }
@@ -1320,6 +1323,21 @@ fun App() {
                     DebugLog.log("dev", "时间旅行 → $v 天 (今天=${KbClock.today()})")
                     resync()
                 },
+                onPreviewPreClass = {
+                    showMore = false
+                    preclassPreview = true
+                    showPreClass = true
+                    // 预览目标也记入本会话已展示集: 真处在触发窗口里时, 关掉预览不会立刻被自动触发重弹
+                    val c = cls
+                    if (c != null) {
+                        val now = KbClock.now()
+                        val today = now.toLocalDate()
+                        PreClass.preview(
+                            c.courses, dataset.periods, now.hour * 60 + now.minute, today,
+                            dataset.startDate, dataset.weeks,
+                        )?.let { preclassAutoShownKeys = preclassAutoShownKeys + it.key }
+                    }
+                },
                 onRebuildCache = {
                     scope.launch {
                         withContext(Dispatchers.IO) { runCatching { ClassCache.save(ctx) } }
@@ -1544,7 +1562,10 @@ fun App() {
             val blocks = Merger.blocksOf(c.courses, Weeks.currentWeek(dataset, today))
                 .filter { it.course.day == today.dayOfWeek.value }
             val st = PreClass.compute(blocks, dataset.periods, now.hour * 60 + now.minute, preclassWindow, today)
-            if (st != null && st.kind == PreClass.Kind.BEFORE && Prefs.preclassDismissed(ctx) != st.key) {
+            if (st != null && st.kind == PreClass.Kind.BEFORE &&
+                st.key !in preclassAutoShownKeys && Prefs.preclassDismissed(ctx) != st.key
+            ) {
+                preclassAutoShownKeys = preclassAutoShownKeys + st.key
                 showPreClass = true
             }
         }
@@ -1570,8 +1591,17 @@ fun App() {
                     dataset = dataset,
                     cls = pcCls,
                     colorMap = colorMap,
-                    windowMin = preclassWindow,
-                    onClose = { dismissPreClass() },
+                    windowMin = if (preclassPreview) 24 * 60 else preclassWindow,
+                    preview = preclassPreview,
+                    onClose = {
+                        // 预览只收屏不记去重键, 不影响真实触发; 正常关闭才记「这节课不再自动弹」
+                        if (preclassPreview) {
+                            preclassPreview = false
+                            showPreClass = false
+                        } else {
+                            dismissPreClass()
+                        }
+                    },
                 )
             }
         }

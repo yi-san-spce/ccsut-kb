@@ -70,6 +70,7 @@ fun DevSheet(
     personalActive: Boolean,
     personalName: String,
     onOffsetChange: (Int) -> Unit,
+    onPreviewPreClass: () -> Unit = {},
     onRebuildCache: () -> Unit,
     onRefreshWidget: () -> Unit,
     onReschedule: () -> Unit,
@@ -275,6 +276,9 @@ fun DevSheet(
                 }
                 DevActionRow("通知弹窗（阻断）", "测试数据 · 只有关闭按钮") {
                     previewNoticeCritical = true; tick++
+                }
+                DevActionRow("课前聚焦页", "真实课表数据 · 无视触发窗口直接打开") {
+                    onPreviewPreClass(); tick++
                 }
             }
 
