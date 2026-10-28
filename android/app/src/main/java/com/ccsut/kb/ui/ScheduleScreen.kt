@@ -529,7 +529,7 @@ fun ScheduleScreen(
             beyondViewportPageCount = 1,
         ) { page ->
             WeekGrid(
-                hasBg = bgFile != null,
+                haze = haze,
                 dataset = dataset,
                 cls = cls,
                 week = page + 1,
@@ -837,7 +837,7 @@ private fun WeekGrid(
     week: Int,
     initialWeek: Int,
     nowMin: Int,       // 当前分钟, 由 ScheduleScreen 的 30s ticker 统一供入
-    hasBg: Boolean,   // 自定义背景生效中: 课程块 0.90 微透, 背景呼吸感更强
+    haze: HazeState?,  // 背景图生效时的玻璃源: 课程块做真磨砂; null = 渐变实底
     today: LocalDate,
     colorMap: Map<String, Int>,
     pagerState: PagerState,   // 组合期不读: 落场判定由 DayColumn 在协程里读 settledPage
@@ -1064,7 +1064,9 @@ private fun WeekGrid(
                                 colorMap = colorMap,
                                 onCourseClick = onCourseClick,
                                 onAddAt = onAddAt,
-                                blockAlpha = if (hasBg) 0.90f else 1f,
+                                haze = haze,
+                                nowMin = nowMin,
+                                periods = dataset.periods,
                                 week = week,
                                 pagerState = pagerState,
                                 ghosts = ghostsByDay[day].orEmpty(),
@@ -1210,7 +1212,9 @@ private fun DayColumn(
     colorMap: Map<String, Int>,
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int) -> Unit,
-    blockAlpha: Float = 1f,   // 有自定义背景时 0.90 微透, 色块透出更多壁纸呼吸感
+    haze: HazeState? = null,  // 背景图生效时: 课程块真磨砂 (课程色作 tint, 壁纸从卡后透出)
+    nowMin: Int = 0,          // 当前分钟: 「上课中」扫光的判定
+    periods: List<Period> = emptyList(),   // 节次→时刻, 供「上课中」判定
     week: Int = 1,            // 本列所属周: 落场判定与 settledPage 比较
     pagerState: PagerState,   // 落场判定在协程内读 settledPage, 不在组合期订阅
     ghosts: List<Ghost> = emptyList(),
@@ -1325,47 +1329,73 @@ private fun DayColumn(
         // 整列块包进单层 graphicsLayer 做落场淡入 —— 每帧只更新一层 alpha,
         // 不再让 40+ 块各自的层属性逐帧失效(翻周卡顿修复)
         Box(Modifier.graphicsLayer { alpha = staggerAlpha.value }) {
+        val pm = remember(periods) { periods.associateBy { it.jc } }
         blocks.forEach { b ->
             val seed = CourseColors.seedOf(b.course.kc, b.course.fx)
             val (container, onContainer) = CourseColors.pair(cs, seed, colorMap[seed])
             val top = yOfJc(b.startJc)
             val h = yBottomJc(b.startJc + b.span - 1) - top - 4.dp
             val shape = RoundedCornerShape(12.dp)
-            val cardBg = Modifier
-                .shadow(if (dark) 3.dp else 4.dp, shape)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            lerp(container, Color.White, if (dark) 0.08f else 0.12f)
-                                .copy(alpha = blockAlpha),
-                            container.copy(alpha = blockAlpha),
-                        ),
-                    ),
-                    shape,
+            // 按压缩放: 与空格子同一套 spring, 按下去「沉」一点, 松手回弹 —— 空间感的触觉部分
+            val pressIsrc = remember { MutableInteractionSource() }
+            val pressed by pressIsrc.collectIsPressedAsState()
+            val pressScale by animateFloatAsState(
+                targetValue = if (pressed) 0.96f else 1f,
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f),
+                label = "cardPress",
+            )
+            // 上课中 (今天列 + 时刻落在块内): 状态栏同款扫光, 全周至多一块开动画
+            val isCurrent = isToday && run {
+                val s = pm[b.startJc]?.let { TimeParse.minutesOf(it.start) }
+                val e = pm[b.startJc + b.span - 1]?.let { TimeParse.minutesOf(it.end) }
+                s != null && e != null && s <= nowMin && nowMin < e
+            }
+            // 玻璃材质: 有背景图走真磨砂 (课程色作 tint, 壁纸在卡片后流动);
+            // 无背景图没有可磨的内容, 用渐变实底 + 高光做出同族质感
+            val cardHazeStyle = remember(container, dark) {
+                HazeStyle(
+                    backgroundColor = cs.surface,
+                    tints = listOf(HazeTint(container.copy(alpha = if (dark) 0.74f else 0.68f))),
+                    blurRadius = 24.dp,
+                    noiseFactor = 0f,
                 )
-                .border(
-                    0.8.dp,
-                    // 高光描边升级为 glassEdge 同款三段式: 顶亮 → 中段渐隐 → 底部微亮
-                    Brush.verticalGradient(
-                        listOf(
-                            Color.White.copy(alpha = if (dark) 0.16f else 0.34f),
-                            Color.Transparent,
-                            Color.White.copy(alpha = if (dark) 0.04f else 0.08f),
-                        ),
-                    ),
-                    shape,
+            }
+            val cardBg = Modifier
+                // 按下时阴影抬起: 卡片「浮」起来的关键一笔
+                .shadow(if (pressed) (if (dark) 7.dp else 9.dp) else if (dark) 4.dp else 6.dp, shape)
+                .then(
+                    if (haze != null) Modifier
+                        .clip(shape)
+                        .hazeChild(haze, style = cardHazeStyle)
+                        .glassEdge(shape, dark)
+                    else Modifier
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    lerp(container, Color.White, if (dark) 0.08f else 0.12f),
+                                    container,
+                                ),
+                            ),
+                            shape,
+                        )
+                        .glassEdge(shape, dark, width = 0.8.dp, strength = 0.85f),
                 )
             Box(
                 Modifier
                     .fillMaxWidth()
                     .offset { IntOffset(0, (top + 2.dp).roundToPx()) }
                     .height(h)
+                    .graphicsLayer {
+                        scaleX = pressScale
+                        scaleY = pressScale
+                    }
                     .then(
                         cardBg
                             .clip(shape).clickable(
+                                interactionSource = pressIsrc,
+                                indication = ripple(),
                                 onClickLabel = "查看课程详情",
-                                onClick = { onCourseClick(b) },
-                            )  // 高亮裁到课程块形状
+                            ) { onCourseClick(b) }  // 高亮裁到课程块形状
                             .semantics {
                                 val roomPart = if (b.course.room.isNotEmpty()) "，${b.course.room}" else ""
                                 contentDescription =
@@ -1373,6 +1403,18 @@ private fun DayColumn(
                             },
                     ),
             ) {
+                // 顶面反光: 光源来自上方的一道淡白渐变, 给玻璃「厚度」(同状态栏)
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0f to Color.White.copy(alpha = if (dark) 0.10f else 0.20f),
+                                0.45f to Color.Transparent,
+                            ),
+                        ),
+                )
+                if (isCurrent) ShimmerBand(dark, Modifier.matchParentSize())
                 BlockContent(b.course.kc, b.course.room, onContainer)
                 // 用户改过/自建的课: 右上角小圆点标识
                 if (b.course.editId != null) {
