@@ -4,10 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -39,39 +40,33 @@ import kotlinx.coroutines.withContext
 /**
  * 液态玻璃参数集中地: 真机调参只改这里, 不动逻辑。
  *
- * 材质配方 (对齐 Apple Clear/Regular 思路 + 用户实机反馈「87% 透明档才像玻璃」):
- * 玻璃本体近乎透明 (中性 frost 极低 alpha), 课程色只以「小面积色元素」出现 ——
- * wash 低浓度色洗 + 底边 rim light + 左缘色条; 文字白色+暗影 (bold & bright)。
- *
- * 性能红线 (b2553e1 / 60170f9 两次教训): 效果节点数恒为 0, 模糊只在背景变化时算一次,
- * 滚动每帧 = 每页 1 次 clipPath + 1 次 drawImage, 禁止任何每卡每帧的回调/状态写入/裁剪。
+ * 性能红线 (b2553e1 回退的教训): 周网格 40+ 块各挂一个实时模糊效果节点会逐帧掉帧。
+ * 本方案的模糊只在背景图/主题变化时算一次 (预渲染小图), 滚动每帧只是位图 blit,
+ * 全屏效果节点数恒为 0。
  */
 object LiquidGlassSpec {
-    // ---- 中性玻璃体: 白(亮)/黑(暗) frost, 顶略重 ----
-    const val FROST_ALPHA_LIGHT = 0.16f
-    const val FROST_ALPHA_DARK = 0.24f
-    const val FROST_TOP_BOOST = 0.04f
+    // ---- 卡片有色玻璃: 透过玻璃看到的课程色浓度 (区分度第一保险) ----
+    const val TINT_ALPHA_LIGHT = 0.62f
+    const val TINT_ALPHA_DARK = 0.70f
 
-    // ---- 课程色洗: 「稍微有点颜色」的浓度 ----
-    const val WASH_ALPHA_LIGHT = 0.16f
-    const val WASH_ALPHA_DARK = 0.22f
-
-    // ---- 底边课程色 rim light: 首要颜色载体 ----
-    const val RIM_ALPHA_LIGHT = 0.55f
-    const val RIM_ALPHA_DARK = 0.45f
-
-    // ---- 左缘课程色竖条: 最可靠的区分标识 ----
-    const val ACCENT_BAR_ALPHA = 0.95f
-
-    // ---- 顶面镜面高光 (按压时增强 = 由内点亮) ----
+    // ---- 同色光影: 区分度第二保险 ----
+    // 卡片外围课程色环境光 (柔光渐晕)
+    const val GLOW_ALPHA_LIGHT = 0.16f
+    const val GLOW_ALPHA_DARK = 0.22f
+    // 底边课程色辉光描边 (rim light)
+    const val RIM_ALPHA_LIGHT = 0.40f
+    const val RIM_ALPHA_DARK = 0.30f
+    // 顶面白色镜面高光 (按压时×1.9 = 由内点亮)
     const val SPECULAR_LIGHT = 0.20f
     const val SPECULAR_DARK = 0.10f
 
+    // ---- 按压 ----
     const val PRESS_SCALE = 0.96f
 
-    // ---- 预渲染模糊底图: 512px + 半径 24 ≈ 屏等效 18dp, 奶感足够且只算一次 ----
-    const val BACKDROP_MAX_PX = 512
-    const val BACKDROP_BLUR_RADIUS = 24
+    // ---- 预渲染模糊底图 ----
+    // 小图最长边: 越小越糊也越省内存; 三趟 box blur 在小图上等效高斯, 半径按小图标
+    const val BACKDROP_MAX_PX = 224
+    const val BACKDROP_BLUR_RADIUS = 6
 
     // ---- 顶栏滚动联动: 每滚 SCROLL_STEP_PX 深一档, 顶栏样式每档重建一次 (不逐帧打脏标记) ----
     const val SCROLL_STEP_PX = 140
@@ -81,6 +76,27 @@ object LiquidGlassSpec {
 
     fun depthFrac(bucket: Int): Float = bucket.toFloat() / SCROLL_MAX_BUCKET
 }
+
+/**
+ * 卡片开窗注册表: key → 卡片在 window 坐标系的矩形。
+ * 由各卡片 [glassWindow] 经 onGloballyPositioned 维护 (布局期写入),
+ * 开窗层在 Draw 相位读取 —— 滚动/翻周只触发 Draw 重绘, 无重组。
+ */
+class GlassWindowsState {
+    val rects = mutableStateMapOf<String, Rect>()
+
+    fun put(key: String, rect: Rect) {
+        if (rects[key] != rect) rects[key] = rect
+    }
+
+    fun remove(key: String) {
+        rects.remove(key)
+    }
+}
+
+/** 课程卡挂上开窗注册: 布局位置变化 (滚动/翻周/按压缩放) 自动回写注册表 */
+fun Modifier.glassWindow(state: GlassWindowsState?, key: String): Modifier =
+    this.onGloballyPositioned { coords -> state?.put(key, coords.boundsInWindow()) }
 
 /** 模糊底图预渲染参数 (整体作 produceState 的 key, data class 等值比较避免无效重算) */
 private data class BackdropCfg(
@@ -94,32 +110,92 @@ private data class BackdropCfg(
 )
 
 /**
- * 预渲染模糊底图 (屏幕级, 只建一次): 复刻真实可见层 (底色 → 背景图 Crop ×bgAlpha → scrim)
- * 后缩到小图, 三趟 box blur (横竖交替) ≈ 高斯。绘制时双线性放大回窗口尺寸。
+ * 液态玻璃开窗层: 铺满根 Box (背景 scrim 之上、课表内容之下)。
+ * 把「预模糊底图」按每张课程卡注册的矩形开窗画出 —— 卡片自己的半透明 tint 叠在上面,
+ * 透出的就是这块模糊底图, 实现「玻璃透出背景」而不需要任何实时模糊效果节点。
  */
 @Composable
-fun rememberGlassBackdrop(
-    bgBitmap: Bitmap,
+fun LiquidGlassWindows(
+    bgBitmap: Bitmap?,
     bgAlpha: Float,
     baseColor: Color,
     scrimColor: Color,
     scrimAlpha: Float,
-    winSizePx: IntSize,
-): ImageBitmap? {
-    val cfg = BackdropCfg(
-        bgBitmap, bgAlpha, baseColor, scrimColor, scrimAlpha, winSizePx.width, winSizePx.height,
-    )
-    return produceState<ImageBitmap?>(null, cfg) {
-        value = if (cfg.w == 0 || cfg.h == 0) null else withContext(Dispatchers.Default) {
-            runCatching {
-                buildBlurredBackdrop(
-                    cfg.bg, cfg.alpha, cfg.base, cfg.scrim, cfg.scrimA, cfg.w, cfg.h,
-                )
-            }.getOrNull()
+    windows: GlassWindowsState,
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 12.dp,
+) {
+    if (bgBitmap == null) return
+    var sizePx by remember { mutableStateOf(IntSize.Zero) }
+    var selfBounds by remember { mutableStateOf(Rect.Zero) }
+    Box(
+        modifier
+            .onSizeChanged { sizePx = it }
+            .onGloballyPositioned { selfBounds = it.boundsInWindow() },
+    ) {
+        val backdropCfg = BackdropCfg(
+            bgBitmap, bgAlpha, baseColor, scrimColor, scrimAlpha, sizePx.width, sizePx.height,
+        )
+        val backdrop by produceState<ImageBitmap?>(null, backdropCfg) {
+            value = if (backdropCfg.w == 0 || backdropCfg.h == 0) null else withContext(Dispatchers.Default) {
+                runCatching {
+                    buildBlurredBackdrop(
+                        backdropCfg.bg, backdropCfg.alpha, backdropCfg.base,
+                        backdropCfg.scrim, backdropCfg.scrimA, backdropCfg.w, backdropCfg.h,
+                    )
+                }.getOrNull()
+            }
         }
-    }.value
+        val bmp = backdrop ?: return@Box
+        val radiusPx = with(LocalDensity.current) { cornerRadius.toPx() }
+        Box(
+            Modifier
+                .matchParentSize()
+                .drawWithCache {
+                    val rects = windows.rects.values.toList()
+                    onDrawBehind {
+                        val sb = selfBounds
+                        if (sb.width <= 0f || sb.height <= 0f) return@onDrawBehind
+                        val sx = bmp.width / sb.width
+                        val sy = bmp.height / sb.height
+                        rects.forEach { r ->
+                            if (r.width <= 0f || r.height <= 0f) return@forEach
+                            // 邻页/屏外的窗不画
+                            if (r.right < sb.left || r.left > sb.right || r.bottom < sb.top || r.top > sb.bottom) {
+                                return@forEach
+                            }
+                            val local = r.translate(-sb.left, -sb.top)
+                            val path = Path().apply { addRoundRect(RoundRect(local, CornerRadius(radiusPx))) }
+                            clipPath(path) {
+                                drawImage(
+                                    image = bmp,
+                                    srcOffset = IntOffset(
+                                        (local.left * sx).roundToInt().coerceIn(0, bmp.width - 1),
+                                        (local.top * sy).roundToInt().coerceIn(0, bmp.height - 1),
+                                    ),
+                                    srcSize = IntSize(
+                                        (local.width * sx).roundToInt().coerceAtLeast(1),
+                                        (local.height * sy).roundToInt().coerceAtLeast(1),
+                                    ),
+                                    dstOffset = IntOffset(local.left.roundToInt(), local.top.roundToInt()),
+                                    dstSize = IntSize(
+                                        local.width.roundToInt().coerceAtLeast(1),
+                                        local.height.roundToInt().coerceAtLeast(1),
+                                    ),
+                                    filterQuality = FilterQuality.Medium,
+                                )
+                            }
+                        }
+                    }
+                },
+        )
+    }
 }
 
+/**
+ * 预渲染模糊底图: 复刻真实可见层 (底色 → 背景图 Crop ×bgAlpha → scrim) 后缩到小图,
+ * 三趟 box blur (横竖交替) ≈ 高斯。绘制时双线性放大回窗口尺寸, 磨砂质感成立。
+ */
 internal fun buildBlurredBackdrop(
     bg: Bitmap,
     bgAlpha: Float,
@@ -140,7 +216,7 @@ internal fun buildBlurredBackdrop(
     val canvas = Canvas(small)
     canvas.drawColor(baseColor.toArgb())
     // ContentScale.Crop 等价: 等比放大铺满、居中裁切
-    val scale = maxOf(w / bg.width.toFloat(), h / bg.height.toFloat())
+    val scale = max(w / bg.width.toFloat(), h / bg.height.toFloat())
     val dw = bg.width * scale
     val dh = bg.height * scale
     val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
@@ -191,77 +267,4 @@ internal fun boxBlur(px: IntArray, w: Int, h: Int, radius: Int, horizontal: Bool
         }
     }
     System.arraycopy(out, 0, px, 0, px.size)
-}
-
-/**
- * 课程卡玻璃开窗层 (每页一个, 与滚动 Box 同界)。
- *
- * 性能架构 (v2.2): 卡片矩形由 WeekGrid 按槽位几何解析计算 (content 坐标, 滚动期间恒定),
- * 本层在 Draw 相位读 scrollState —— 滚动每帧只有 1 次 path 重建 + 1 次 clipPath + 1 次 drawImage,
- * 零回调、零状态写入、零每帧分配 (Path 复用实例 reset)。
- * 翻周滑动时 overlay 随页平移, 自身 window 坐标变化 → src 偏移自动跟随, 底图内容仍然对位。
- */
-@Composable
-fun GlassCardWindowsOverlay(
-    backdrop: ImageBitmap,
-    cardRectsPx: List<Rect>,
-    scrollState: ScrollState,
-    windowSizePx: IntSize,
-    cornerRadius: Dp,
-    modifier: Modifier = Modifier,
-) {
-    var selfBounds by remember { mutableStateOf(Rect.Zero) }
-    val density = LocalDensity.current
-    val radiusPx = remember(density, cornerRadius) { with(density) { cornerRadius.toPx() } }
-    val path = remember { Path() }
-    Box(
-        modifier
-            .onGloballyPositioned { selfBounds = it.boundsInWindow() }
-            .drawWithCache {
-                val sb = selfBounds
-                val winW = windowSizePx.width
-                val winH = windowSizePx.height
-                if (sb.width > 0f && sb.height > 0f && winW > 0 && winH > 0 && cardRectsPx.isNotEmpty()) {
-                    // Draw 相位读滚动: 只失效 Draw, 不重组不布局
-                    val scroll = scrollState.value
-                    path.reset()
-                    for (r in cardRectsPx) {
-                        val top = r.top - scroll
-                        val bottom = r.bottom - scroll
-                        if (top > sb.height || bottom < 0f) continue   // 视口外
-                        path.addRoundRect(
-                            RoundRect(
-                                rect = Rect(r.left, top, r.right, bottom),
-                                cornerRadius = CornerRadius(radiusPx),
-                            ),
-                        )
-                    }
-                    val sx = backdrop.width / winW.toFloat()
-                    val sy = backdrop.height / winH.toFloat()
-                    onDrawBehind {
-                        clipPath(path) {
-                            drawImage(
-                                image = backdrop,
-                                srcOffset = IntOffset(
-                                    (sb.left * sx).roundToInt().coerceIn(0, backdrop.width - 1),
-                                    (sb.top * sy).roundToInt().coerceIn(0, backdrop.height - 1),
-                                ),
-                                srcSize = IntSize(
-                                    (sb.width * sx).roundToInt().coerceAtLeast(1),
-                                    (sb.height * sy).roundToInt().coerceAtLeast(1),
-                                ),
-                                dstOffset = IntOffset.Zero,
-                                dstSize = IntSize(
-                                    sb.width.roundToInt().coerceAtLeast(1),
-                                    sb.height.roundToInt().coerceAtLeast(1),
-                                ),
-                                filterQuality = FilterQuality.Low,
-                            )
-                        }
-                    }
-                } else {
-                    onDrawBehind { }
-                }
-            },
-    )
 }
