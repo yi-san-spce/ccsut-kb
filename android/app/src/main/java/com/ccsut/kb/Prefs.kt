@@ -193,6 +193,13 @@ object Prefs {
         sp(ctx).edit().putInt("widget_glass", v.coerceIn(0, 100)).apply()
     }
 
+    /** 玻璃材质实验室参数 JSON (开发者调参持久化, 非发布功能) */
+    fun glassLabJson(ctx: Context): String? = sp(ctx).getString("glass_lab_params", null)
+
+    fun setGlassLabJson(ctx: Context, v: String) {
+        sp(ctx).edit().putString("glass_lab_params", v).apply()
+    }
+
     /** 旧不透明度 → 新透明度的翻转: 100(不透明)→0, 10→90; 未存过(null, 旧默认=不透明)→0 */
     fun migrateLegacyTodayBarAlpha(legacy: Int?): Int =
         legacy?.let { (100 - it).coerceIn(0, 100) } ?: 0

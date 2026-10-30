@@ -71,6 +71,7 @@ fun DevSheet(
     personalName: String,
     onOffsetChange: (Int) -> Unit,
     onPreviewPreClass: () -> Unit = {},
+    onOpenGlassLab: () -> Unit = {},
     onRebuildCache: () -> Unit,
     onRefreshWidget: () -> Unit,
     onReschedule: () -> Unit,
@@ -279,6 +280,9 @@ fun DevSheet(
                 }
                 DevActionRow("课前聚焦页", "真实课表数据 · 无视触发窗口直接打开") {
                     onPreviewPreClass(); tick++
+                }
+                DevActionRow("玻璃材质实验室", "真实壁纸+课表 · 全参数滑杆 · 翻周动效试玩") {
+                    onOpenGlassLab(); tick++
                 }
             }
 

@@ -76,6 +76,7 @@ import com.ccsut.kb.ui.DevSheet
 import com.ccsut.kb.ui.EditOpResult
 import com.ccsut.kb.ui.EditSession
 import com.ccsut.kb.ui.Ghost
+import com.ccsut.kb.ui.GlassLabScreen
 import com.ccsut.kb.ui.KbTheme
 import com.ccsut.kb.ui.LoginScreen
 import com.ccsut.kb.ui.MoreSheet
@@ -202,6 +203,7 @@ fun App() {
 
     // ---- 课前全屏聚焦 ----
     var showPreClass by remember { mutableStateOf(false) }
+    var showGlassLab by remember { mutableStateOf(false) }   // 玻璃材质实验室 (开发者调参, 不进发布路径)
     var preclassOn by remember { mutableStateOf(Prefs.preclassOn(ctx)) }
     var preclassWindow by remember { mutableIntStateOf(Prefs.preclassWindow(ctx)) }
     var resumeTick by remember { mutableIntStateOf(0) }   // 回前台计数: 课前聚焦随回前台重新判定
@@ -1338,6 +1340,11 @@ fun App() {
                         )?.let { preclassAutoShownKeys = preclassAutoShownKeys + it.key }
                     }
                 },
+                onOpenGlassLab = {
+                    showMore = false
+                    showDev = false
+                    showGlassLab = true
+                },
                 onRebuildCache = {
                     scope.launch {
                         withContext(Dispatchers.IO) { runCatching { ClassCache.save(ctx) } }
@@ -1472,7 +1479,7 @@ fun App() {
         // 检查照常进行, 待弹条目留在队列里, 用户回到课表界面后自动出现。
         val mainIdle = !showWelcome && !screenChoose && !showMore && !showAbout && !showDev &&
             !showUpdate && !showLogin && !showShare && detailCourse == null && addAt == null &&
-            editBlock == null && delBlock == null && !showPreClass
+            editBlock == null && delBlock == null && !showPreClass && !showGlassLab
         if (mainIdle) dialogQueue.firstOrNull()?.let { item ->
             fun finish() {
                 handledDialogKeys = handledDialogKeys + item.key
@@ -1604,6 +1611,21 @@ fun App() {
                     },
                 )
             }
+        }
+        AnimatedVisibility(
+            visible = showGlassLab,
+            enter = fadeIn(tween(200)),
+            exit = fadeOut(tween(180)),
+        ) {
+            GlassLabScreen(
+                dataset = dataset,
+                cls = cls,
+                colorMap = colorMap,
+                bgFile = bgFile,
+                bgVersion = bgTick,
+                bgAlpha = bgAlpha / 100f,
+                onDismiss = { showGlassLab = false },
+            )
         }
     }
 }
