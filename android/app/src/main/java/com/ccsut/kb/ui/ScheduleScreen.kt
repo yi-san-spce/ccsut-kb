@@ -68,7 +68,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -86,16 +85,19 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -110,6 +112,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -172,20 +175,34 @@ private fun courseDisplayName(kc: String): String {
 
 /** 课程块文字: 块本体与详情预览共用同一份排版, 内边距 6dp 给小字留出呼吸空间 */
 @Composable
-private fun BlockContent(name: String, room: String, onColor: Color, modifier: Modifier = Modifier) {
+private fun BlockContent(
+    name: String,
+    room: String,
+    onColor: Color,
+    modifier: Modifier = Modifier,
+    glassText: Boolean = false,   // 液态玻璃模式: 文字恒白+暗影 (bold & bright 配近透明材质, 任何底图可读)
+) {
+    // Shadow offset/blur 单位是 px: 小字暗影宜轻, 主要靠描边感的柔和暗底兜对比度
+    val shadowStyle = if (glassText) {
+        TextStyle(shadow = Shadow(Color.Black.copy(alpha = 0.55f), Offset(0f, 1f), blurRadius = 5f))
+    } else {
+        TextStyle.Default
+    }
     Column(modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
         Text(
             courseDisplayName(name),
             fontSize = 11.sp, lineHeight = 14.sp,
             fontWeight = FontWeight.Medium,
-            color = onColor,
+            color = if (glassText) Color.White else onColor,
+            style = shadowStyle,
             maxLines = 6, overflow = TextOverflow.Ellipsis,
         )
         if (room.isNotEmpty()) {
             Text(
                 room,
                 fontSize = 10.sp, lineHeight = 13.sp,
-                color = onColor.copy(alpha = 0.85f),
+                color = if (glassText) Color.White.copy(alpha = 0.82f) else onColor.copy(alpha = 0.85f),
+                style = shadowStyle,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
         }
@@ -322,9 +339,15 @@ fun ScheduleScreen(
     val hazeState = remember { HazeState() }
     val haze = if (bgBitmap != null) hazeState else null
     val bgScrimDark = CourseColors.isDark(cs)
-    // 液态玻璃: 课程卡开窗注册表 + 按周提升的网格滚动状态 (原先在 WeekGrid 每页各自 remember)
-    val windowsState = remember { GlassWindowsState() }
+    // 液态玻璃: 按周提升的网格滚动状态 (原先在 WeekGrid 每页各自 remember) + 窗口尺寸 (底图映射用)
     val gridScrolls = remember(dataset.weeks) { List(dataset.weeks) { ScrollState(0) } }
+    var winSizePx by remember { mutableStateOf(IntSize.Zero) }
+    // 模糊底图: 屏幕级只预渲染一次, 向下传给每页的开窗层
+    val glassBackdrop = bgBitmap?.let { bmp ->
+        if (cardGlass) rememberGlassBackdrop(
+            bmp, bgAlpha, cs.background, cs.background, if (bgScrimDark) 0.22f else 0.10f, winSizePx,
+        ) else null
+    }
     // 滚动深度分档: derivedStateOf 只在跨档时通知读者 —— 顶栏样式每档重建一次, 不逐帧打脏标记
     val scrollDepth by remember(gridScrolls, pagerState) {
         derivedStateOf {
@@ -346,7 +369,7 @@ fun ScheduleScreen(
         )
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().onSizeChanged { winSizePx = it }) {
         bgBitmap?.let { bmp ->
             Image(
                 bitmap = bmp.asImageBitmap(),
@@ -360,17 +383,6 @@ fun ScheduleScreen(
                 Modifier
                     .fillMaxSize()
                     .background(cs.background.copy(alpha = if (bgScrimDark) 0.22f else 0.10f)),
-            )
-        }
-        // 液态玻璃开窗层: 预模糊底图按课程卡矩形开窗, 卡片半透明 tint 叠其上「透」出来
-        if (cardGlass && bgBitmap != null) {
-            LiquidGlassWindows(
-                bgBitmap = bgBitmap,
-                bgAlpha = bgAlpha,
-                baseColor = cs.background,
-                scrimColor = cs.background,
-                scrimAlpha = if (bgScrimDark) 0.22f else 0.10f,
-                windows = windowsState,
             )
         }
         // 状态栏 insets 由各顶栏在玻璃内部消化 (玻璃上探覆盖状态栏, 消除裸照片与玻璃板的割裂感)
@@ -592,7 +604,9 @@ fun ScheduleScreen(
                 onAddAt = { d, j -> onAddAt(d, j, page + 1) },
                 ghosts = ghosts,
                 onGhostRestore = onGhostRestore,
-                glassWindows = if (cardGlass && bgBitmap != null) windowsState else null,
+                glassOn = cardGlass && bgBitmap != null,
+                backdrop = glassBackdrop,
+                windowSizePx = winSizePx,
                 vScroll = gridScrolls[page],
             )
         }
@@ -914,7 +928,9 @@ private fun WeekGrid(
     onAddAt: (Int, Int) -> Unit,
     ghosts: List<Ghost> = emptyList(),
     onGhostRestore: (Ghost) -> Unit = {},
-    glassWindows: GlassWindowsState? = null,  // 液态玻璃开窗注册表: null = 玻璃关闭(实色卡片)
+    glassOn: Boolean = false,                 // 课程卡液态玻璃材质开关
+    backdrop: ImageBitmap? = null,            // 预渲染模糊底图: null = 无开窗层
+    windowSizePx: IntSize = IntSize.Zero,     // 底图映射用窗口尺寸
     vScroll: ScrollState = rememberScrollState(),  // 由 ScheduleScreen 按周持有: 顶栏联动读「当前页」
     modifier: Modifier = Modifier,
 ) {
@@ -981,6 +997,33 @@ private fun WeekGrid(
             (yTop.getOrElse(k) { 0.dp }) + ((((jc - 1) % 2) + 1) * (slotH(k) / 2))
         }
 
+        // 课程卡玻璃矩形 (content 坐标, px): 与 DayColumn 卡片定位同源 (yOfJc+2dp / yBottomJc-2dp),
+        // remember 缓存 —— 滚动期间恒定, 开窗层只在 Draw 相位平移, 零回调零状态写入
+        val glassRects = if (backdrop == null) emptyList() else remember(
+            blocksByDay, yTop, model, constraints.maxWidth, baseDensity,
+        ) {
+            with(baseDensity) {
+                val leftW = LEFT_W.toPx()
+                val colW = (constraints.maxWidth - leftW) / 7f
+                val colPad = 1.dp.toPx()
+                val inset = 2.dp.toPx()
+                val gap = 4.dp.toPx()
+                buildList {
+                    for (day in 1..7) {
+                        val x = leftW + (day - 1) * colW + colPad
+                        val w = colW - 2 * colPad
+                        for (b in blocksByDay[day].orEmpty()) {
+                            val top = yOfJc(b.startJc).toPx()
+                            val bottom = yBottomJc(b.startJc + b.span - 1).toPx()
+                            if (bottom - top - gap > 0f) {
+                                add(Rect(x, top + inset, x + w, bottom - inset))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // 当前进行中的大节 (左侧时间轴加粗高亮用); 课间/午休/放学后 = -1 不高亮
         val activeSlot = if (isCurrentWeek)
             model.times.indexOfFirst { (s, e) -> nowMin in s until e } else -1
@@ -1004,7 +1047,8 @@ private fun WeekGrid(
         }
 
         val weekHasCourse = remember(blocksByDay) { blocksByDay.values.any { it.isNotEmpty() } }
-        Box(Modifier.fillMaxSize().verticalScroll(vScroll)) {            Box(Modifier.fillMaxWidth().height(totalH)) {
+        Box(Modifier.fillMaxSize().verticalScroll(vScroll)) {
+            Box(Modifier.fillMaxWidth().height(totalH)) {
                 // 空周表态: 假期/调休周整周无课时给明确文案
                 if (!weekHasCourse) {
                     // 作息极端缺失时 yTop 可能为空表: 兜底取 0dp 保证不崩 (正常数据走不到, 与 yOfJc 同款防御)
@@ -1135,7 +1179,7 @@ private fun WeekGrid(
                                 onCourseClick = onCourseClick,
                                 onAddAt = onAddAt,
                                 blockAlpha = if (hasBg) 0.90f else 1f,
-                                glassWindows = glassWindows,
+                                glassOn = glassOn,
                                 nowMin = nowMin,
                                 week = week,
                                 pagerState = pagerState,
@@ -1224,6 +1268,17 @@ private fun WeekGrid(
                     }
                 }
             }
+            // 玻璃开窗层 (与滚动 Box 同界): 模糊底图按解析矩形开窗, 卡片半透明材质叠其上「透」出来
+            if (backdrop != null) {
+                GlassCardWindowsOverlay(
+                    backdrop = backdrop,
+                    cardRectsPx = glassRects,
+                    scrollState = vScroll,
+                    windowSizePx = windowSizePx,
+                    cornerRadius = 12.dp,
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
         }
     }
     }
@@ -1283,7 +1338,7 @@ private fun DayColumn(
     onCourseClick: (Block) -> Unit,
     onAddAt: (Int, Int) -> Unit,
     blockAlpha: Float = 1f,   // 有自定义背景时 0.90 微透, 色块透出更多壁纸呼吸感
-    glassWindows: GlassWindowsState? = null,  // 液态玻璃开窗注册表: null = 实色卡片
+    glassOn: Boolean = false,  // 液态玻璃材质开关 (开窗层由 WeekGrid 页级负责)
     nowMin: Int = -1,         // 当前分钟: 上课中卡片扫光判定 (-1 = 不判定)
     week: Int = 1,            // 本列所属周: 落场判定与 settledPage 比较
     pagerState: PagerState,   // 落场判定在协程内读 settledPage, 不在组合期订阅
@@ -1405,8 +1460,7 @@ private fun DayColumn(
             val top = yOfJc(b.startJc)
             val h = yBottomJc(b.startJc + b.span - 1) - top - 4.dp
             val shape = RoundedCornerShape(12.dp)
-            val glass = glassWindows != null
-            val cardKey = "$week:$day:${b.startJc}"
+            val glass = glassOn
             // 上课中(仅今天列): 时刻落在块覆盖的任一大节内 → 状态条同款扫光
             val isCurrent = isToday && nowMin >= 0 && run {
                 val k0 = (b.startJc - 1) / 2
@@ -1423,40 +1477,31 @@ private fun DayColumn(
                 animationSpec = spring(dampingRatio = 0.8f, stiffness = 380f),
                 label = "cardPress",
             )
-            val tintA = if (dark) LiquidGlassSpec.TINT_ALPHA_DARK else LiquidGlassSpec.TINT_ALPHA_LIGHT
             val cardBg = if (glass) {
                 Modifier
                     .shadow(
                         if (pressed) (if (dark) 7.dp else 9.dp) else if (dark) 3.dp else 4.dp,
                         shape,
                     )
-                    // 同色柔光: 向四周晕开的课程色环境光 —— 区分度的「光影」部分
-                    .drawBehind {
-                        val r = 12.dp.toPx()
-                        drawRoundRect(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    container.copy(
-                                        alpha = if (dark) LiquidGlassSpec.GLOW_ALPHA_DARK
-                                        else LiquidGlassSpec.GLOW_ALPHA_LIGHT,
-                                    ),
-                                    Color.Transparent,
-                                ),
-                                center = Offset(size.width / 2f, size.height / 2f),
-                                radius = maxOf(size.width, size.height) * 0.85f,
-                            ),
-                            topLeft = Offset(-r, -r),
-                            size = Size(size.width + 2 * r, size.height + 2 * r),
-                            cornerRadius = CornerRadius(12.dp.toPx() + r),
-                        )
-                    }
-                    // 有色玻璃: 半透明课程色 tint, 透出开窗层画好的模糊底图
+                    // 中性玻璃体: 极低 frost (白/黑), 玻璃感主体 —— 透出开窗层的模糊底图
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                container.copy(alpha = tintA + 0.06f),
-                                container.copy(alpha = tintA - 0.05f),
+                                (if (dark) Color.Black else Color.White).copy(
+                                    alpha = (if (dark) LiquidGlassSpec.FROST_ALPHA_DARK else LiquidGlassSpec.FROST_ALPHA_LIGHT) +
+                                        LiquidGlassSpec.FROST_TOP_BOOST,
+                                ),
+                                (if (dark) Color.Black else Color.White).copy(
+                                    alpha = if (dark) LiquidGlassSpec.FROST_ALPHA_DARK else LiquidGlassSpec.FROST_ALPHA_LIGHT,
+                                ),
                             ),
+                        ),
+                        shape,
+                    )
+                    // 课程色洗: 「稍微有点颜色」的浓度
+                    .background(
+                        container.copy(
+                            alpha = if (dark) LiquidGlassSpec.WASH_ALPHA_DARK else LiquidGlassSpec.WASH_ALPHA_LIGHT,
                         ),
                         shape,
                     )
@@ -1479,7 +1524,6 @@ private fun DayColumn(
                     .fillMaxWidth()
                     .offset { IntOffset(0, (top + 2.dp).roundToPx()) }
                     .height(h)
-                    .glassWindow(glassWindows, cardKey)
                     .graphicsLayer {
                         val s = 1f - (1f - LiquidGlassSpec.PRESS_SCALE) * pressAnim
                         scaleX = s
@@ -1500,13 +1544,13 @@ private fun DayColumn(
                     // 玻璃边缘: 顶白高光 → 底部课程色辉光(同色 rim light), 区分度再+一道
                     .glassEdge(shape, dark, width = if (glass) 1.dp else 0.8.dp, rim = container),
             ) {
-                // 顶面镜面高光: 光源在上的第一笔; 按压时增强 = 由内点亮
+                // 顶面镜面高光: 光源在上的第一笔; 按压时增强并由白转课程色 = 由内点亮
                 if (glass) {
                     Box(
                         Modifier.matchParentSize().background(
                             Brush.verticalGradient(
                                 listOf(
-                                    Color.White.copy(
+                                    lerp(Color.White, container, pressAnim * 0.8f).copy(
                                         alpha = (if (dark) LiquidGlassSpec.SPECULAR_DARK else LiquidGlassSpec.SPECULAR_LIGHT) *
                                             (1f + 0.9f * pressAnim),
                                     ),
@@ -1516,10 +1560,22 @@ private fun DayColumn(
                             shape,
                         ),
                     )
+                    // 左缘课程色竖条: 最可靠的课程区分标识
+                    Box(
+                        Modifier
+                            .align(Alignment.CenterStart)
+                            .padding(start = 3.dp, top = 6.dp, bottom = 6.dp)
+                            .width(3.dp)
+                            .fillMaxHeight()
+                            .background(
+                                container.copy(alpha = LiquidGlassSpec.ACCENT_BAR_ALPHA),
+                                RoundedCornerShape(2.dp),
+                            ),
+                    )
                 }
                 // 上课中: 状态条同款微光扫过 (自然至多一两块, 动画成本可忽略)
                 if (isCurrent) ShimmerBand(dark, Modifier.matchParentSize())
-                BlockContent(b.course.kc, b.course.room, onContainer)
+                BlockContent(b.course.kc, b.course.room, onContainer, glassText = glass)
                 // 用户改过/自建的课: 右上角小圆点标识
                 if (b.course.editId != null) {
                     Box(
@@ -1531,7 +1587,6 @@ private fun DayColumn(
                     )
                 }
             }
-            DisposableEffect(cardKey) { onDispose { glassWindows?.remove(cardKey) } }
         }
         }
     }
