@@ -191,6 +191,7 @@ fun App() {
     var bgAlpha by remember { mutableIntStateOf(Prefs.bgAlpha(ctx)) }
     var todayBarTransparency by remember { mutableIntStateOf(Prefs.todayBarTransparency(ctx)) }
     var topbarTransparency by remember { mutableIntStateOf(Prefs.topbarTransparency(ctx)) }
+    var cardGlass by remember { mutableStateOf(Prefs.cardGlass(ctx)) }
     var widgetGlass by remember { mutableIntStateOf(Prefs.widgetGlass(ctx)) }
     var colorSource by remember { mutableIntStateOf(Prefs.colorSource(ctx)) }
     var bgSeed by remember { mutableIntStateOf(Prefs.bgSeed(ctx)) }
@@ -761,6 +762,7 @@ fun App() {
                         onGhostRestore = { restoreGhost(it) },
                         todayBarTransparency = todayBarTransparency,
                         topbarTransparency = topbarTransparency,
+                        cardGlass = cardGlass,
                         preclassWindowMin = preclassWindow,
                         onOpenPreClass = { showPreClass = true },
                     )
@@ -970,6 +972,11 @@ fun App() {
                 onTopbarTransparency = {
                     Prefs.setTopbarTransparency(ctx, it)
                     topbarTransparency = it
+                },
+                cardGlass = cardGlass,
+                onCardGlass = {
+                    Prefs.setCardGlass(ctx, it)
+                    cardGlass = it
                 },
                 widgetGlass = widgetGlass,
                 onWidgetGlass = {

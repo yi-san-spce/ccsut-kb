@@ -193,6 +193,13 @@ object Prefs {
         sp(ctx).edit().putInt("widget_glass", v.coerceIn(0, 100)).apply()
     }
 
+    /** 课程卡液态玻璃 (透明开窗 + 状态栏同款边缘语言 + 左缘竖线区分): 真机不满意的保险丝 */
+    fun cardGlass(ctx: Context): Boolean = sp(ctx).getBoolean("card_glass", true)
+
+    fun setCardGlass(ctx: Context, v: Boolean) {
+        sp(ctx).edit().putBoolean("card_glass", v).apply()
+    }
+
     /** 玻璃材质实验室参数 JSON (开发者调参持久化, 非发布功能) */
     fun glassLabJson(ctx: Context): String? = sp(ctx).getString("glass_lab_params", null)
 

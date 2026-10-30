@@ -12,6 +12,7 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,6 +32,8 @@ fun CustomAppearanceSheet(
     onTodayBarTransparency: (Int) -> Unit,
     topbarTransparency: Int,
     onTopbarTransparency: (Int) -> Unit,
+    cardGlass: Boolean,
+    onCardGlass: (Boolean) -> Unit,
     widgetGlass: Int,
     onWidgetGlass: (Int) -> Unit,
     onWidgetGlassCommit: () -> Unit,
@@ -93,6 +96,22 @@ fun CustomAppearanceSheet(
                         value = topbarTransparency / 100f,
                         onValueChange = { onTopbarTransparency((it * 100).toInt().coerceIn(0, 100)) },
                     )
+                }
+                SettingRow(
+                    icon = Icons.Rounded.Tune,
+                    title = "课程卡液态玻璃",
+                    subtitle = "透明玻璃透出壁纸 + 状态栏同款边缘 + 左缘竖线区分; 需设置背景图",
+                )
+                Column(Modifier.padding(start = 62.dp, end = 14.dp, bottom = 12.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "玻璃卡片",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Switch(checked = cardGlass, onCheckedChange = onCardGlass)
+                    }
                 }
             }
             Spacer(Modifier.padding(bottom = 12.dp))
