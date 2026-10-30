@@ -193,6 +193,13 @@ object Prefs {
         sp(ctx).edit().putInt("widget_glass", v.coerceIn(0, 100)).apply()
     }
 
+    /** 课程卡液态玻璃 (背景图上开窗磨砂 + 同色光影): 真机不满意的保险丝 */
+    fun cardGlass(ctx: Context): Boolean = sp(ctx).getBoolean("card_glass", true)
+
+    fun setCardGlass(ctx: Context, v: Boolean) {
+        sp(ctx).edit().putBoolean("card_glass", v).apply()
+    }
+
     /** 旧不透明度 → 新透明度的翻转: 100(不透明)→0, 10→90; 未存过(null, 旧默认=不透明)→0 */
     fun migrateLegacyTodayBarAlpha(legacy: Int?): Int =
         legacy?.let { (100 - it).coerceIn(0, 100) } ?: 0
